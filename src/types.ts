@@ -85,7 +85,8 @@ export type ErrorCode =
   | 'UNSUPPORTED_FORMAT' 
   | 'DECODE_ERROR'
   | 'NETWORK_ERROR'
-  | 'FFT_PROVIDER_ERROR';
+  | 'FFT_PROVIDER_ERROR'
+  | 'PROCESSING_ERROR';
 
 /**
  * audio-inspect固有のエラー

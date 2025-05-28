@@ -12,13 +12,13 @@ export async function load(source: AudioSource, options: LoadOptions = {}): Prom
 
     // Web Audio APIのコンテキストを取得または作成
     const audioContext = getAudioContext();
-    
+
     // ソースの種類に応じて処理を分岐
     const audioBuffer = await decodeAudioSource(source, audioContext);
-    
+
     // AudioBufferからAudioDataに変換
     const audioData = audioBufferToAudioData(audioBuffer);
-    
+
     // オプションに基づいて後処理
     return processAudioData(audioData, options);
   } catch (error) {
@@ -60,7 +60,10 @@ function getAudioContext(): AudioContext {
 /**
  * ソースの種類に応じてAudioBufferにデコード
  */
-async function decodeAudioSource(source: AudioSource, audioContext: AudioContext): Promise<AudioBuffer> {
+async function decodeAudioSource(
+  source: AudioSource,
+  audioContext: AudioContext
+): Promise<AudioBuffer> {
   if (source instanceof AudioBuffer) {
     return source;
   }
@@ -77,18 +80,24 @@ async function decodeAudioSource(source: AudioSource, audioContext: AudioContext
   if (typeof source === 'string' || source instanceof URL) {
     const url = source instanceof URL ? source.href : source;
     const response = await fetch(url);
-    
+
     if (!response.ok) {
-      throw new AudioInspectError('NETWORK_ERROR', `音声ファイルの取得に失敗しました: ${response.status}`);
+      throw new AudioInspectError(
+        'NETWORK_ERROR',
+        `音声ファイルの取得に失敗しました: ${response.status}`
+      );
     }
-    
+
     const arrayBuffer = await response.arrayBuffer();
     return await audioContext.decodeAudioData(arrayBuffer);
   }
 
   if (source instanceof MediaStream) {
     // MediaStreamの処理は複雑なので、将来的に実装
-    throw new AudioInspectError('UNSUPPORTED_FORMAT', 'MediaStreamの処理は現在サポートされていません');
+    throw new AudioInspectError(
+      'UNSUPPORTED_FORMAT',
+      'MediaStreamの処理は現在サポートされていません'
+    );
   }
 
   throw new AudioInspectError('INVALID_INPUT', 'サポートされていない音声ソースです');
@@ -99,7 +108,7 @@ async function decodeAudioSource(source: AudioSource, audioContext: AudioContext
  */
 function audioBufferToAudioData(buffer: AudioBuffer): AudioData {
   const channelData: Float32Array[] = [];
-  
+
   for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
     channelData.push(buffer.getChannelData(channel));
   }
@@ -147,7 +156,7 @@ function convertToMono(audioData: AudioData): AudioData {
   }
 
   const monoData = new Float32Array(audioData.length);
-  
+
   // 全チャンネルの平均を取る
   for (let i = 0; i < audioData.length; i++) {
     let sum = 0;
@@ -183,7 +192,7 @@ function normalize(audioData: AudioData): AudioData {
   }
 
   // 正規化
-  const normalizedChannels = audioData.channelData.map(channelData => {
+  const normalizedChannels = audioData.channelData.map((channelData) => {
     const normalized = new Float32Array(channelData.length);
     for (let i = 0; i < channelData.length; i++) {
       normalized[i] = channelData[i]! / maxAmplitude;
@@ -195,4 +204,4 @@ function normalize(audioData: AudioData): AudioData {
     ...audioData,
     channelData: normalizedChannels
   };
-} 
+}

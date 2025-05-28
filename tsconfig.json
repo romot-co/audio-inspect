@@ -9,7 +9,6 @@
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
     "outDir": "./dist",
-    "rootDir": "./src",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
@@ -22,6 +21,6 @@
     "useDefineForClassFields": true,
     "types": ["vitest/globals", "node"]
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "test/**/*"]
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist"]
 } 

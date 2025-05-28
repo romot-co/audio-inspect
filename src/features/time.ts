@@ -51,29 +51,27 @@ export function getPeaks(audio: AudioData, options: PeaksOptions = {}): PeaksRes
 
   // 解析対象のチャンネルデータを取得
   const channelData = getChannelData(audio, channel);
-  
+
   // ピーク候補を検出
   const peakCandidates = findPeakCandidates(channelData, threshold, minDistance);
-  
+
   // 振幅でソートして上位を選択
-  const sortedPeaks = peakCandidates
-    .sort((a, b) => b.amplitude - a.amplitude)
-    .slice(0, count);
-  
+  const sortedPeaks = peakCandidates.sort((a, b) => b.amplitude - a.amplitude).slice(0, count);
+
   // 時間順にソート
   sortedPeaks.sort((a, b) => a.position - b.position);
-  
+
   // 統計情報を計算
-  const maxAmplitude = peakCandidates.length > 0 
-    ? Math.max(...peakCandidates.map(p => p.amplitude))
-    : 0;
-    
-  const averageAmplitude = peakCandidates.length > 0
-    ? peakCandidates.reduce((sum, p) => sum + p.amplitude, 0) / peakCandidates.length
-    : 0;
-  
+  const maxAmplitude =
+    peakCandidates.length > 0 ? Math.max(...peakCandidates.map((p) => p.amplitude)) : 0;
+
+  const averageAmplitude =
+    peakCandidates.length > 0
+      ? peakCandidates.reduce((sum, p) => sum + p.amplitude, 0) / peakCandidates.length
+      : 0;
+
   return {
-    peaks: sortedPeaks.map(candidate => ({
+    peaks: sortedPeaks.map((candidate) => ({
       position: candidate.position,
       time: candidate.position / audio.sampleRate,
       amplitude: candidate.amplitude
@@ -121,19 +119,19 @@ function getChannelData(audio: AudioData, channel: number): Float32Array {
 function findPeakCandidates(data: Float32Array, threshold: number, minDistance: number): Peak[] {
   const peaks: Peak[] = [];
   const length = data.length;
-  
+
   for (let i = 1; i < length - 1; i++) {
     // 境界チェック済みなので安全にアクセス
     const current = Math.abs(data[i] as number);
     const prev = Math.abs(data[i - 1] as number);
     const next = Math.abs(data[i + 1] as number);
-    
+
     // ローカルマキシマかつ閾値を超えているかチェック
     if (current > prev && current > next && current > threshold) {
       // 既存のピークとの最小距離をチェック
       let shouldAdd = true;
       let replaceIndex = -1;
-      
+
       for (let j = 0; j < peaks.length; j++) {
         const peak = peaks[j] as Peak; // 配列内の要素なので存在保証
         const distance = Math.abs(peak.position - i);
@@ -147,7 +145,7 @@ function findPeakCandidates(data: Float32Array, threshold: number, minDistance: 
           break;
         }
       }
-      
+
       if (replaceIndex >= 0) {
         // 既存ピークを置き換え
         peaks[replaceIndex] = {
@@ -165,7 +163,7 @@ function findPeakCandidates(data: Float32Array, threshold: number, minDistance: 
       }
     }
   }
-  
+
   return peaks;
 }
 
@@ -174,13 +172,13 @@ function findPeakCandidates(data: Float32Array, threshold: number, minDistance: 
  */
 export function getRMS(audio: AudioData, channel = 0): number {
   const channelData = getChannelData(audio, channel);
-  
+
   let sum = 0;
   for (let i = 0; i < channelData.length; i++) {
     const sample = channelData[i] as number;
     sum += sample * sample;
   }
-  
+
   return Math.sqrt(sum / channelData.length);
 }
 
@@ -189,18 +187,18 @@ export function getRMS(audio: AudioData, channel = 0): number {
  */
 export function getZeroCrossing(audio: AudioData, channel = 0): number {
   const channelData = getChannelData(audio, channel);
-  
+
   let crossings = 0;
   for (let i = 1; i < channelData.length; i++) {
     const prev = channelData[i - 1] as number;
     const current = channelData[i] as number;
-    
+
     // 符号が変わった場合はゼロクロッシング
     if ((prev >= 0 && current < 0) || (prev < 0 && current >= 0)) {
       crossings++;
     }
   }
-  
+
   return crossings / (channelData.length - 1);
 }
 
@@ -244,25 +242,21 @@ export interface WaveformResult {
 
 /**
  * 時間軸に沿った波形データを取得
- * 
+ *
  * @param audio - 音声データ
  * @param options - 波形データ取得オプション
  * @returns 波形データ
  */
 export function getWaveform(audio: AudioData, options: WaveformOptions = {}): WaveformResult {
-  const {
-    framesPerSecond = 60,
-    channel = 0,
-    method = 'rms'
-  } = options;
+  const { framesPerSecond = 60, channel = 0, method = 'rms' } = options;
 
   // チャンネルデータを取得
   const channelData = getChannelData(audio, channel);
-  
+
   // フレーム計算
   const frameCount = Math.ceil(audio.duration * framesPerSecond);
   const samplesPerFrame = Math.floor(audio.length / frameCount);
-  
+
   const waveform: WaveformPoint[] = [];
   let maxAmplitude = 0;
   let totalAmplitude = 0;
@@ -270,10 +264,10 @@ export function getWaveform(audio: AudioData, options: WaveformOptions = {}): Wa
   for (let i = 0; i < frameCount; i++) {
     const startSample = i * samplesPerFrame;
     const endSample = Math.min(startSample + samplesPerFrame, channelData.length);
-    
+
     // フレーム内のデータを抽出
     const frameData = channelData.slice(startSample, endSample);
-    
+
     // 指定された方法で振幅を計算
     let amplitude: number;
     switch (method) {
@@ -288,9 +282,9 @@ export function getWaveform(audio: AudioData, options: WaveformOptions = {}): Wa
         amplitude = calculateRMSAmplitude(frameData);
         break;
     }
-    
+
     const time = (startSample + (endSample - startSample) / 2) / audio.sampleRate;
-    
+
     waveform.push({ time, amplitude });
     maxAmplitude = Math.max(maxAmplitude, amplitude);
     totalAmplitude += amplitude;
@@ -340,4 +334,4 @@ function calculateAverageAmplitude(frameData: Float32Array): number {
     sum += Math.abs(frameData[i] as number);
   }
   return frameData.length > 0 ? sum / frameData.length : 0;
-} 
+}

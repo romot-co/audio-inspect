@@ -1,5 +1,5 @@
 import { AudioData, AudioInspectError } from '../types.js';
-import { FFTProviderFactory, FFTProviderType, IFFTProvider, FFTResult } from '../core/fft-provider.js';
+import { FFTProviderFactory, type FFTProviderType, type FFTResult } from '../core/fft-provider.js';
 
 /**
  * FFT分析のオプション
@@ -81,29 +81,32 @@ export interface SpectrumAnalysisResult {
 function applyWindow(data: Float32Array, windowType: string): Float32Array {
   const windowed = new Float32Array(data.length);
   const N = data.length;
-  
+
   for (let i = 0; i < N; i++) {
     let windowValue = 1;
-    
+
     switch (windowType) {
       case 'hann':
-        windowValue = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
+        windowValue = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (N - 1)));
         break;
       case 'hamming':
-        windowValue = 0.54 - 0.46 * Math.cos(2 * Math.PI * i / (N - 1));
+        windowValue = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (N - 1));
         break;
       case 'blackman':
-        windowValue = 0.42 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)) + 0.08 * Math.cos(4 * Math.PI * i / (N - 1));
+        windowValue =
+          0.42 -
+          0.5 * Math.cos((2 * Math.PI * i) / (N - 1)) +
+          0.08 * Math.cos((4 * Math.PI * i) / (N - 1));
         break;
       case 'none':
       default:
         windowValue = 1;
         break;
     }
-    
+
     windowed[i] = (data[i] || 0) * windowValue;
   }
-  
+
   return windowed;
 }
 
@@ -141,12 +144,15 @@ function getChannelData(audio: AudioData, channel: number): Float32Array {
 
 /**
  * FFT分析を行う
- * 
+ *
  * @param audio - 音声データ
  * @param options - FFTオプション
  * @returns FFT結果
  */
-export async function getFFT(audio: AudioData, options: FFTOptions = {}): Promise<FFTAnalysisResult> {
+export async function getFFT(
+  audio: AudioData,
+  options: FFTOptions = {}
+): Promise<FFTAnalysisResult> {
   const {
     fftSize = 2048,
     windowFunction = 'hann',
@@ -154,10 +160,10 @@ export async function getFFT(audio: AudioData, options: FFTOptions = {}): Promis
     provider = 'webfft',
     enableProfiling = false
   } = options;
-  
+
   // チャンネルデータを取得
   const channelData = getChannelData(audio, channel);
-  
+
   // FFTサイズが入力より大きい場合、ゼロパディング
   let inputData: Float32Array;
   if (channelData.length < fftSize) {
@@ -166,10 +172,10 @@ export async function getFFT(audio: AudioData, options: FFTOptions = {}): Promis
   } else {
     inputData = channelData.slice(0, fftSize);
   }
-  
+
   // ウィンドウ関数を適用
   const windowedData = applyWindow(inputData, windowFunction);
-  
+
   // FFTプロバイダーを作成
   const fftProvider = await FFTProviderFactory.createProvider({
     type: provider,
@@ -177,11 +183,11 @@ export async function getFFT(audio: AudioData, options: FFTOptions = {}): Promis
     sampleRate: audio.sampleRate,
     enableProfiling
   });
-  
+
   try {
     // FFTを実行
     const result = fftProvider.fft(windowedData);
-    
+
     return {
       ...result,
       fftSize,
@@ -196,12 +202,15 @@ export async function getFFT(audio: AudioData, options: FFTOptions = {}): Promis
 
 /**
  * スペクトラム解析を行う
- * 
+ *
  * @param audio - 音声データ
  * @param options - スペクトラムオプション
  * @returns スペクトラム解析結果
  */
-export async function getSpectrum(audio: AudioData, options: SpectrumOptions = {}): Promise<SpectrumAnalysisResult> {
+export async function getSpectrum(
+  audio: AudioData,
+  options: SpectrumOptions = {}
+): Promise<SpectrumAnalysisResult> {
   const {
     fftSize = 2048,
     minFrequency = 0,
@@ -211,37 +220,37 @@ export async function getSpectrum(audio: AudioData, options: SpectrumOptions = {
     overlap = 0.5,
     ...fftOptions
   } = options;
-  
+
   const channelData = getChannelData(audio, options.channel || 0);
-  
+
   if (timeFrames === 1) {
     // 単一フレームのスペクトラム解析
     const fftResult = await getFFT(audio, { ...fftOptions, fftSize });
-    
+
     // 周波数範囲をフィルタリング
     const filteredResult = filterFrequencyRange(fftResult, minFrequency, maxFrequency);
-    
+
     const result: SpectrumAnalysisResult = {
       frequencies: filteredResult.frequencies,
       magnitudes: filteredResult.magnitude
     };
-    
+
     if (decibels) {
       result.decibels = magnitudeToDecibels(filteredResult.magnitude);
     }
-    
+
     return result;
   } else {
     // スペクトログラム解析
     const spectrogram = await computeSpectrogram(
-      channelData, 
+      channelData,
       audio.sampleRate,
       fftSize,
       timeFrames,
       overlap,
       { ...fftOptions, minFrequency, maxFrequency, decibels }
     );
-    
+
     return {
       frequencies: spectrogram.frequencies,
       magnitudes: new Float32Array(), // スペクトログラムでは個別のmagnitudesは空
@@ -255,11 +264,11 @@ export async function getSpectrum(audio: AudioData, options: SpectrumOptions = {
  */
 function filterFrequencyRange(fftResult: FFTResult, minFreq: number, maxFreq: number): FFTResult {
   const { frequencies, magnitude, phase, complex } = fftResult;
-  
-  const startIndex = frequencies.findIndex(f => f >= minFreq);
-  const endIndex = frequencies.findIndex(f => f > maxFreq);
+
+  const startIndex = frequencies.findIndex((f) => f >= minFreq);
+  const endIndex = frequencies.findIndex((f) => f > maxFreq);
   const actualEndIndex = endIndex === -1 ? frequencies.length : endIndex;
-  
+
   return {
     frequencies: frequencies.slice(startIndex, actualEndIndex),
     magnitude: magnitude.slice(startIndex, actualEndIndex),
@@ -293,11 +302,11 @@ async function computeSpectrogram(
 ): Promise<SpectrogramData> {
   const hopSize = Math.floor(fftSize * (1 - overlap));
   const actualFrames = Math.min(timeFrames, Math.floor((data.length - fftSize) / hopSize) + 1);
-  
+
   const times = new Float32Array(actualFrames);
   const intensities: Float32Array[] = [];
   let frequencies: Float32Array = new Float32Array();
-  
+
   // FFTプロバイダーを作成（一度だけ）
   const fftProvider = await FFTProviderFactory.createProvider({
     type: options.provider || 'webfft',
@@ -305,41 +314,40 @@ async function computeSpectrogram(
     sampleRate,
     enableProfiling: options.enableProfiling || false
   });
-  
+
   try {
     for (let frame = 0; frame < actualFrames; frame++) {
       const startSample = frame * hopSize;
-      const endSample = Math.min(startSample + fftSize, data.length);
-      
+
       // フレームデータを抽出
       const frameData = new Float32Array(fftSize);
-      for (let i = 0; i < fftSize && (startSample + i) < data.length; i++) {
+      for (let i = 0; i < fftSize && startSample + i < data.length; i++) {
         frameData[i] = data[startSample + i] || 0;
       }
-      
+
       // ウィンドウ関数を適用
       const windowedData = applyWindow(frameData, options.windowFunction || 'hann');
-      
+
       // FFTを実行
       const fftResult = fftProvider.fft(windowedData);
-      
+
       // 最初のフレームで周波数軸を設定
       if (frame === 0) {
         frequencies = fftResult.frequencies;
       }
-      
+
       // 強度データを保存
       const magnitude = fftResult.magnitude;
       const frameIntensity = options.decibels ? magnitudeToDecibels(magnitude) : magnitude;
       intensities.push(frameIntensity);
-      
+
       // 時間位置を計算
       times[frame] = (startSample + fftSize / 2) / sampleRate;
     }
   } finally {
     fftProvider.dispose();
   }
-  
+
   return {
     times,
     frequencies,
@@ -347,4 +355,4 @@ async function computeSpectrogram(
     timeFrames: actualFrames,
     frequencyBins: frequencies.length
   };
-} 
+}

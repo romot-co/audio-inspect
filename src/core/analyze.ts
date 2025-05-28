@@ -7,15 +7,23 @@ export async function analyze<T>(audio: AudioData, feature: Feature<T>): Promise
   try {
     // 入力検証
     validateAudioData(audio);
-    
+
     // 特徴抽出関数を実行
     const result = await feature(audio);
-    
+
     return result;
   } catch (error) {
+    // すでにAudioInspectErrorの場合はそのまま再投げ
+    if (error instanceof AudioInspectError) {
+      throw error;
+    }
+
+    // その他のエラーをラップ
+    const message = error instanceof Error ? error.message : 'Unknown error';
     throw new AudioInspectError(
-      'FFT_PROVIDER_ERROR',
-      `特徴量の抽出に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+      'PROCESSING_ERROR',
+      `特徴量の抽出に失敗しました: ${message}`,
+      error
     );
   }
 }
@@ -36,7 +44,10 @@ function validateAudioData(audio: AudioData): void {
     throw new AudioInspectError('INVALID_INPUT', 'チャンネルデータが無効です');
   }
 
-  if (typeof audio.numberOfChannels !== 'number' || audio.numberOfChannels !== audio.channelData.length) {
+  if (
+    typeof audio.numberOfChannels !== 'number' ||
+    audio.numberOfChannels !== audio.channelData.length
+  ) {
     throw new AudioInspectError('INVALID_INPUT', 'チャンネル数が一致しません');
   }
 
@@ -53,10 +64,13 @@ function validateAudioData(audio: AudioData): void {
   for (let i = 0; i < audio.channelData.length; i++) {
     const channelData = audio.channelData[i];
     if (!(channelData instanceof Float32Array)) {
-      throw new AudioInspectError('INVALID_INPUT', `チャンネル ${i} のデータが Float32Array ではありません`);
+      throw new AudioInspectError(
+        'INVALID_INPUT',
+        `チャンネル ${i} のデータが Float32Array ではありません`
+      );
     }
     if (channelData.length !== expectedLength) {
       throw new AudioInspectError('INVALID_INPUT', `チャンネル ${i} のデータ長が一致しません`);
     }
   }
-} 
+}
