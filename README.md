@@ -1,11 +1,36 @@
 # audio-inspect
 
-軽量かつ高機能なオーディオ解析ライブラリ（v0.1.0）
+軽量かつ高機能なオーディオ解析ライブラリ（v0.1.1）
 
 ## インストール
 
+### GitHubから直接インストール（推奨）
+
 ```bash
-npm install audio-inspect
+npm install github:romot-co/audio-inspect
+```
+
+### 要件
+
+- Node.js 18以上
+- ブラウザ環境（Web Audio API使用）
+- ES Modules またはCommonJS対応
+
+### TypeScript対応
+
+このライブラリはTypeScriptで開発され、型定義ファイル（`.d.ts`）が含まれています。
+TypeScript、JavaScript、どちらからでも利用可能です：
+
+```typescript
+// TypeScript/ES Modules
+import { load, analyze, getPeaks } from 'audio-inspect';
+
+// CommonJS (Node.js)
+const { load, analyze, getPeaks } = require('audio-inspect');
+
+// 個別インポート（tree-shaking対応）
+import { getPeaks } from 'audio-inspect/features/time';
+import { getFFT } from 'audio-inspect/features/frequency';
 ```
 
 ## 基本的な使い方
@@ -38,7 +63,7 @@ console.log(waveform.waveform); // 時間軸波形データ
 ### 周波数領域解析
 
 ```typescript
-import { getFFT, getSpectrum } from 'audio-inspect';
+import { getFFT, getSpectrum } from 'audio-inspect/features/frequency';
 
 // FFT解析（WebFFTを使用）
 const fft = await getFFT(audio, {
@@ -68,7 +93,7 @@ console.log(spectrogram.spectrogram); // 時間 vs 周波数の強度分布
 ### FFTプロバイダーの切り替え
 
 ```typescript
-import { FFTProviderFactory } from 'audio-inspect';
+import { FFTProviderFactory } from 'audio-inspect/core/fft-provider';
 
 // 利用可能なプロバイダーを確認
 const providers = FFTProviderFactory.getAvailableProviders();
@@ -87,9 +112,24 @@ const fftProfiled = await getFFT(audio, {
 });
 ```
 
+## Tree-shaking対応
+
+必要な機能のみをインポートして、バンドルサイズを最適化できます：
+
+```typescript
+// 時間領域解析のみ使用
+import { getPeaks, getWaveform } from 'audio-inspect/features/time';
+
+// 周波数領域解析のみ使用
+import { getFFT, getSpectrum } from 'audio-inspect/features/frequency';
+
+// FFTプロバイダーのみ使用
+import { FFTProviderFactory } from 'audio-inspect/core/fft-provider';
+```
+
 ## 実装状況
 
-### ✅ 実装済み (v0.1.0)
+### ✅ 実装済み (v0.1.1)
 - `load` - 音声ファイルの読み込み（ブラウザ環境）
 - `analyze` - 特徴量抽出の基本機能
 - **時間領域解析**:

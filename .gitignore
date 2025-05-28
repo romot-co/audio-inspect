@@ -81,7 +81,7 @@ out
 
 # Nuxt.js build output
 .nuxt
-dist
+# dist - tsupでビルドするためコメントアウト
 
 # Nuxt.js static build output
 .output
