@@ -188,6 +188,10 @@ export function getRMS(audio: AudioData, channel = 0): number {
 export function getZeroCrossing(audio: AudioData, channel = 0): number {
   const channelData = getChannelData(audio, channel);
 
+  if (channelData.length < 2) {
+    return 0;
+  }
+
   let crossings = 0;
   for (let i = 1; i < channelData.length; i++) {
     const prev = channelData[i - 1] as number;
