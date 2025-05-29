@@ -389,6 +389,15 @@ describe('getZeroCrossing', () => {
     // 2 zero crossings in 4 transitions
     expect(zcr).toBe(2 / 4);
   });
+
+  it('should return 0 for audio shorter than 2 samples', () => {
+    const data = new Float32Array([1]);
+    const audio = createTestAudioData(data);
+
+    const zcr = getZeroCrossing(audio);
+
+    expect(zcr).toBe(0);
+  });
 });
 
 describe('getWaveform', () => {
