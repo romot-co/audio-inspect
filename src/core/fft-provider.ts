@@ -75,7 +75,7 @@ class WebFFTProvider implements IFFTProvider {
     public readonly sampleRate: number,
     private enableProfiling: boolean = false
   ) {
-    this.initializeWebFFT();
+    // 初期化はファクトリーで行う
   }
 
   get name(): string {
@@ -244,7 +244,7 @@ export class FFTProviderFactory {
           config.enableProfiling
         );
         // 初期化を待つ
-        await provider['initializeWebFFT']();
+        await (provider as any).initializeWebFFT();
         return provider;
 
       case 'native':
