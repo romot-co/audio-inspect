@@ -7,7 +7,11 @@ export type {
   StreamController,
   StreamOptions,
   WindowFunction,
-  ErrorCode
+  ErrorCode,
+  AmplitudeOptions,
+  CommonAnalysisOptions,
+  TimeWindowOptions,
+  FrequencyRangeOptions
 } from './types.js';
 
 // エラー関連
@@ -18,6 +22,15 @@ export { load } from './core/load.js';
 export { analyze } from './core/analyze.js';
 export { stream } from './core/stream.js';
 
+// ユーティリティ
+export { 
+  getChannelData, 
+  isPowerOfTwo, 
+  nextPowerOfTwo, 
+  amplitudeToDecibels, 
+  decibelsToAmplitude 
+} from './core/utils.js';
+
 // FFTプロバイダー
 export { FFTProviderFactory } from './core/fft-provider.js';
 export type { 
@@ -27,16 +40,5 @@ export type {
   FFTResult 
 } from './core/fft-provider.js';
 
-// 時間領域の特徴量
-export { getPeaks, getRMS, getZeroCrossing, getWaveform } from './features/time.js';
-export type { PeaksOptions, Peak, PeaksResult, WaveformOptions, WaveformPoint, WaveformResult } from './features/time.js';
-
-// 周波数領域の特徴量
-export { getFFT, getSpectrum } from './features/frequency.js';
-export type { 
-  FFTOptions, 
-  SpectrumOptions, 
-  FFTAnalysisResult, 
-  SpectrumAnalysisResult,
-  SpectrogramData
-} from './features/frequency.js'; 
+// すべての特徴量機能
+export * from './features/index.js'; 

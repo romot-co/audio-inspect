@@ -75,7 +75,52 @@ export interface StreamOptions {
 /**
  * 窓関数の種類
  */
-export type WindowFunction = 'hanning' | 'hamming' | 'blackman' | 'rectangular';
+export type WindowFunction = 'hann' | 'hamming' | 'blackman' | 'rectangular';
+
+/**
+ * 振幅測定のオプション
+ */
+export interface AmplitudeOptions {
+  channel?: number;
+  asDB?: boolean;
+  reference?: number; // dB計算の基準値（デフォルト: 1.0 = 0 dBFS）
+}
+
+/**
+ * 共通の解析オプション
+ */
+export interface CommonAnalysisOptions {
+  channel?: number;
+}
+
+/**
+ * 時間窓パラメータ
+ */
+export interface TimeWindowOptions {
+  windowSizeMs?: number;
+  hopSizeMs?: number;
+}
+
+/**
+ * 周波数範囲パラメータ
+ */
+export interface FrequencyRangeOptions {
+  minFrequency?: number;
+  maxFrequency?: number;
+}
+
+/**
+ * Nullable型の明示的な定義
+ */
+export type NullableNumber = number | null;
+export type NullableFloat32Array = Float32Array | null;
+
+/**
+ * 結果型（エラー処理用）
+ */
+export type Result<T, E = AudioInspectError> = 
+  | { success: true; value: T }
+  | { success: false; error: E };
 
 /**
  * エラーコード

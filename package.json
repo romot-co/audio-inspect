@@ -27,6 +27,36 @@
       "require": "./dist/features/frequency.cjs",
       "import": "./dist/features/frequency.js"
     },
+    "./features/loudness": {
+      "types": "./dist/features/loudness.d.ts",
+      "require": "./dist/features/loudness.cjs",
+      "import": "./dist/features/loudness.js"
+    },
+    "./features/spectral": {
+      "types": "./dist/features/spectral.d.ts",
+      "require": "./dist/features/spectral.cjs",
+      "import": "./dist/features/spectral.js"
+    },
+    "./features/vad": {
+      "types": "./dist/features/vad.d.ts",
+      "require": "./dist/features/vad.cjs",
+      "import": "./dist/features/vad.js"
+    },
+    "./features/energy": {
+      "types": "./dist/features/energy.d.ts",
+      "require": "./dist/features/energy.cjs",
+      "import": "./dist/features/energy.js"
+    },
+    "./features/dynamics": {
+      "types": "./dist/features/dynamics.d.ts",
+      "require": "./dist/features/dynamics.cjs",
+      "import": "./dist/features/dynamics.js"
+    },
+    "./features/stereo": {
+      "types": "./dist/features/stereo.d.ts",
+      "require": "./dist/features/stereo.cjs",
+      "import": "./dist/features/stereo.js"
+    },
     "./core/fft-provider": {
       "types": "./dist/core/fft-provider.d.ts",
       "require": "./dist/core/fft-provider.cjs",

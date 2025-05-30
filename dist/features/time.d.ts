@@ -13,6 +13,14 @@ interface AudioData {
     /** サンプル数 */
     length: number;
 }
+/**
+ * 振幅測定のオプション
+ */
+interface AmplitudeOptions {
+    channel?: number;
+    asDB?: boolean;
+    reference?: number;
+}
 
 /**
  * ピーク検出のオプション
@@ -56,7 +64,12 @@ declare function getPeaks(audio: AudioData, options?: PeaksOptions): PeaksResult
 /**
  * RMS（Root Mean Square）を計算
  */
-declare function getRMS(audio: AudioData, channel?: number): number;
+declare function getRMS(audio: AudioData, optionsOrChannel?: AmplitudeOptions | number): number;
+/**
+ * ピーク振幅を計算
+ */
+declare function getPeakAmplitude(audio: AudioData, options?: AmplitudeOptions): number;
+
 /**
  * ゼロクロッシング率を計算
  */
@@ -98,11 +111,7 @@ interface WaveformResult {
 }
 /**
  * 時間軸に沿った波形データを取得
- *
- * @param audio - 音声データ
- * @param options - 波形データ取得オプション
- * @returns 波形データ
  */
 declare function getWaveform(audio: AudioData, options?: WaveformOptions): WaveformResult;
 
-export { type Peak, type PeaksOptions, type PeaksResult, type WaveformOptions, type WaveformPoint, type WaveformResult, getPeaks, getRMS, getWaveform, getZeroCrossing };
+export { type Peak, type PeaksOptions, type PeaksResult, type WaveformOptions, type WaveformPoint, type WaveformResult, getPeakAmplitude as getPeak, getPeakAmplitude, getPeaks, getRMS, getWaveform, getZeroCrossing };

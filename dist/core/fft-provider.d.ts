@@ -38,7 +38,7 @@ interface IFFTProvider {
     /**
      * プロファイリングを実行（対応している場合）
      */
-    profile?(): Promise<any>;
+    profile?(): Promise<void>;
 }
 /**
  * FFTプロバイダーの設定

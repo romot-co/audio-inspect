@@ -60,7 +60,11 @@ function validateAudioData(audio: AudioData): void {
   }
 
   // 各チャンネルのデータ長が一致することを確認
-  const expectedLength = audio.channelData[0]!.length;
+  const firstChannelData = audio.channelData[0];
+  if (!firstChannelData) {
+    throw new AudioInspectError('INVALID_INPUT', 'チャンネル0のデータが存在しません');
+  }
+  const expectedLength = firstChannelData.length;
   for (let i = 0; i < audio.channelData.length; i++) {
     const channelData = audio.channelData[i];
     if (!(channelData instanceof Float32Array)) {

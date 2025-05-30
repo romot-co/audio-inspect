@@ -20,35 +20,26 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // src/features/time.ts
 var time_exports = {};
 __export(time_exports, {
+  getPeak: () => getPeakAmplitude,
+  getPeakAmplitude: () => getPeakAmplitude,
   getPeaks: () => getPeaks,
   getRMS: () => getRMS,
   getWaveform: () => getWaveform,
   getZeroCrossing: () => getZeroCrossing
 });
 module.exports = __toCommonJS(time_exports);
-function getPeaks(audio, options = {}) {
-  const {
-    count = 100,
-    threshold = 0.1,
-    channel = 0,
-    minDistance = Math.floor(audio.sampleRate / 100)
-  } = options;
-  const channelData = getChannelData(audio, channel);
-  const peakCandidates = findPeakCandidates(channelData, threshold, minDistance);
-  const sortedPeaks = peakCandidates.sort((a, b) => b.amplitude - a.amplitude).slice(0, count);
-  sortedPeaks.sort((a, b) => a.position - b.position);
-  const maxAmplitude = peakCandidates.length > 0 ? Math.max(...peakCandidates.map((p) => p.amplitude)) : 0;
-  const averageAmplitude = peakCandidates.length > 0 ? peakCandidates.reduce((sum, p) => sum + p.amplitude, 0) / peakCandidates.length : 0;
-  return {
-    peaks: sortedPeaks.map((candidate) => ({
-      position: candidate.position,
-      time: candidate.position / audio.sampleRate,
-      amplitude: candidate.amplitude
-    })),
-    maxAmplitude,
-    averageAmplitude
-  };
-}
+
+// src/types.ts
+var AudioInspectError = class extends Error {
+  constructor(code, message, cause) {
+    super(message);
+    this.code = code;
+    this.cause = cause;
+  }
+  name = "AudioInspectError";
+};
+
+// src/core/utils.ts
 function getChannelData(audio, channel) {
   if (channel === -1) {
     const averageData = new Float32Array(audio.length);
@@ -56,8 +47,17 @@ function getChannelData(audio, channel) {
       let sum = 0;
       for (let ch = 0; ch < audio.numberOfChannels; ch++) {
         const channelData2 = audio.channelData[ch];
-        if (channelData2 && i < channelData2.length) {
-          sum += channelData2[i];
+        if (!channelData2) {
+          throw new AudioInspectError(
+            "INVALID_INPUT",
+            `\u30C1\u30E3\u30F3\u30CD\u30EB ${ch} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
+          );
+        }
+        if (i < channelData2.length) {
+          const sample = channelData2[i];
+          if (sample !== void 0) {
+            sum += sample;
+          }
         }
       }
       averageData[i] = sum / audio.numberOfChannels;
@@ -65,67 +65,193 @@ function getChannelData(audio, channel) {
     return averageData;
   }
   if (channel < 0 || channel >= audio.numberOfChannels) {
-    throw new Error(`\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`);
+    throw new AudioInspectError(
+      "INVALID_INPUT",
+      `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}\u3002\u6709\u52B9\u7BC4\u56F2\u306F 0-${audio.numberOfChannels - 1} \u307E\u305F\u306F -1\uFF08\u5E73\u5747\uFF09\u3067\u3059`
+    );
   }
   const channelData = audio.channelData[channel];
   if (!channelData) {
-    throw new Error(`\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`);
+    throw new AudioInspectError(
+      "INVALID_INPUT",
+      `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
+    );
   }
   return channelData;
 }
-function findPeakCandidates(data, threshold, minDistance) {
+function safeArrayAccess(array, index, defaultValue) {
+  if (index >= 0 && index < array.length) {
+    return array[index] ?? defaultValue;
+  }
+  return defaultValue;
+}
+function isValidSample(value) {
+  return typeof value === "number" && !isNaN(value) && isFinite(value);
+}
+function ensureValidSample(value, defaultValue = 0) {
+  return isValidSample(value) ? value : defaultValue;
+}
+function amplitudeToDecibels(amplitude, reference = 1) {
+  const MIN_AMPLITUDE_FOR_DB = 1e-10;
+  const SILENCE_DB2 = -Infinity;
+  if (amplitude <= 0 || reference <= 0) {
+    return SILENCE_DB2;
+  }
+  const ratio = amplitude / reference;
+  return ratio > MIN_AMPLITUDE_FOR_DB ? 20 * Math.log10(ratio) : SILENCE_DB2;
+}
+
+// src/features/time.ts
+function detectAllInitialPeaks(data, threshold, includeProminence = false) {
   const peaks = [];
   const length = data.length;
+  if (length < 3) return peaks;
   for (let i = 1; i < length - 1; i++) {
-    const current = Math.abs(data[i]);
-    const prev = Math.abs(data[i - 1]);
-    const next = Math.abs(data[i + 1]);
+    const current = Math.abs(ensureValidSample(data[i]));
+    const prev = Math.abs(ensureValidSample(data[i - 1]));
+    const next = Math.abs(ensureValidSample(data[i + 1]));
     if (current > prev && current > next && current > threshold) {
-      let shouldAdd = true;
-      let replaceIndex = -1;
-      for (let j = 0; j < peaks.length; j++) {
-        const peak = peaks[j];
-        const distance = Math.abs(peak.position - i);
-        if (distance < minDistance) {
-          if (current > peak.amplitude) {
-            replaceIndex = j;
-          }
-          shouldAdd = false;
-          break;
-        }
+      const peak = {
+        position: i,
+        amplitude: current
+      };
+      if (includeProminence) {
+        peak.prominence = calculateProminence(data, i, current);
       }
-      if (replaceIndex >= 0) {
-        peaks[replaceIndex] = {
-          position: i,
-          time: 0,
-          amplitude: current
-        };
-      } else if (shouldAdd) {
-        peaks.push({
-          position: i,
-          time: 0,
-          amplitude: current
-        });
-      }
+      peaks.push(peak);
     }
   }
   return peaks;
 }
-function getRMS(audio, channel = 0) {
+function calculateProminence(data, peakIndex, peakValue) {
+  let leftMin = peakValue;
+  for (let i = peakIndex - 1; i >= 0; i--) {
+    const value = Math.abs(ensureValidSample(data[i]));
+    if (value > peakValue) break;
+    leftMin = Math.min(leftMin, value);
+  }
+  let rightMin = peakValue;
+  for (let i = peakIndex + 1; i < data.length; i++) {
+    const value = Math.abs(ensureValidSample(data[i]));
+    if (value > peakValue) break;
+    rightMin = Math.min(rightMin, value);
+  }
+  return peakValue - Math.max(leftMin, rightMin);
+}
+function getPeaks(audio, options = {}) {
+  const {
+    count = 100,
+    threshold = 0.1,
+    channel = 0,
+    minDistance = Math.floor(audio.sampleRate / 100)
+    // デフォルト10ms
+  } = options;
+  if (count <= 0) {
+    throw new AudioInspectError("INVALID_INPUT", "\u30D4\u30FC\u30AF\u6570\u306F\u6B63\u306E\u6574\u6570\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
+  }
+  if (threshold < 0 || threshold > 1) {
+    throw new AudioInspectError("INVALID_INPUT", "\u95BE\u5024\u306F0\u304B\u30891\u306E\u7BC4\u56F2\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
+  }
   const channelData = getChannelData(audio, channel);
-  let sum = 0;
+  if (channelData.length === 0) {
+    return {
+      peaks: [],
+      maxAmplitude: 0,
+      averageAmplitude: 0
+    };
+  }
+  const allInitialPeaks = detectAllInitialPeaks(channelData, threshold);
+  if (allInitialPeaks.length === 0) {
+    return {
+      peaks: [],
+      maxAmplitude: 0,
+      averageAmplitude: 0
+    };
+  }
+  allInitialPeaks.sort((a, b) => b.amplitude - a.amplitude);
+  const selectedPeaks = [];
+  const occupiedRegions = [];
+  for (const candidate of allInitialPeaks) {
+    if (selectedPeaks.length >= count) break;
+    const candidateStart = candidate.position - minDistance;
+    const candidateEnd = candidate.position + minDistance;
+    const hasOverlap = occupiedRegions.some(
+      ([start, end]) => !(candidateEnd < start || candidateStart > end)
+    );
+    if (!hasOverlap) {
+      selectedPeaks.push({
+        position: candidate.position,
+        time: candidate.position / audio.sampleRate,
+        amplitude: candidate.amplitude
+      });
+      occupiedRegions.push([candidateStart, candidateEnd]);
+    }
+  }
+  selectedPeaks.sort((a, b) => a.position - b.position);
+  const maxAmplitude = allInitialPeaks.length > 0 ? allInitialPeaks[0]?.amplitude ?? 0 : 0;
+  const averageAmplitude = allInitialPeaks.length > 0 ? allInitialPeaks.reduce((sum, p) => sum + p.amplitude, 0) / allInitialPeaks.length : 0;
+  return {
+    peaks: selectedPeaks,
+    maxAmplitude,
+    averageAmplitude
+  };
+}
+var SILENCE_DB = -Infinity;
+function getRMS(audio, optionsOrChannel = {}) {
+  const options = typeof optionsOrChannel === "number" ? { channel: optionsOrChannel, asDB: false, reference: 1 } : {
+    channel: 0,
+    asDB: false,
+    reference: 1,
+    ...optionsOrChannel
+  };
+  const channelData = getChannelData(audio, options.channel);
+  if (channelData.length === 0) {
+    return options.asDB ? SILENCE_DB : 0;
+  }
+  let sumOfSquares = 0;
+  let validSampleCount = 0;
   for (let i = 0; i < channelData.length; i++) {
     const sample = channelData[i];
-    sum += sample * sample;
+    if (isValidSample(sample)) {
+      sumOfSquares += sample * sample;
+      validSampleCount++;
+    }
   }
-  return Math.sqrt(sum / channelData.length);
+  if (validSampleCount === 0) {
+    return options.asDB ? SILENCE_DB : 0;
+  }
+  const rms = Math.sqrt(sumOfSquares / validSampleCount);
+  return options.asDB ? amplitudeToDecibels(rms, options.reference) : rms;
+}
+function getPeakAmplitude(audio, options = {}) {
+  const resolvedOptions = {
+    channel: 0,
+    asDB: false,
+    reference: 1,
+    ...options
+  };
+  const channelData = getChannelData(audio, resolvedOptions.channel);
+  if (channelData.length === 0) {
+    return resolvedOptions.asDB ? SILENCE_DB : 0;
+  }
+  let peak = 0;
+  for (let i = 0; i < channelData.length; i++) {
+    const sample = channelData[i];
+    if (isValidSample(sample)) {
+      peak = Math.max(peak, Math.abs(sample));
+    }
+  }
+  return resolvedOptions.asDB ? amplitudeToDecibels(peak, resolvedOptions.reference) : peak;
 }
 function getZeroCrossing(audio, channel = 0) {
   const channelData = getChannelData(audio, channel);
+  if (channelData.length < 2) {
+    return 0;
+  }
   let crossings = 0;
   for (let i = 1; i < channelData.length; i++) {
-    const prev = channelData[i - 1];
-    const current = channelData[i];
+    const prev = ensureValidSample(channelData[i - 1]);
+    const current = ensureValidSample(channelData[i]);
     if (prev >= 0 && current < 0 || prev < 0 && current >= 0) {
       crossings++;
     }
@@ -143,7 +269,15 @@ function getWaveform(audio, options = {}) {
   for (let i = 0; i < frameCount; i++) {
     const startSample = i * samplesPerFrame;
     const endSample = Math.min(startSample + samplesPerFrame, channelData.length);
-    const frameData = channelData.slice(startSample, endSample);
+    if (endSample <= startSample) {
+      const lastAmplitude = waveform.length > 0 ? safeArrayAccess(waveform, waveform.length - 1, { time: 0, amplitude: 0 }).amplitude : 0;
+      waveform.push({
+        time: (startSample + samplesPerFrame / 2) / audio.sampleRate,
+        amplitude: lastAmplitude
+      });
+      continue;
+    }
+    const frameData = channelData.subarray(startSample, endSample);
     let amplitude;
     switch (method) {
       case "peak":
@@ -172,9 +306,10 @@ function getWaveform(audio, options = {}) {
   };
 }
 function calculateRMSAmplitude(frameData) {
+  if (frameData.length === 0) return 0;
   let sum = 0;
   for (let i = 0; i < frameData.length; i++) {
-    const sample = frameData[i];
+    const sample = ensureValidSample(frameData[i]);
     sum += sample * sample;
   }
   return Math.sqrt(sum / frameData.length);
@@ -182,16 +317,17 @@ function calculateRMSAmplitude(frameData) {
 function calculatePeakAmplitude(frameData) {
   let peak = 0;
   for (let i = 0; i < frameData.length; i++) {
-    const sample = Math.abs(frameData[i]);
+    const sample = Math.abs(ensureValidSample(frameData[i]));
     peak = Math.max(peak, sample);
   }
   return peak;
 }
 function calculateAverageAmplitude(frameData) {
+  if (frameData.length === 0) return 0;
   let sum = 0;
   for (let i = 0; i < frameData.length; i++) {
-    sum += Math.abs(frameData[i]);
+    sum += Math.abs(ensureValidSample(frameData[i]));
   }
-  return frameData.length > 0 ? sum / frameData.length : 0;
+  return sum / frameData.length;
 }
 //# sourceMappingURL=time.cjs.map

@@ -1,4 +1,5 @@
-import { AudioData } from '../types.js';
+import { AudioData, AmplitudeOptions, AudioInspectError } from '../types.js';
+import { getChannelData, ensureValidSample, isValidSample, amplitudeToDecibels, safeArrayAccess } from '../core/utils.js';
 
 /**
  * ピーク検出のオプション
@@ -38,6 +39,68 @@ export interface PeaksResult {
   averageAmplitude: number;
 }
 
+interface PeakCandidate {
+  position: number;
+  amplitude: number;
+  prominence?: number; // ピークの顕著性（オプション）
+}
+
+// より洗練されたピーク検出アルゴリズム
+function detectAllInitialPeaks(
+  data: Float32Array, 
+  threshold: number,
+  includeProminence: boolean = false
+): PeakCandidate[] {
+  const peaks: PeakCandidate[] = [];
+  const length = data.length;
+
+  if (length < 3) return peaks; // 最低3サンプル必要
+
+  for (let i = 1; i < length - 1; i++) {
+    const current = Math.abs(ensureValidSample(data[i]));
+    const prev = Math.abs(ensureValidSample(data[i - 1]));
+    const next = Math.abs(ensureValidSample(data[i + 1]));
+
+    // ローカルマキシマムかつ閾値を超えているか
+    if (current > prev && current > next && current > threshold) {
+      const peak: PeakCandidate = {
+        position: i,
+        amplitude: current
+      };
+
+      // オプション：ピークの顕著性を計算
+      if (includeProminence) {
+        peak.prominence = calculateProminence(data, i, current);
+      }
+
+      peaks.push(peak);
+    }
+  }
+  
+  return peaks;
+}
+
+// ピークの顕著性を計算（オプション機能）
+function calculateProminence(data: Float32Array, peakIndex: number, peakValue: number): number {
+  // 左側の最小値を探索
+  let leftMin = peakValue;
+  for (let i = peakIndex - 1; i >= 0; i--) {
+    const value = Math.abs(ensureValidSample(data[i]));
+    if (value > peakValue) break; // より高いピークに到達
+    leftMin = Math.min(leftMin, value);
+  }
+
+  // 右側の最小値を探索
+  let rightMin = peakValue;
+  for (let i = peakIndex + 1; i < data.length; i++) {
+    const value = Math.abs(ensureValidSample(data[i]));
+    if (value > peakValue) break; // より高いピークに到達
+    rightMin = Math.min(rightMin, value);
+  }
+
+  return peakValue - Math.max(leftMin, rightMin);
+}
+
 /**
  * ピーク検出を行う
  */
@@ -46,141 +109,166 @@ export function getPeaks(audio: AudioData, options: PeaksOptions = {}): PeaksRes
     count = 100,
     threshold = 0.1,
     channel = 0,
-    minDistance = Math.floor(audio.sampleRate / 100)
+    minDistance = Math.floor(audio.sampleRate / 100) // デフォルト10ms
   } = options;
 
-  // 解析対象のチャンネルデータを取得
+  if (count <= 0) {
+    throw new AudioInspectError('INVALID_INPUT', 'ピーク数は正の整数である必要があります');
+  }
+
+  if (threshold < 0 || threshold > 1) {
+    throw new AudioInspectError('INVALID_INPUT', '閾値は0から1の範囲である必要があります');
+  }
+
   const channelData = getChannelData(audio, channel);
+  
+  if (channelData.length === 0) {
+    return {
+      peaks: [],
+      maxAmplitude: 0,
+      averageAmplitude: 0
+    };
+  }
 
-  // ピーク候補を検出
-  const peakCandidates = findPeakCandidates(channelData, threshold, minDistance);
+  // 1. すべての初期ピーク候補を検出
+  const allInitialPeaks = detectAllInitialPeaks(channelData, threshold);
 
-  // 振幅でソートして上位を選択
-  const sortedPeaks = peakCandidates.sort((a, b) => b.amplitude - a.amplitude).slice(0, count);
+  if (allInitialPeaks.length === 0) {
+    return {
+      peaks: [],
+      maxAmplitude: 0,
+      averageAmplitude: 0
+    };
+  }
 
-  // 時間順にソート
-  sortedPeaks.sort((a, b) => a.position - b.position);
+  // 2. 振幅の降順でソート
+  allInitialPeaks.sort((a, b) => b.amplitude - a.amplitude);
 
-  // 統計情報を計算
-  const maxAmplitude =
-    peakCandidates.length > 0 ? Math.max(...peakCandidates.map((p) => p.amplitude)) : 0;
+  // 3. 空間的フィルタリング（最小距離制約）
+  const selectedPeaks: Peak[] = [];
+  const occupiedRegions: Array<[number, number]> = []; // [start, end]の配列
 
-  const averageAmplitude =
-    peakCandidates.length > 0
-      ? peakCandidates.reduce((sum, p) => sum + p.amplitude, 0) / peakCandidates.length
-      : 0;
+  for (const candidate of allInitialPeaks) {
+    if (selectedPeaks.length >= count) break;
+
+    // 占有領域との重複をチェック
+    const candidateStart = candidate.position - minDistance;
+    const candidateEnd = candidate.position + minDistance;
+    
+    const hasOverlap = occupiedRegions.some(([start, end]) => 
+      !(candidateEnd < start || candidateStart > end)
+    );
+
+    if (!hasOverlap) {
+      selectedPeaks.push({
+        position: candidate.position,
+        time: candidate.position / audio.sampleRate,
+        amplitude: candidate.amplitude
+      });
+      
+      occupiedRegions.push([candidateStart, candidateEnd]);
+    }
+  }
+
+  // 4. 時間順でソート
+  selectedPeaks.sort((a, b) => a.position - b.position);
+
+  // 5. 統計情報の計算（すべての候補から）
+  const maxAmplitude = allInitialPeaks.length > 0 ? (allInitialPeaks[0]?.amplitude ?? 0) : 0;
+  const averageAmplitude = allInitialPeaks.length > 0 
+    ? allInitialPeaks.reduce((sum, p) => sum + p.amplitude, 0) / allInitialPeaks.length
+    : 0;
 
   return {
-    peaks: sortedPeaks.map((candidate) => ({
-      position: candidate.position,
-      time: candidate.position / audio.sampleRate,
-      amplitude: candidate.amplitude
-    })),
+    peaks: selectedPeaks,
     maxAmplitude,
     averageAmplitude
   };
 }
 
-/**
- * 指定されたチャンネルのデータを取得
- */
-function getChannelData(audio: AudioData, channel: number): Float32Array {
-  if (channel === -1) {
-    // 全チャンネルの平均を計算
-    const averageData = new Float32Array(audio.length);
-    for (let i = 0; i < audio.length; i++) {
-      let sum = 0;
-      for (let ch = 0; ch < audio.numberOfChannels; ch++) {
-        const channelData = audio.channelData[ch];
-        if (channelData && i < channelData.length) {
-          sum += channelData[i] as number;
-        }
-      }
-      averageData[i] = sum / audio.numberOfChannels;
-    }
-    return averageData;
-  }
-
-  if (channel < 0 || channel >= audio.numberOfChannels) {
-    throw new Error(`無効なチャンネル番号: ${channel}`);
-  }
-
-  const channelData = audio.channelData[channel];
-  if (!channelData) {
-    throw new Error(`チャンネル ${channel} のデータが存在しません`);
-  }
-
-  return channelData;
-}
-
-/**
- * ピーク候補を検出
- */
-function findPeakCandidates(data: Float32Array, threshold: number, minDistance: number): Peak[] {
-  const peaks: Peak[] = [];
-  const length = data.length;
-
-  for (let i = 1; i < length - 1; i++) {
-    // 境界チェック済みなので安全にアクセス
-    const current = Math.abs(data[i] as number);
-    const prev = Math.abs(data[i - 1] as number);
-    const next = Math.abs(data[i + 1] as number);
-
-    // ローカルマキシマかつ閾値を超えているかチェック
-    if (current > prev && current > next && current > threshold) {
-      // 既存のピークとの最小距離をチェック
-      let shouldAdd = true;
-      let replaceIndex = -1;
-
-      for (let j = 0; j < peaks.length; j++) {
-        const peak = peaks[j] as Peak; // 配列内の要素なので存在保証
-        const distance = Math.abs(peak.position - i);
-        if (distance < minDistance) {
-          // 既存のピークと近すぎる
-          if (current > peak.amplitude) {
-            // より大きい振幅なので既存ピークを置き換え
-            replaceIndex = j;
-          }
-          shouldAdd = false;
-          break;
-        }
-      }
-
-      if (replaceIndex >= 0) {
-        // 既存ピークを置き換え
-        peaks[replaceIndex] = {
-          position: i,
-          time: 0,
-          amplitude: current
-        };
-      } else if (shouldAdd) {
-        // 新しいピークを追加
-        peaks.push({
-          position: i,
-          time: 0,
-          amplitude: current
-        });
-      }
-    }
-  }
-
-  return peaks;
-}
+// 定数定義
+const SILENCE_DB = -Infinity;
 
 /**
  * RMS（Root Mean Square）を計算
  */
-export function getRMS(audio: AudioData, channel = 0): number {
-  const channelData = getChannelData(audio, channel);
+export function getRMS(
+  audio: AudioData,
+  optionsOrChannel: AmplitudeOptions | number = {}
+): number {
+  const options: Required<AmplitudeOptions> = typeof optionsOrChannel === 'number'
+    ? { channel: optionsOrChannel, asDB: false, reference: 1.0 }
+    : { 
+        channel: 0, 
+        asDB: false, 
+        reference: 1.0,
+        ...optionsOrChannel 
+      };
 
-  let sum = 0;
-  for (let i = 0; i < channelData.length; i++) {
-    const sample = channelData[i] as number;
-    sum += sample * sample;
+  const channelData = getChannelData(audio, options.channel);
+
+  if (channelData.length === 0) {
+    return options.asDB ? SILENCE_DB : 0;
   }
 
-  return Math.sqrt(sum / channelData.length);
+  // RMS計算（数値的安定性を考慮）
+  let sumOfSquares = 0;
+  let validSampleCount = 0;
+
+  for (let i = 0; i < channelData.length; i++) {
+    const sample = channelData[i];
+    if (isValidSample(sample)) {
+      sumOfSquares += sample * sample;
+      validSampleCount++;
+    }
+  }
+
+  if (validSampleCount === 0) {
+    return options.asDB ? SILENCE_DB : 0;
+  }
+
+  const rms = Math.sqrt(sumOfSquares / validSampleCount);
+
+  return options.asDB 
+    ? amplitudeToDecibels(rms, options.reference)
+    : rms;
 }
+
+/**
+ * ピーク振幅を計算
+ */
+export function getPeakAmplitude(
+  audio: AudioData,
+  options: AmplitudeOptions = {}
+): number {
+  const resolvedOptions: Required<AmplitudeOptions> = {
+    channel: 0,
+    asDB: false,
+    reference: 1.0,
+    ...options
+  };
+
+  const channelData = getChannelData(audio, resolvedOptions.channel);
+
+  if (channelData.length === 0) {
+    return resolvedOptions.asDB ? SILENCE_DB : 0;
+  }
+
+  let peak = 0;
+  for (let i = 0; i < channelData.length; i++) {
+    const sample = channelData[i];
+    if (isValidSample(sample)) {
+      peak = Math.max(peak, Math.abs(sample));
+    }
+  }
+
+  return resolvedOptions.asDB 
+    ? amplitudeToDecibels(peak, resolvedOptions.reference)
+    : peak;
+}
+
+// エイリアスとしてgetPeakをエクスポート
+export { getPeakAmplitude as getPeak };
 
 /**
  * ゼロクロッシング率を計算
@@ -194,8 +282,8 @@ export function getZeroCrossing(audio: AudioData, channel = 0): number {
 
   let crossings = 0;
   for (let i = 1; i < channelData.length; i++) {
-    const prev = channelData[i - 1] as number;
-    const current = channelData[i] as number;
+    const prev = ensureValidSample(channelData[i - 1]);
+    const current = ensureValidSample(channelData[i]);
 
     // 符号が変わった場合はゼロクロッシング
     if ((prev >= 0 && current < 0) || (prev < 0 && current >= 0)) {
@@ -225,7 +313,7 @@ export interface WaveformPoint {
   /** 時間位置（秒） */
   time: number;
   /** 振幅値（0-1） */
-  amplitude: number;
+  amplitude: number; // nullを許容しない設計
 }
 
 /**
@@ -246,15 +334,10 @@ export interface WaveformResult {
 
 /**
  * 時間軸に沿った波形データを取得
- *
- * @param audio - 音声データ
- * @param options - 波形データ取得オプション
- * @returns 波形データ
  */
 export function getWaveform(audio: AudioData, options: WaveformOptions = {}): WaveformResult {
   const { framesPerSecond = 60, channel = 0, method = 'rms' } = options;
 
-  // チャンネルデータを取得
   const channelData = getChannelData(audio, channel);
 
   // フレーム計算
@@ -269,10 +352,23 @@ export function getWaveform(audio: AudioData, options: WaveformOptions = {}): Wa
     const startSample = i * samplesPerFrame;
     const endSample = Math.min(startSample + samplesPerFrame, channelData.length);
 
-    // フレーム内のデータを抽出
-    const frameData = channelData.slice(startSample, endSample);
+    // フレーム長が0または負の場合の処理
+    if (endSample <= startSample) {
+      // 最後の有効な振幅値を使用、または0
+      const lastAmplitude = waveform.length > 0 
+        ? safeArrayAccess(waveform, waveform.length - 1, { time: 0, amplitude: 0 }).amplitude
+        : 0;
+      
+      waveform.push({
+        time: (startSample + samplesPerFrame / 2) / audio.sampleRate,
+        amplitude: lastAmplitude
+      });
+      continue;
+    }
 
-    // 指定された方法で振幅を計算
+    // フレームデータの処理
+    const frameData = channelData.subarray(startSample, endSample); // sliceより効率的
+    
     let amplitude: number;
     switch (method) {
       case 'peak':
@@ -288,8 +384,8 @@ export function getWaveform(audio: AudioData, options: WaveformOptions = {}): Wa
     }
 
     const time = (startSample + (endSample - startSample) / 2) / audio.sampleRate;
-
     waveform.push({ time, amplitude });
+    
     maxAmplitude = Math.max(maxAmplitude, amplitude);
     totalAmplitude += amplitude;
   }
@@ -309,9 +405,11 @@ export function getWaveform(audio: AudioData, options: WaveformOptions = {}): Wa
  * フレーム内のRMS振幅を計算
  */
 function calculateRMSAmplitude(frameData: Float32Array): number {
+  if (frameData.length === 0) return 0;
+  
   let sum = 0;
   for (let i = 0; i < frameData.length; i++) {
-    const sample = frameData[i] as number;
+    const sample = ensureValidSample(frameData[i]);
     sum += sample * sample;
   }
   return Math.sqrt(sum / frameData.length);
@@ -323,7 +421,7 @@ function calculateRMSAmplitude(frameData: Float32Array): number {
 function calculatePeakAmplitude(frameData: Float32Array): number {
   let peak = 0;
   for (let i = 0; i < frameData.length; i++) {
-    const sample = Math.abs(frameData[i] as number);
+    const sample = Math.abs(ensureValidSample(frameData[i]));
     peak = Math.max(peak, sample);
   }
   return peak;
@@ -333,9 +431,11 @@ function calculatePeakAmplitude(frameData: Float32Array): number {
  * フレーム内の平均振幅を計算
  */
 function calculateAverageAmplitude(frameData: Float32Array): number {
+  if (frameData.length === 0) return 0;
+  
   let sum = 0;
   for (let i = 0; i < frameData.length; i++) {
-    sum += Math.abs(frameData[i] as number);
+    sum += Math.abs(ensureValidSample(frameData[i]));
   }
-  return frameData.length > 0 ? sum / frameData.length : 0;
+  return sum / frameData.length;
 }

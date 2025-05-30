@@ -45,7 +45,7 @@ export interface IFFTProvider {
   /**
    * プロファイリングを実行（対応している場合）
    */
-  profile?(): Promise<any>;
+  profile?(): Promise<void>;
 }
 
 /**
@@ -64,31 +64,39 @@ export interface FFTProviderConfig {
   customProvider?: IFFTProvider;
 }
 
+// WebFFT型定義
+interface WebFFTInstance {
+  fft(input: Float32Array): Float32Array;
+  profile(): Promise<unknown>;
+  dispose(): void;
+}
+
 /**
  * WebFFTプロバイダーの実装
  */
 class WebFFTProvider implements IFFTProvider {
-  private fftInstance: any;
+  private fftInstance: WebFFTInstance | null = null;
 
   constructor(
     public readonly size: number,
     public readonly sampleRate: number,
     private enableProfiling: boolean = false
-  ) {
-    // 初期化はファクトリーで行う
-  }
+  ) {}
 
   get name(): string {
     return 'WebFFT';
   }
 
-  private async initializeWebFFT(): Promise<void> {
+  async initializeWebFFT(): Promise<void> {
     try {
       // Dynamic import to handle module loading
-      const WebFFT = (await import('webfft')).default;
-      this.fftInstance = new WebFFT(this.size);
+      const webfftModule = await import('webfft');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
+      const WebFFTConstructor = webfftModule.default as any;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+      this.fftInstance = new WebFFTConstructor(this.size) as WebFFTInstance;
 
-      if (this.enableProfiling) {
+      if (this.enableProfiling && this.fftInstance?.profile) {
         await this.fftInstance.profile();
       }
     } catch (error) {
@@ -143,16 +151,16 @@ class WebFFTProvider implements IFFTProvider {
     };
   }
 
-  async profile(): Promise<any> {
-    if (!this.fftInstance) {
+  async profile(): Promise<void> {
+    if (!this.fftInstance || !this.fftInstance.profile) {
       throw new AudioInspectError('UNSUPPORTED_FORMAT', 'WebFFTが初期化されていません');
     }
 
-    return this.fftInstance.profile();
+    await this.fftInstance.profile();
   }
 
   dispose(): void {
-    if (this.fftInstance) {
+    if (this.fftInstance && this.fftInstance.dispose) {
       this.fftInstance.dispose();
       this.fftInstance = null;
     }
@@ -160,24 +168,55 @@ class WebFFTProvider implements IFFTProvider {
 }
 
 /**
- * ネイティブFFTプロバイダー（シンプルなDFT実装）
+ * 効率的なネイティブFFTプロバイダー（Cooley-Tukey実装）
  */
 class NativeFFTProvider implements IFFTProvider {
+  private bitReversalTable!: Uint32Array;
+  private twiddleFactorsReal!: Float32Array;
+  private twiddleFactorsImag!: Float32Array;
+
   constructor(
     public readonly size: number,
     public readonly sampleRate: number
   ) {
     if (!this.isPowerOfTwo(size)) {
-      throw new AudioInspectError('INVALID_INPUT', 'FFTサイズは2の累乗である必要があります');
+      throw new AudioInspectError(
+        'INVALID_INPUT',
+        'FFTサイズは2の冪である必要があります'
+      );
     }
+    this.precomputeTables();
   }
 
   get name(): string {
-    return 'Native DFT';
+    return 'Native FFT (Cooley-Tukey)';
   }
 
   private isPowerOfTwo(n: number): boolean {
     return n > 0 && (n & (n - 1)) === 0;
+  }
+
+  private precomputeTables(): void {
+    // ビット反転テーブルの事前計算
+    this.bitReversalTable = new Uint32Array(this.size);
+    const bits = Math.log2(this.size);
+    for (let i = 0; i < this.size; i++) {
+      let reversed = 0;
+      for (let j = 0; j < bits; j++) {
+        reversed = (reversed << 1) | ((i >> j) & 1);
+      }
+      this.bitReversalTable[i] = reversed;
+    }
+
+    // Twiddle factorsの事前計算
+    const halfSize = this.size / 2;
+    this.twiddleFactorsReal = new Float32Array(halfSize);
+    this.twiddleFactorsImag = new Float32Array(halfSize);
+    for (let i = 0; i < halfSize; i++) {
+      const angle = -2 * Math.PI * i / this.size;
+      this.twiddleFactorsReal[i] = Math.cos(angle);
+      this.twiddleFactorsImag[i] = Math.sin(angle);
+    }
   }
 
   fft(input: Float32Array): FFTResult {
@@ -188,43 +227,72 @@ class NativeFFTProvider implements IFFTProvider {
       );
     }
 
-    // シンプルなDFT実装（教育目的、パフォーマンスは低い）
+    // 複素数配列の初期化（ビット反転順）
+    const real = new Float32Array(this.size);
+    const imag = new Float32Array(this.size);
+    
+    for (let i = 0; i < this.size; i++) {
+      const reversedIndex = this.bitReversalTable[i];
+      if (reversedIndex !== undefined) {
+        real[reversedIndex] = input[i] || 0;
+        imag[reversedIndex] = 0;
+      }
+    }
+
+    // Cooley-Tukey FFTアルゴリズム
+    for (let stage = 1; stage < this.size; stage *= 2) {
+      const stageSize = stage * 2;
+      const twiddleStep = this.size / stageSize;
+      
+      for (let k = 0; k < this.size; k += stageSize) {
+        for (let j = 0; j < stage; j++) {
+          const twiddleIndex = j * twiddleStep;
+          const wr = this.twiddleFactorsReal[twiddleIndex] || 0;
+          const wi = this.twiddleFactorsImag[twiddleIndex] || 0;
+          
+          const evenIndex = k + j;
+          const oddIndex = k + j + stage;
+          
+          const evenReal = real[evenIndex] || 0;
+          const evenImag = imag[evenIndex] || 0;
+          const oddReal = real[oddIndex] || 0;
+          const oddImag = imag[oddIndex] || 0;
+          
+          const tempReal = oddReal * wr - oddImag * wi;
+          const tempImag = oddReal * wi + oddImag * wr;
+          
+          real[evenIndex] = evenReal + tempReal;
+          imag[evenIndex] = evenImag + tempImag;
+          real[oddIndex] = evenReal - tempReal;
+          imag[oddIndex] = evenImag - tempImag;
+        }
+      }
+    }
+
+    // 結果の構築
     const complex = new Float32Array(this.size * 2);
     const magnitude = new Float32Array(this.size / 2 + 1);
     const phase = new Float32Array(this.size / 2 + 1);
     const frequencies = new Float32Array(this.size / 2 + 1);
 
-    for (let k = 0; k < this.size; k++) {
-      let realSum = 0;
-      let imagSum = 0;
-
-      for (let n = 0; n < this.size; n++) {
-        const angle = (-2 * Math.PI * k * n) / this.size;
-        realSum += input[n]! * Math.cos(angle);
-        imagSum += input[n]! * Math.sin(angle);
-      }
-
-      complex[k * 2] = realSum;
-      complex[k * 2 + 1] = imagSum;
-
-      // 正の周波数のみ保存
-      if (k <= this.size / 2) {
-        magnitude[k] = Math.sqrt(realSum * realSum + imagSum * imagSum);
-        phase[k] = Math.atan2(imagSum, realSum);
-        frequencies[k] = (k * this.sampleRate) / this.size;
+    for (let i = 0; i < this.size; i++) {
+      complex[i * 2] = real[i] || 0;
+      complex[i * 2 + 1] = imag[i] || 0;
+      
+      if (i <= this.size / 2) {
+        const realPart = real[i] || 0;
+        const imagPart = imag[i] || 0;
+        magnitude[i] = Math.sqrt(realPart * realPart + imagPart * imagPart);
+        phase[i] = Math.atan2(imagPart, realPart);
+        frequencies[i] = (i * this.sampleRate) / this.size;
       }
     }
 
-    return {
-      complex,
-      magnitude,
-      phase,
-      frequencies
-    };
+    return { complex, magnitude, phase, frequencies };
   }
 
   dispose(): void {
-    // ネイティブ実装では特に何もしない
+    // メモリの明示的な解放（必要に応じて）
   }
 }
 
@@ -237,15 +305,16 @@ export class FFTProviderFactory {
    */
   static async createProvider(config: FFTProviderConfig): Promise<IFFTProvider> {
     switch (config.type) {
-      case 'webfft':
+      case 'webfft': {
         const provider = new WebFFTProvider(
           config.fftSize,
           config.sampleRate,
           config.enableProfiling
         );
         // 初期化を待つ
-        await (provider as any).initializeWebFFT();
+        await provider.initializeWebFFT();
         return provider;
+      }
 
       case 'native':
         return new NativeFFTProvider(config.fftSize, config.sampleRate);
@@ -256,11 +325,13 @@ export class FFTProviderFactory {
         }
         return config.customProvider;
 
-      default:
+      default: {
+        const exhaustiveCheck: never = config.type;
         throw new AudioInspectError(
           'UNSUPPORTED_FORMAT',
-          `未対応のFFTプロバイダー: ${config.type}`
+          `未対応のFFTプロバイダー: ${String(exhaustiveCheck)}`
         );
+      }
     }
   }
 

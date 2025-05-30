@@ -47,18 +47,18 @@ function createPeakSignal(
 
       // 前後の値を少し小さくして、確実にローカルマキシマにする
       if (pos > 0) {
-        data[pos - 1] = Math.max(data[pos - 1]!, amplitude * 0.5);
+        data[pos - 1] = Math.max(data[pos - 1] ?? 0, amplitude * 0.5);
       }
       if (pos < length - 1) {
-        data[pos + 1] = Math.max(data[pos + 1]!, amplitude * 0.5);
+        data[pos + 1] = Math.max(data[pos + 1] ?? 0, amplitude * 0.5);
       }
 
       // さらに外側も少し設定（他のピークと重ならない限り）
       if (pos > 1) {
-        data[pos - 2] = Math.max(data[pos - 2]!, amplitude * 0.2);
+        data[pos - 2] = Math.max(data[pos - 2] ?? 0, amplitude * 0.2);
       }
       if (pos < length - 2) {
-        data[pos + 2] = Math.max(data[pos + 2]!, amplitude * 0.2);
+        data[pos + 2] = Math.max(data[pos + 2] ?? 0, amplitude * 0.2);
       }
     }
   });

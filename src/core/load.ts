@@ -161,7 +161,11 @@ function convertToMono(audioData: AudioData): AudioData {
   for (let i = 0; i < audioData.length; i++) {
     let sum = 0;
     for (let channel = 0; channel < audioData.numberOfChannels; channel++) {
-      sum += audioData.channelData[channel]![i]!;
+      const channelData = audioData.channelData[channel];
+      const sample = channelData?.[i];
+      if (channelData && sample !== undefined) {
+        sum += sample;
+      }
     }
     monoData[i] = sum / audioData.numberOfChannels;
   }
@@ -195,7 +199,8 @@ function normalize(audioData: AudioData): AudioData {
   const normalizedChannels = audioData.channelData.map((channelData) => {
     const normalized = new Float32Array(channelData.length);
     for (let i = 0; i < channelData.length; i++) {
-      normalized[i] = channelData[i]! / maxAmplitude;
+      const sample = channelData[i];
+      normalized[i] = sample !== undefined ? sample / maxAmplitude : 0;
     }
     return normalized;
   });

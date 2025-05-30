@@ -290,6 +290,18 @@ function magnitudeToDecibels(magnitude: Float32Array): Float32Array {
 }
 
 /**
+ * スペクトログラム計算のオプション
+ */
+interface SpectrogramOptions {
+  provider?: FFTProviderType;
+  enableProfiling?: boolean;
+  windowFunction?: string;
+  minFrequency?: number;
+  maxFrequency?: number;
+  decibels?: boolean;
+}
+
+/**
  * スペクトログラムを計算
  */
 async function computeSpectrogram(
@@ -298,7 +310,7 @@ async function computeSpectrogram(
   fftSize: number,
   timeFrames: number,
   overlap: number,
-  options: any
+  options: SpectrogramOptions
 ): Promise<SpectrogramData> {
   const hopSize = Math.floor(fftSize * (1 - overlap));
   const actualFrames = Math.min(timeFrames, Math.floor((data.length - fftSize) / hopSize) + 1);

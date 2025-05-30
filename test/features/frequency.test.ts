@@ -90,7 +90,7 @@ describe('getFFT', () => {
       });
 
       expect(result.fftSize).toBe(256);
-      expect(result.providerName).toBe('Native DFT');
+      expect(result.providerName).toBe('Native FFT (Cooley-Tukey)');
       expect(result.magnitude).toBeInstanceOf(Float32Array);
     });
 
@@ -245,7 +245,7 @@ describe('error handling', () => {
 
     await expect(
       getFFT(audio, { fftSize: 1000, provider: 'native' }) // 2の累乗でない
-    ).rejects.toThrow('FFTサイズは2の累乗である必要があります');
+    ).rejects.toThrow('FFTサイズは2の冪である必要があります');
   });
 
   it('should handle invalid channel', async () => {
