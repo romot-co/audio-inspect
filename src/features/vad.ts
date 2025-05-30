@@ -415,8 +415,7 @@ export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
         const zcr = zcrs[i] ?? 0;
 
         const energyScore = energy > energyThreshold ? 1 : 0;
-        const zcrScore =
-          zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 1 : 0;
+        const zcrScore = zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 1 : 0;
         decisions[i] = (energyScore + zcrScore) / 2;
       }
       break;
@@ -431,10 +430,8 @@ export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
         const zcr = zcrs[i] ?? 0;
         const threshold = adaptiveThreshold[i] ?? 0;
 
-        const energyScore =
-          energy > threshold ? 1 : 0;
-        const zcrScore =
-          zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 0.5 : 0;
+        const energyScore = energy > threshold ? 1 : 0;
+        const zcrScore = zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 0.5 : 0;
         decisions[i] = Math.min(1, energyScore + zcrScore);
       }
       break;

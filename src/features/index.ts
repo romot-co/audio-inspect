@@ -6,7 +6,7 @@ export {
   getWaveform,
   getPeak,
   getPeakAmplitude,
-  
+
   // 新しい解析機能（Float32Array対応）
   getWaveformAnalysis,
   getPeaksAnalysis,
@@ -19,7 +19,7 @@ export type {
   WaveformOptions,
   WaveformPoint,
   WaveformResult,
-  
+
   // 新しい型定義
   WaveformAnalysisOptions,
   PeaksAnalysisOptions,

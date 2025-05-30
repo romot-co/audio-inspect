@@ -1,4 +1,12 @@
-import { AudioData, AmplitudeOptions, AudioInspectError, WaveformAnalysisResult, PeaksAnalysisResult, RMSAnalysisResult, ProgressOptions } from '../types.js';
+import {
+  AudioData,
+  AmplitudeOptions,
+  AudioInspectError,
+  WaveformAnalysisResult,
+  PeaksAnalysisResult,
+  RMSAnalysisResult,
+  ProgressOptions
+} from '../types.js';
 import {
   getChannelData,
   ensureValidSample,
@@ -482,16 +490,11 @@ export interface RMSAnalysisOptions extends ProgressOptions {
  * 新しいWaveform解析（Float32Array対応）
  */
 export function getWaveformAnalysis(
-  audio: AudioData, 
+  audio: AudioData,
   options: WaveformAnalysisOptions = {}
 ): WaveformAnalysisResult {
   const startTime = performance.now();
-  const { 
-    framesPerSecond = 60, 
-    channel = 0, 
-    method = 'rms',
-    onProgress
-  } = options;
+  const { framesPerSecond = 60, channel = 0, method = 'rms', onProgress } = options;
 
   onProgress?.(0, 'Waveform解析を開始');
 
@@ -508,7 +511,7 @@ export function getWaveformAnalysis(
   // 結果配列を事前確保
   const amplitudes = new Float32Array(frameCount);
   const timestamps = new Float32Array(frameCount);
-  
+
   let maxAmplitude = 0;
   let totalAmplitude = 0;
 
@@ -520,7 +523,7 @@ export function getWaveformAnalysis(
 
     // フレーム長が0または負の場合の処理
     if (endSample <= startSample) {
-      const lastAmplitude = i > 0 ? amplitudes[i - 1] ?? 0 : 0;
+      const lastAmplitude = i > 0 ? (amplitudes[i - 1] ?? 0) : 0;
       amplitudes[i] = lastAmplitude;
       timestamps[i] = (startSample + samplesPerFrame / 2) / audio.sampleRate;
       continue;
@@ -578,7 +581,10 @@ export function getWaveformAnalysis(
 /**
  * 新しいPeaks解析（Float32Array対応）
  */
-export function getPeaksAnalysis(audio: AudioData, options: PeaksAnalysisOptions = {}): PeaksAnalysisResult {
+export function getPeaksAnalysis(
+  audio: AudioData,
+  options: PeaksAnalysisOptions = {}
+): PeaksAnalysisResult {
   const startTime = performance.now();
   const {
     count = 100,
@@ -709,14 +715,12 @@ export function getPeaksAnalysis(audio: AudioData, options: PeaksAnalysisOptions
 /**
  * 新しいRMS解析（統一されたインターフェース）
  */
-export function getRMSAnalysis(audio: AudioData, options: RMSAnalysisOptions = {}): RMSAnalysisResult {
+export function getRMSAnalysis(
+  audio: AudioData,
+  options: RMSAnalysisOptions = {}
+): RMSAnalysisResult {
   const startTime = performance.now();
-  const { 
-    channel = 0, 
-    asDB = false, 
-    reference = 1.0,
-    onProgress
-  } = options;
+  const { channel = 0, asDB = false, reference = 1.0, onProgress } = options;
 
   onProgress?.(0, 'RMS解析を開始');
 

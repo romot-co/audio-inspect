@@ -17,7 +17,10 @@ export function getChannelData(audio: AudioData, channel = 0): Float32Array {
     // Check if any channel is undefined
     for (let ch = 0; ch < audio.numberOfChannels; ch++) {
       if (!audio.channelData[ch]) {
-        throw new AudioInspectError('INVALID_INPUT', `Channel ${ch} data does not exist for averaging`);
+        throw new AudioInspectError(
+          'INVALID_INPUT',
+          `Channel ${ch} data does not exist for averaging`
+        );
       }
     }
 
@@ -134,10 +137,10 @@ export function toMono(audio: AudioData): AudioData {
   if (audio.numberOfChannels === 1) {
     return audio;
   }
-  
+
   const monoData = new Float32Array(audio.length);
   const channelCount = audio.numberOfChannels;
-  
+
   for (let i = 0; i < audio.length; i++) {
     let sum = 0;
     for (let ch = 0; ch < channelCount; ch++) {
@@ -145,7 +148,7 @@ export function toMono(audio: AudioData): AudioData {
     }
     monoData[i] = sum / channelCount;
   }
-  
+
   return {
     ...audio,
     channelData: [monoData],
@@ -156,43 +159,35 @@ export function toMono(audio: AudioData): AudioData {
 /**
  * オーディオデータを時間範囲でスライス
  */
-export function sliceAudio(
-  audio: AudioData, 
-  startTime: number, 
-  endTime: number
-): AudioData {
+export function sliceAudio(audio: AudioData, startTime: number, endTime: number): AudioData {
   if (startTime < 0 || endTime < 0 || startTime >= endTime) {
-    throw new AudioInspectError(
-      'INVALID_INPUT',
-      '無効な時間範囲が指定されました',
-      { startTime, endTime }
-    );
+    throw new AudioInspectError('INVALID_INPUT', '無効な時間範囲が指定されました', {
+      startTime,
+      endTime
+    });
   }
-  
+
   if (endTime > audio.duration) {
-    throw new AudioInspectError(
-      'INVALID_INPUT',
-      '終了時間が音声の長さを超えています',
-      { endTime, duration: audio.duration }
-    );
+    throw new AudioInspectError('INVALID_INPUT', '終了時間が音声の長さを超えています', {
+      endTime,
+      duration: audio.duration
+    });
   }
-  
+
   const startSample = Math.floor(startTime * audio.sampleRate);
   const endSample = Math.min(Math.floor(endTime * audio.sampleRate), audio.length);
   const length = endSample - startSample;
-  
+
   if (length <= 0) {
-    throw new AudioInspectError(
-      'INSUFFICIENT_DATA',
-      'スライス範囲が小さすぎます',
-      { startSample, endSample, length }
-    );
+    throw new AudioInspectError('INSUFFICIENT_DATA', 'スライス範囲が小さすぎます', {
+      startSample,
+      endSample,
+      length
+    });
   }
-  
-  const slicedChannels = audio.channelData.map(channel =>
-    channel.slice(startSample, endSample)
-  );
-  
+
+  const slicedChannels = audio.channelData.map((channel) => channel.slice(startSample, endSample));
+
   return {
     ...audio,
     channelData: slicedChannels,
@@ -206,31 +201,29 @@ export function sliceAudio(
  */
 export function normalizeAudio(audio: AudioData): AudioData {
   let maxAmplitude = 0;
-  
+
   // 最大振幅を検出
   for (const channel of audio.channelData) {
     for (const sample of channel) {
       maxAmplitude = Math.max(maxAmplitude, Math.abs(sample));
     }
   }
-  
+
   if (maxAmplitude === 0 || maxAmplitude === 1) {
     return audio;
   }
-  
+
   // 正規化
-  const normalizedChannels = audio.channelData.map(channel => {
+  const normalizedChannels = audio.channelData.map((channel) => {
     const normalized = new Float32Array(channel.length);
     for (let i = 0; i < channel.length; i++) {
       normalized[i] = (channel[i] ?? 0) / maxAmplitude;
     }
     return normalized;
   });
-  
+
   return {
     ...audio,
     channelData: normalizedChannels
   };
 }
-
-

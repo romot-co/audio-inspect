@@ -1,4 +1,11 @@
-import { AudioData, BatchAnalysisOptions, BatchAnalysisResult, WaveformAnalysisResult, PeaksAnalysisResult, RMSAnalysisResult } from '../types.js';
+import {
+  AudioData,
+  BatchAnalysisOptions,
+  BatchAnalysisResult,
+  WaveformAnalysisResult,
+  PeaksAnalysisResult,
+  RMSAnalysisResult
+} from '../types.js';
 import { getWaveformAnalysis, getPeaksAnalysis, getRMSAnalysis } from '../features/time.js';
 import { getFFT, type FFTOptions, type FFTAnalysisResult } from '../features/frequency.js';
 import { getEnergy, type EnergyResult } from '../features/energy.js';
@@ -31,32 +38,35 @@ export async function analyzeAll(
     tasks.push({
       name: 'waveform',
       weight: 0.15,
-      execute: () => getWaveformAnalysis(audio, {
-        ...options.waveform,
-        onProgress: (percent, msg) => options.onProgress?.(percent * 0.15, `Waveform: ${msg}`)
-      })
+      execute: () =>
+        getWaveformAnalysis(audio, {
+          ...options.waveform,
+          onProgress: (percent, msg) => options.onProgress?.(percent * 0.15, `Waveform: ${msg}`)
+        })
     });
   }
 
   if (options.peaks !== undefined) {
     tasks.push({
       name: 'peaks',
-      weight: 0.20,
-      execute: () => getPeaksAnalysis(audio, {
-        ...options.peaks,
-        onProgress: (percent, msg) => options.onProgress?.(percent * 0.20, `Peaks: ${msg}`)
-      })
+      weight: 0.2,
+      execute: () =>
+        getPeaksAnalysis(audio, {
+          ...options.peaks,
+          onProgress: (percent, msg) => options.onProgress?.(percent * 0.2, `Peaks: ${msg}`)
+        })
     });
   }
 
   if (options.rms !== undefined) {
     tasks.push({
       name: 'rms',
-      weight: 0.10,
-      execute: () => getRMSAnalysis(audio, {
-        ...options.rms,
-        onProgress: (percent, msg) => options.onProgress?.(percent * 0.10, `RMS: ${msg}`)
-      })
+      weight: 0.1,
+      execute: () =>
+        getRMSAnalysis(audio, {
+          ...options.rms,
+          onProgress: (percent, msg) => options.onProgress?.(percent * 0.1, `RMS: ${msg}`)
+        })
     });
   }
 
@@ -73,7 +83,10 @@ export async function analyzeAll(
           fftOptions.channel = options.spectrum.channel;
         }
         if (options.spectrum?.windowFunction !== undefined) {
-          fftOptions.windowFunction = options.spectrum.windowFunction === 'rectangular' ? 'none' : options.spectrum.windowFunction;
+          fftOptions.windowFunction =
+            options.spectrum.windowFunction === 'rectangular'
+              ? 'none'
+              : options.spectrum.windowFunction;
         }
         // FFTAnalysisResultをSpectrumAnalysisResultに変換
         const fftResult: FFTAnalysisResult = await getFFT(audio, fftOptions);
@@ -93,11 +106,11 @@ export async function analyzeAll(
   if (options.energy !== undefined) {
     tasks.push({
       name: 'energy',
-      weight: 0.20,
+      weight: 0.2,
       execute: () => {
         // EnergyResultをEnergyAnalysisResultに変換
         const energyResult: EnergyResult = getEnergy(audio, {
-          ...options.energy,
+          ...options.energy
         });
         return {
           energies: energyResult.energies,
@@ -116,7 +129,7 @@ export async function analyzeAll(
   // 重みを正規化
   const totalWeight = tasks.reduce((sum, task) => sum + task.weight, 0);
   if (totalWeight > 0) {
-    tasks.forEach(task => task.weight /= totalWeight);
+    tasks.forEach((task) => (task.weight /= totalWeight));
   }
 
   // 並列実行
@@ -125,7 +138,7 @@ export async function analyzeAll(
     tasks.map(async (task) => {
       try {
         const taskResult = await task.execute();
-        
+
         // 型安全な結果の代入
         switch (task.name) {
           case 'waveform':
@@ -154,7 +167,7 @@ export async function analyzeAll(
             }
             break;
         }
-        
+
         completedWeight += task.weight;
         options.onProgress?.(Math.round(completedWeight * 100), task.name);
       } catch (error) {
@@ -166,4 +179,4 @@ export async function analyzeAll(
 
   result.processingTime = performance.now() - startTime;
   return result;
-} 
+}
