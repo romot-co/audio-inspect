@@ -590,4 +590,77 @@ describe('getWaveform', () => {
       expect(result.averageAmplitude).toBeLessThan(result.maxAmplitude);
     });
   });
+
+  describe('extreme frame rate handling', () => {
+    it('should handle extremely high frames per second gracefully', () => {
+      const signal = createSineWave(440, 1.0, 44100, 0.5); // 1秒のサイン波
+      const audio = createTestAudioData(signal);
+
+      // 極端に高いフレームレート（サンプル数より多い）
+      const result = getWaveform(audio, { 
+        framesPerSecond: 100000, // 10万fps 
+        method: 'rms' 
+      });
+
+      // samplesPerFrameが0になることなく、適切に制限されることを確認
+      expect(result.samplesPerFrame).toBeGreaterThan(0);
+      expect(result.frameCount).toBeGreaterThan(0);
+      expect(result.frameCount).toBeLessThanOrEqual(audio.length);
+      expect(result.waveform.length).toBe(result.frameCount);
+      
+      // 各フレームが有効な値を持つことを確認
+      result.waveform.forEach(point => {
+        expect(point.time).toBeGreaterThanOrEqual(0);
+        expect(point.amplitude).toBeGreaterThanOrEqual(0);
+        expect(point.amplitude).toBeLessThanOrEqual(1);
+      });
+    });
+
+    it('should handle normal frame rates correctly', () => {
+      const signal = createSineWave(440, 2.0, 44100, 0.5); // 2秒のサイン波
+      const audio = createTestAudioData(signal);
+
+      const result = getWaveform(audio, { 
+        framesPerSecond: 60,
+        method: 'peak' 
+      });
+
+      // 通常のフレームレートでの正常動作を確認
+      expect(result.frameCount).toBe(Math.ceil(2.0 * 60)); // 120フレーム
+      expect(result.samplesPerFrame).toBeGreaterThan(0);
+      expect(result.waveform.length).toBe(result.frameCount);
+      expect(result.maxAmplitude).toBeGreaterThan(0);
+    });
+
+    it('should handle zero-length audio', () => {
+      const emptySignal = new Float32Array(0);
+      const audio = createTestAudioData(emptySignal);
+
+      const result = getWaveform(audio, { framesPerSecond: 60 });
+
+      // 空の音声データの場合
+      expect(result.frameCount).toBe(0);
+      expect(result.samplesPerFrame).toBe(0);
+      expect(result.waveform.length).toBe(0);
+      expect(result.maxAmplitude).toBe(0);
+      expect(result.averageAmplitude).toBe(0);
+    });
+
+    it('should maintain frame calculation consistency', () => {
+      const signal = createSineWave(1000, 0.5, 44100, 0.8); // 0.5秒
+      const audio = createTestAudioData(signal);
+
+      const lowFps = getWaveform(audio, { framesPerSecond: 10 });
+      const highFps = getWaveform(audio, { framesPerSecond: 1000 });
+
+      // 低いフレームレートと高いフレームレートの両方で適切に動作
+      expect(lowFps.samplesPerFrame).toBeGreaterThan(0);
+      expect(highFps.samplesPerFrame).toBeGreaterThan(0);
+      
+      // フレーム数の妥当性
+      expect(lowFps.frameCount).toBeLessThan(highFps.frameCount);
+      expect(lowFps.frameCount).toBeLessThanOrEqual(audio.length);
+      expect(highFps.frameCount).toBeLessThanOrEqual(audio.length);
+    });
+  });
 });

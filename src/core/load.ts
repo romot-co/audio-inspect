@@ -7,7 +7,7 @@ export async function load(source: AudioSource, options: LoadOptions = {}): Prom
   try {
     // 既にAudioDataの場合はそのまま返す
     if (isAudioData(source)) {
-      return processAudioData(source, options);
+      return await processAudioData(source, options);
     }
 
     // Web Audio APIのコンテキストを取得または作成
@@ -20,7 +20,7 @@ export async function load(source: AudioSource, options: LoadOptions = {}): Prom
     const audioData = audioBufferToAudioData(audioBuffer);
 
     // オプションに基づいて後処理
-    return processAudioData(audioData, options);
+    return await processAudioData(audioData, options);
   } catch (error) {
     throw new AudioInspectError(
       'DECODE_ERROR',
@@ -125,7 +125,7 @@ function audioBufferToAudioData(buffer: AudioBuffer): AudioData {
 /**
  * オプションに基づいてAudioDataを後処理
  */
-function processAudioData(audioData: AudioData, options: LoadOptions): AudioData {
+async function processAudioData(audioData: AudioData, options: LoadOptions): Promise<AudioData> {
   let result = audioData;
 
   // モノラル変換
@@ -138,13 +138,71 @@ function processAudioData(audioData: AudioData, options: LoadOptions): AudioData
     result = normalize(result);
   }
 
-  // サンプルレート変換（簡易実装）
+  // 修正2.4: サンプルレート変換の実装
   if (options.sampleRate && options.sampleRate !== result.sampleRate) {
-    // 本格的なリサンプリングは複雑なので、警告のみ
-    console.warn('サンプルレート変換は現在サポートされていません');
+    try {
+      result = await resampleAudioData(result, options.sampleRate);
+    } catch (error) {
+      console.warn('サンプルレート変換に失敗しました:', error);
+      throw new AudioInspectError(
+        'PROCESSING_ERROR',
+        `サンプルレート変換に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
   }
 
   return result;
+}
+
+/**
+ * AudioDataをリサンプリング
+ */
+async function resampleAudioData(audioData: AudioData, targetSampleRate: number): Promise<AudioData> {
+  // OfflineAudioContextが利用できない環境での対応
+  if (typeof OfflineAudioContext === 'undefined') {
+    throw new AudioInspectError(
+      'UNSUPPORTED_FORMAT',
+      'この環境ではサンプルレート変換がサポートされていません'
+    );
+  }
+
+  const originalSampleRate = audioData.sampleRate;
+  const originalLength = audioData.length;
+  const targetLength = Math.floor((originalLength * targetSampleRate) / originalSampleRate);
+
+  // OfflineAudioContextを作成
+  const offlineContext = new OfflineAudioContext(
+    audioData.numberOfChannels,
+    targetLength,
+    targetSampleRate
+  );
+
+  // 元のAudioDataからAudioBufferを作成
+  const originalBuffer = offlineContext.createBuffer(
+    audioData.numberOfChannels,
+    originalLength,
+    originalSampleRate
+  );
+
+  // チャンネルデータをコピー
+  for (let channel = 0; channel < audioData.numberOfChannels; channel++) {
+    const channelData = audioData.channelData[channel];
+    if (channelData) {
+      originalBuffer.copyToChannel(channelData, channel);
+    }
+  }
+
+  // AudioBufferSourceNodeを作成してリサンプリング
+  const source = offlineContext.createBufferSource();
+  source.buffer = originalBuffer;
+  source.connect(offlineContext.destination);
+
+  // レンダリング開始
+  source.start(0);
+  const resampledBuffer = await offlineContext.startRendering();
+
+  // リサンプリングされたAudioBufferからAudioDataに変換
+  return audioBufferToAudioData(resampledBuffer);
 }
 
 /**

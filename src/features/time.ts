@@ -340,9 +340,13 @@ export function getWaveform(audio: AudioData, options: WaveformOptions = {}): Wa
 
   const channelData = getChannelData(audio, channel);
 
-  // フレーム計算
-  const frameCount = Math.ceil(audio.duration * framesPerSecond);
-  const samplesPerFrame = Math.floor(audio.length / frameCount);
+  // 修正2.3: 極端なフレーム数指定時の不具合対応
+  // audio.length が0の場合は frameCount も0にする
+  const desiredFrameCount = Math.ceil(audio.duration * framesPerSecond);
+  const maxPossibleFrameCount = audio.length > 0 ? audio.length : (desiredFrameCount > 0 ? 1 : 0);
+  const frameCount = Math.min(desiredFrameCount, maxPossibleFrameCount);
+
+  const samplesPerFrame = frameCount > 0 ? Math.max(1, Math.floor(audio.length / frameCount)) : 0;
 
   const waveform: WaveformPoint[] = [];
   let maxAmplitude = 0;

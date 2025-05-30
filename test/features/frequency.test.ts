@@ -236,6 +236,69 @@ describe('getSpectrum', () => {
       }
     });
   });
+
+  describe('spectrogram frequency filtering', () => {
+    it('should apply frequency range filtering in spectrogram', async () => {
+      const signal = createSineWave(1000, 2.0, 44100, 0.5); // 1kHz信号
+      const audio = createTestAudioData(signal);
+
+      const result = await getSpectrum(audio, {
+        timeFrames: 5,
+        minFrequency: 800,
+        maxFrequency: 1200,
+        fftSize: 1024
+      });
+
+      expect(result.spectrogram).toBeDefined();
+      if (result.spectrogram) {
+        // フィルタリングされた周波数範囲内にあることを確認
+        expect(result.spectrogram.frequencies[0]).toBeGreaterThanOrEqual(800);
+        expect(result.spectrogram.frequencies[result.spectrogram.frequencies.length - 1]).toBeLessThanOrEqual(1200);
+        
+        // すべてのフレームで適切な周波数範囲がフィルタリングされていることを確認
+        result.spectrogram.intensities.forEach(intensity => {
+          expect(intensity.length).toBe(result.spectrogram?.frequencies.length);
+        });
+      }
+    });
+
+    it('should handle short audio data with proper frame calculation', async () => {
+      // FFTサイズより短い音声データ
+      const shortSignal = createSineWave(440, 0.01, 44100, 0.5); // 10ms（441サンプル）
+      const audio = createTestAudioData(shortSignal);
+
+      const result = await getSpectrum(audio, {
+        timeFrames: 3,
+        fftSize: 1024 // 音声より長いFFTサイズ
+      });
+
+      expect(result.spectrogram).toBeDefined();
+      if (result.spectrogram) {
+        // 短い音声でも少なくとも1フレーム処理されることを確認
+        expect(result.spectrogram.timeFrames).toBeGreaterThanOrEqual(1);
+        expect(result.spectrogram.intensities.length).toBeGreaterThanOrEqual(1);
+        expect(result.spectrogram.times.length).toBeGreaterThanOrEqual(1);
+      }
+    });
+
+    it('should handle empty audio data gracefully', async () => {
+      const emptySignal = new Float32Array(0);
+      const audio = createTestAudioData(emptySignal);
+
+      const result = await getSpectrum(audio, {
+        timeFrames: 2,
+        fftSize: 512
+      });
+
+      expect(result.spectrogram).toBeDefined();
+      if (result.spectrogram) {
+        // 空の音声データの場合、フレーム数は0
+        expect(result.spectrogram.timeFrames).toBe(0);
+        expect(result.spectrogram.intensities.length).toBe(0);
+        expect(result.spectrogram.times.length).toBe(0);
+      }
+    });
+  });
 });
 
 describe('error handling', () => {
