@@ -1,6 +1,6 @@
 {
   "name": "audio-inspect",
-  "version": "0.0.1-beta.2",
+  "version": "0.0.1-beta.3",
   "description": "Lightweight yet powerful audio analysis library",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -24,12 +24,15 @@
     }
   },
   "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
+    "dist/**/*.js",
+    "dist/**/*.cjs", 
+    "dist/**/*.d.ts",
+    "dist/core/AudioInspectProcessor.js",
+    "README.md"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "NODE_ENV=production tsup",
+    "build:dev": "NODE_ENV=development tsup",
     "dev": "tsup --watch",
     "test": "vitest --run --coverage",
     "test:watch": "vitest --coverage",
