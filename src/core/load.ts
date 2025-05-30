@@ -157,7 +157,10 @@ async function processAudioData(audioData: AudioData, options: LoadOptions): Pro
 /**
  * AudioDataをリサンプリング
  */
-async function resampleAudioData(audioData: AudioData, targetSampleRate: number): Promise<AudioData> {
+async function resampleAudioData(
+  audioData: AudioData,
+  targetSampleRate: number
+): Promise<AudioData> {
   // OfflineAudioContextが利用できない環境での対応
   if (typeof OfflineAudioContext === 'undefined') {
     throw new AudioInspectError(

@@ -1,119 +1,72 @@
 {
   "name": "audio-inspect",
-  "version": "0.1.1",
-  "description": "軽量かつ高機能なオーディオ解析ライブラリ",
+  "version": "0.1.0",
+  "description": "Lightweight yet powerful audio analysis library",
   "type": "module",
-  "main": "./dist/index.js",
+  "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
       "require": "./dist/index.cjs",
-      "import": "./dist/index.js"
+      "types": "./dist/index.d.ts"
     },
-    "./features": {
-      "types": "./dist/features/index.d.ts",
-      "require": "./dist/features/index.cjs",
-      "import": "./dist/features/index.js"
+    "./features/*": {
+      "import": "./dist/features/*.js",
+      "require": "./dist/features/*.cjs",
+      "types": "./dist/features/*.d.ts"
     },
-    "./features/time": {
-      "types": "./dist/features/time.d.ts",
-      "require": "./dist/features/time.cjs",
-      "import": "./dist/features/time.js"
-    },
-    "./features/frequency": {
-      "types": "./dist/features/frequency.d.ts",
-      "require": "./dist/features/frequency.cjs",
-      "import": "./dist/features/frequency.js"
-    },
-    "./features/loudness": {
-      "types": "./dist/features/loudness.d.ts",
-      "require": "./dist/features/loudness.cjs",
-      "import": "./dist/features/loudness.js"
-    },
-    "./features/spectral": {
-      "types": "./dist/features/spectral.d.ts",
-      "require": "./dist/features/spectral.cjs",
-      "import": "./dist/features/spectral.js"
-    },
-    "./features/vad": {
-      "types": "./dist/features/vad.d.ts",
-      "require": "./dist/features/vad.cjs",
-      "import": "./dist/features/vad.js"
-    },
-    "./features/energy": {
-      "types": "./dist/features/energy.d.ts",
-      "require": "./dist/features/energy.cjs",
-      "import": "./dist/features/energy.js"
-    },
-    "./features/dynamics": {
-      "types": "./dist/features/dynamics.d.ts",
-      "require": "./dist/features/dynamics.cjs",
-      "import": "./dist/features/dynamics.js"
-    },
-    "./features/stereo": {
-      "types": "./dist/features/stereo.d.ts",
-      "require": "./dist/features/stereo.cjs",
-      "import": "./dist/features/stereo.js"
-    },
-    "./core/fft-provider": {
-      "types": "./dist/core/fft-provider.d.ts",
-      "require": "./dist/core/fft-provider.cjs",
-      "import": "./dist/core/fft-provider.js"
-    },
-    "./package.json": "./package.json"
+    "./core/*": {
+      "import": "./dist/core/*.js",
+      "require": "./dist/core/*.cjs",
+      "types": "./dist/core/*.d.ts"
+    }
   },
   "files": [
-    "dist/**/*.js",
-    "dist/**/*.cjs",
-    "dist/**/*.d.ts",
-    "dist/**/*.d.cts",
-    "dist/**/*.map",
+    "dist",
     "README.md",
-    "package.json"
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup",
-    "build:watch": "tsup --watch",
     "dev": "tsup --watch",
-    "test": "vitest run --coverage",
-    "test:ci": "vitest run --coverage",
-    "test:watch": "vitest --watch",
-    "lint": "eslint src/**/*.ts test/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts test/**/*.ts --fix",
-    "format": "prettier --write src/**/*.ts test/**/*.ts",
-    "format:check": "prettier --check src/**/*.ts test/**/*.ts",
+    "test": "vitest --coverage",
+    "test:e2e": "npm run build && playwright test",
+    "lint": "eslint src test --ext .ts",
+    "lint:fix": "eslint src test --ext .ts --fix",
     "type-check": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "format": "prettier --write \"src/**/*.ts\"",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
   },
   "keywords": [
     "audio",
     "analysis",
+    "fft",
+    "spectrum",
+    "rms",
     "peaks",
-    "typescript",
-    "browser",
-    "node"
+    "loudness",
+    "web-audio",
+    "typescript"
   ],
-  "author": "",
+  "author": "Your Name",
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.0.0",
-    "@typescript-eslint/parser": "^8.0.0",
-    "@vitest/coverage-v8": "^3.1.4",
-    "eslint": "^9.0.0",
-    "eslint-config-prettier": "^9.1.0",
-    "prettier": "^3.3.0",
-    "tsup": "^8.5.0",
-    "typescript": "^5.6.0",
-    "vite": "^6.0.0",
-    "vitest": "^3.1.4"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.18.1",
+    "@typescript-eslint/parser": "^8.18.1",
+    "@vitest/coverage-v8": "^2.1.8",
+    "@vitest/ui": "^2.1.8",
+    "eslint": "^9.17.0",
+    "playwright": "^1.49.1",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   },
   "dependencies": {
-    "webfft": "^1.0.3"
+    "webfft": "^2.0.1"
   }
 }

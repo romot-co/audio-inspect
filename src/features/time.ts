@@ -1,5 +1,11 @@
 import { AudioData, AmplitudeOptions, AudioInspectError } from '../types.js';
-import { getChannelData, ensureValidSample, isValidSample, amplitudeToDecibels, safeArrayAccess } from '../core/utils.js';
+import {
+  getChannelData,
+  ensureValidSample,
+  isValidSample,
+  amplitudeToDecibels,
+  safeArrayAccess
+} from '../core/utils.js';
 
 /**
  * ピーク検出のオプション
@@ -47,7 +53,7 @@ interface PeakCandidate {
 
 // より洗練されたピーク検出アルゴリズム
 function detectAllInitialPeaks(
-  data: Float32Array, 
+  data: Float32Array,
   threshold: number,
   includeProminence: boolean = false
 ): PeakCandidate[] {
@@ -76,7 +82,7 @@ function detectAllInitialPeaks(
       peaks.push(peak);
     }
   }
-  
+
   return peaks;
 }
 
@@ -121,7 +127,7 @@ export function getPeaks(audio: AudioData, options: PeaksOptions = {}): PeaksRes
   }
 
   const channelData = getChannelData(audio, channel);
-  
+
   if (channelData.length === 0) {
     return {
       peaks: [],
@@ -154,9 +160,9 @@ export function getPeaks(audio: AudioData, options: PeaksOptions = {}): PeaksRes
     // 占有領域との重複をチェック
     const candidateStart = candidate.position - minDistance;
     const candidateEnd = candidate.position + minDistance;
-    
-    const hasOverlap = occupiedRegions.some(([start, end]) => 
-      !(candidateEnd < start || candidateStart > end)
+
+    const hasOverlap = occupiedRegions.some(
+      ([start, end]) => !(candidateEnd < start || candidateStart > end)
     );
 
     if (!hasOverlap) {
@@ -165,7 +171,7 @@ export function getPeaks(audio: AudioData, options: PeaksOptions = {}): PeaksRes
         time: candidate.position / audio.sampleRate,
         amplitude: candidate.amplitude
       });
-      
+
       occupiedRegions.push([candidateStart, candidateEnd]);
     }
   }
@@ -175,9 +181,10 @@ export function getPeaks(audio: AudioData, options: PeaksOptions = {}): PeaksRes
 
   // 5. 統計情報の計算（すべての候補から）
   const maxAmplitude = allInitialPeaks.length > 0 ? (allInitialPeaks[0]?.amplitude ?? 0) : 0;
-  const averageAmplitude = allInitialPeaks.length > 0 
-    ? allInitialPeaks.reduce((sum, p) => sum + p.amplitude, 0) / allInitialPeaks.length
-    : 0;
+  const averageAmplitude =
+    allInitialPeaks.length > 0
+      ? allInitialPeaks.reduce((sum, p) => sum + p.amplitude, 0) / allInitialPeaks.length
+      : 0;
 
   return {
     peaks: selectedPeaks,
@@ -192,18 +199,16 @@ const SILENCE_DB = -Infinity;
 /**
  * RMS（Root Mean Square）を計算
  */
-export function getRMS(
-  audio: AudioData,
-  optionsOrChannel: AmplitudeOptions | number = {}
-): number {
-  const options: Required<AmplitudeOptions> = typeof optionsOrChannel === 'number'
-    ? { channel: optionsOrChannel, asDB: false, reference: 1.0 }
-    : { 
-        channel: 0, 
-        asDB: false, 
-        reference: 1.0,
-        ...optionsOrChannel 
-      };
+export function getRMS(audio: AudioData, optionsOrChannel: AmplitudeOptions | number = {}): number {
+  const options: Required<AmplitudeOptions> =
+    typeof optionsOrChannel === 'number'
+      ? { channel: optionsOrChannel, asDB: false, reference: 1.0 }
+      : {
+          channel: 0,
+          asDB: false,
+          reference: 1.0,
+          ...optionsOrChannel
+        };
 
   const channelData = getChannelData(audio, options.channel);
 
@@ -229,18 +234,13 @@ export function getRMS(
 
   const rms = Math.sqrt(sumOfSquares / validSampleCount);
 
-  return options.asDB 
-    ? amplitudeToDecibels(rms, options.reference)
-    : rms;
+  return options.asDB ? amplitudeToDecibels(rms, options.reference) : rms;
 }
 
 /**
  * ピーク振幅を計算
  */
-export function getPeakAmplitude(
-  audio: AudioData,
-  options: AmplitudeOptions = {}
-): number {
+export function getPeakAmplitude(audio: AudioData, options: AmplitudeOptions = {}): number {
   const resolvedOptions: Required<AmplitudeOptions> = {
     channel: 0,
     asDB: false,
@@ -262,9 +262,7 @@ export function getPeakAmplitude(
     }
   }
 
-  return resolvedOptions.asDB 
-    ? amplitudeToDecibels(peak, resolvedOptions.reference)
-    : peak;
+  return resolvedOptions.asDB ? amplitudeToDecibels(peak, resolvedOptions.reference) : peak;
 }
 
 // エイリアスとしてgetPeakをエクスポート
@@ -343,7 +341,7 @@ export function getWaveform(audio: AudioData, options: WaveformOptions = {}): Wa
   // 修正2.3: 極端なフレーム数指定時の不具合対応
   // audio.length が0の場合は frameCount も0にする
   const desiredFrameCount = Math.ceil(audio.duration * framesPerSecond);
-  const maxPossibleFrameCount = audio.length > 0 ? audio.length : (desiredFrameCount > 0 ? 1 : 0);
+  const maxPossibleFrameCount = audio.length > 0 ? audio.length : desiredFrameCount > 0 ? 1 : 0;
   const frameCount = Math.min(desiredFrameCount, maxPossibleFrameCount);
 
   const samplesPerFrame = frameCount > 0 ? Math.max(1, Math.floor(audio.length / frameCount)) : 0;
@@ -359,10 +357,11 @@ export function getWaveform(audio: AudioData, options: WaveformOptions = {}): Wa
     // フレーム長が0または負の場合の処理
     if (endSample <= startSample) {
       // 最後の有効な振幅値を使用、または0
-      const lastAmplitude = waveform.length > 0 
-        ? safeArrayAccess(waveform, waveform.length - 1, { time: 0, amplitude: 0 }).amplitude
-        : 0;
-      
+      const lastAmplitude =
+        waveform.length > 0
+          ? safeArrayAccess(waveform, waveform.length - 1, { time: 0, amplitude: 0 }).amplitude
+          : 0;
+
       waveform.push({
         time: (startSample + samplesPerFrame / 2) / audio.sampleRate,
         amplitude: lastAmplitude
@@ -372,7 +371,7 @@ export function getWaveform(audio: AudioData, options: WaveformOptions = {}): Wa
 
     // フレームデータの処理
     const frameData = channelData.subarray(startSample, endSample); // sliceより効率的
-    
+
     let amplitude: number;
     switch (method) {
       case 'peak':
@@ -389,7 +388,7 @@ export function getWaveform(audio: AudioData, options: WaveformOptions = {}): Wa
 
     const time = (startSample + (endSample - startSample) / 2) / audio.sampleRate;
     waveform.push({ time, amplitude });
-    
+
     maxAmplitude = Math.max(maxAmplitude, amplitude);
     totalAmplitude += amplitude;
   }
@@ -410,7 +409,7 @@ export function getWaveform(audio: AudioData, options: WaveformOptions = {}): Wa
  */
 function calculateRMSAmplitude(frameData: Float32Array): number {
   if (frameData.length === 0) return 0;
-  
+
   let sum = 0;
   for (let i = 0; i < frameData.length; i++) {
     const sample = ensureValidSample(frameData[i]);
@@ -436,7 +435,7 @@ function calculatePeakAmplitude(frameData: Float32Array): number {
  */
 function calculateAverageAmplitude(frameData: Float32Array): number {
   if (frameData.length === 0) return 0;
-  
+
   let sum = 0;
   for (let i = 0; i < frameData.length; i++) {
     sum += Math.abs(ensureValidSample(frameData[i]));

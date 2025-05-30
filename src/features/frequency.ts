@@ -130,13 +130,13 @@ function getChannelData(audio: AudioData, channel: number): Float32Array {
     return averageData;
   }
 
-  if (channel < 0 || channel >= audio.numberOfChannels) {
-    throw new AudioInspectError('INVALID_INPUT', `無効なチャンネル番号: ${channel}`);
+  if (channel < -1 || channel >= audio.numberOfChannels) {
+    throw new AudioInspectError('INVALID_INPUT', `Invalid channel number: ${channel}`);
   }
 
   const channelData = audio.channelData[channel];
   if (!channelData) {
-    throw new AudioInspectError('INVALID_INPUT', `チャンネル ${channel} のデータが存在しません`);
+    throw new AudioInspectError('INVALID_INPUT', `Channel ${channel} data does not exist`);
   }
 
   return channelData;
@@ -313,7 +313,7 @@ async function computeSpectrogram(
   options: SpectrogramOptions
 ): Promise<SpectrogramData> {
   const hopSize = Math.floor(fftSize * (1 - overlap));
-  
+
   // 修正2.2: 短音声データ処理時のフレーム数不足対応
   let numPossibleFrames;
   if (data.length === 0) {
@@ -349,7 +349,7 @@ async function computeSpectrogram(
       // フレームデータを抽出
       const frameData = new Float32Array(fftSize);
       for (let i = 0; i < fftSize; i++) {
-        frameData[i] = (startSample + i < data.length) ? data[startSample + i] || 0 : 0;
+        frameData[i] = startSample + i < data.length ? data[startSample + i] || 0 : 0;
       }
 
       // ウィンドウ関数を適用
@@ -361,17 +361,17 @@ async function computeSpectrogram(
       // 修正2.1: 最初のフレームで周波数範囲フィルタリングを設定
       if (frame === 0) {
         frequencies = fftResult.frequencies;
-        
+
         // 周波数フィルタリングのインデックス範囲を決定
         const minFreq = options.minFrequency || 0;
         const maxFreq = options.maxFrequency || sampleRate / 2;
-        
+
         frequencyStartIndex = frequencies.findIndex((f) => f >= minFreq);
         if (frequencyStartIndex === -1) frequencyStartIndex = 0;
-        
+
         const tempEndIndex = frequencies.findIndex((f) => f > maxFreq);
         frequencyEndIndex = tempEndIndex === -1 ? frequencies.length : tempEndIndex;
-        
+
         // フィルタリングされた周波数軸を作成
         filteredFrequencies = frequencies.slice(frequencyStartIndex, frequencyEndIndex);
       }
@@ -379,7 +379,9 @@ async function computeSpectrogram(
       // 強度データを保存（周波数範囲フィルタリング適用）
       const magnitude = fftResult.magnitude;
       const filteredMagnitude = magnitude.slice(frequencyStartIndex, frequencyEndIndex);
-      const frameIntensity = options.decibels ? magnitudeToDecibels(filteredMagnitude) : filteredMagnitude;
+      const frameIntensity = options.decibels
+        ? magnitudeToDecibels(filteredMagnitude)
+        : filteredMagnitude;
       intensities.push(frameIntensity);
 
       // 時間位置を計算

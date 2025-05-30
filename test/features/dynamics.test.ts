@@ -95,7 +95,7 @@ describe('getCrestFactor', () => {
   describe('different amplitudes', () => {
     it('should be amplitude-independent for sine waves', () => {
       const amplitudes = [0.1, 0.5, 1.0, 2.0];
-      
+
       for (const amplitude of amplitudes) {
         const sineWave = createSineWave(440, 0.1, 44100, amplitude);
         const audio = createTestAudioData(sineWave);
@@ -158,9 +158,9 @@ describe('getCrestFactor', () => {
       const sineWave = createSineWave(440, 1.0, 44100, 1.0);
       const audio = createTestAudioData(sineWave);
 
-      const result = getCrestFactor(audio, { 
+      const result = getCrestFactor(audio, {
         windowSize: 0.1, // 100ms窓
-        hopSize: 0.05    // 50ms hop
+        hopSize: 0.05 // 50ms hop
       });
 
       expect(result.timeVarying).toBeDefined();
@@ -246,4 +246,4 @@ describe('getCrestFactor', () => {
       expect(result.rms).toBeCloseTo(0.7, 3);
     });
   });
-}); 
+});

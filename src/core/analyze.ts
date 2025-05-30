@@ -1,80 +1,73 @@
 import { AudioData, Feature, AudioInspectError } from '../types.js';
 
 /**
- * 音声データから特徴量を抽出する
+ * Extract features from audio data
  */
 export async function analyze<T>(audio: AudioData, feature: Feature<T>): Promise<T> {
   try {
-    // 入力検証
+    // Input validation
     validateAudioData(audio);
 
-    // 特徴抽出関数を実行
+    // Execute feature extraction function
     const result = await feature(audio);
 
     return result;
   } catch (error) {
-    // すでにAudioInspectErrorの場合はそのまま再投げ
+    // Re-throw if already an AudioInspectError
     if (error instanceof AudioInspectError) {
       throw error;
     }
 
-    // その他のエラーをラップ
+    // Wrap other errors
     const message = error instanceof Error ? error.message : 'Unknown error';
-    throw new AudioInspectError(
-      'PROCESSING_ERROR',
-      `特徴量の抽出に失敗しました: ${message}`,
-      error
-    );
+    throw new AudioInspectError('PROCESSING_ERROR', `Feature extraction failed: ${message}`, error);
   }
 }
 
 /**
- * AudioDataの入力検証
+ * AudioData input validation
  */
 function validateAudioData(audio: AudioData): void {
   if (!audio || typeof audio !== 'object') {
-    throw new AudioInspectError('INVALID_INPUT', 'AudioDataが無効です');
+    throw new AudioInspectError('INVALID_INPUT', 'AudioData is invalid');
   }
 
   if (typeof audio.sampleRate !== 'number' || audio.sampleRate <= 0) {
-    throw new AudioInspectError('INVALID_INPUT', 'サンプルレートが無効です');
+    throw new AudioInspectError('INVALID_INPUT', 'Sample rate is invalid');
   }
 
   if (!Array.isArray(audio.channelData) || audio.channelData.length === 0) {
-    throw new AudioInspectError('INVALID_INPUT', 'チャンネルデータが無効です');
+    throw new AudioInspectError('INVALID_INPUT', 'Channel data is invalid');
   }
 
   if (
     typeof audio.numberOfChannels !== 'number' ||
     audio.numberOfChannels !== audio.channelData.length
   ) {
-    throw new AudioInspectError('INVALID_INPUT', 'チャンネル数が一致しません');
+    throw new AudioInspectError('INVALID_INPUT', 'Number of channels does not match');
   }
 
   if (typeof audio.length !== 'number' || audio.length <= 0) {
-    throw new AudioInspectError('INVALID_INPUT', 'データ長が無効です');
+    throw new AudioInspectError('INVALID_INPUT', 'Data length is invalid');
   }
 
   if (typeof audio.duration !== 'number' || audio.duration <= 0) {
-    throw new AudioInspectError('INVALID_INPUT', '音声の長さが無効です');
+    throw new AudioInspectError('INVALID_INPUT', 'Audio duration is invalid');
   }
 
-  // 各チャンネルのデータ長が一致することを確認
+  // Ensure all channel data lengths match
   const firstChannelData = audio.channelData[0];
   if (!firstChannelData) {
-    throw new AudioInspectError('INVALID_INPUT', 'チャンネル0のデータが存在しません');
+    throw new AudioInspectError('INVALID_INPUT', 'Channel 0 data does not exist');
   }
   const expectedLength = firstChannelData.length;
   for (let i = 0; i < audio.channelData.length; i++) {
     const channelData = audio.channelData[i];
     if (!(channelData instanceof Float32Array)) {
-      throw new AudioInspectError(
-        'INVALID_INPUT',
-        `チャンネル ${i} のデータが Float32Array ではありません`
-      );
+      throw new AudioInspectError('INVALID_INPUT', `Channel ${i} data is not a Float32Array`);
     }
     if (channelData.length !== expectedLength) {
-      throw new AudioInspectError('INVALID_INPUT', `チャンネル ${i} のデータ長が一致しません`);
+      throw new AudioInspectError('INVALID_INPUT', `Channel ${i} data length does not match`);
     }
   }
 }

@@ -85,10 +85,7 @@ var NativeFFTProvider = class {
     this.size = size;
     this.sampleRate = sampleRate;
     if (!this.isPowerOfTwo(size)) {
-      throw new AudioInspectError(
-        "INVALID_INPUT",
-        "FFT\u30B5\u30A4\u30BA\u306F2\u306E\u51AA\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059"
-      );
+      throw new AudioInspectError("INVALID_INPUT", "FFT\u30B5\u30A4\u30BA\u306F2\u306E\u51AA\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
     }
     this.precomputeTables();
   }

@@ -33,22 +33,28 @@ function createSineWave(
 
 function createPinkNoise(length: number, amplitude = 1): Float32Array {
   const data = new Float32Array(length);
-  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  let b0 = 0,
+    b1 = 0,
+    b2 = 0,
+    b3 = 0,
+    b4 = 0,
+    b5 = 0,
+    b6 = 0;
 
   for (let i = 0; i < length; i++) {
     const white = (Math.random() - 0.5) * 2;
-    
+
     // Pink noise filter
     b0 = 0.99886 * b0 + white * 0.0555179;
     b1 = 0.99332 * b1 + white * 0.0750759;
-    b2 = 0.96900 * b2 + white * 0.1538520;
-    b3 = 0.86650 * b3 + white * 0.3104856;
-    b4 = 0.55000 * b4 + white * 0.5329522;
-    b5 = -0.7616 * b5 - white * 0.0168980;
-    
+    b2 = 0.969 * b2 + white * 0.153852;
+    b3 = 0.8665 * b3 + white * 0.3104856;
+    b4 = 0.55 * b4 + white * 0.5329522;
+    b5 = -0.7616 * b5 - white * 0.016898;
+
     const pink = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
     b6 = white * 0.115926;
-    
+
     data[i] = pink * amplitude * 0.11; // Scale down
   }
 
@@ -191,9 +197,9 @@ describe('getLUFS', () => {
       const right = createSineWave(1500, 3.0, 48000, 0.4);
       const audio = createTestAudioData([left, right]);
 
-      const result = getLUFS(audio, { 
+      const result = getLUFS(audio, {
         channelMode: 'stereo',
-        calculateTruePeak: true 
+        calculateTruePeak: true
       });
 
       expect(result.truePeak).toBeDefined();
@@ -274,7 +280,7 @@ describe('getLUFS', () => {
     it('should show different LUFS for different amplitudes', () => {
       const quiet = createSineWave(1000, 5.0, 48000, 0.01);
       const loud = createSineWave(1000, 5.0, 48000, 0.1);
-      
+
       const quietAudio = createTestAudioData([quiet]);
       const loudAudio = createTestAudioData([loud]);
 
@@ -289,12 +295,12 @@ describe('getLUFS', () => {
       const signal = new Float32Array(48000 * 5);
       for (let i = 0; i < signal.length; i++) {
         const t = i / 48000;
-        signal[i] = 
+        signal[i] =
           0.1 * Math.sin(2 * Math.PI * 440 * t) +
           0.05 * Math.sin(2 * Math.PI * 880 * t) +
           0.03 * Math.sin(2 * Math.PI * 1320 * t);
       }
-      
+
       const audio = createTestAudioData([signal]);
       const result = getLUFS(audio);
 
@@ -334,4 +340,4 @@ describe('getLUFS', () => {
       }
     });
   });
-}); 
+});

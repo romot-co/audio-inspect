@@ -48,7 +48,7 @@ describe('load', () => {
     it('should handle mono conversion', async () => {
       const channel0 = createSineWave(440, 1.0, 44100, 0.5);
       const channel1 = createSineWave(880, 1.0, 44100, 0.3);
-      
+
       const stereoAudio: AudioData = {
         sampleRate: 44100,
         channelData: [channel0, channel1],
@@ -161,7 +161,7 @@ describe('load', () => {
 
       const channel0 = createSineWave(440, 1.0, 44100, 0.5);
       const channel1 = createSineWave(880, 1.0, 44100, 0.3);
-      
+
       const stereoAudio: AudioData = {
         sampleRate: 44100,
         channelData: [channel0, channel1],
@@ -186,7 +186,7 @@ describe('load', () => {
 
       const channel0 = createSineWave(440, 2.0, 48000, 0.4);
       const channel1 = createSineWave(880, 2.0, 48000, 0.6);
-      
+
       const stereoAudio: AudioData = {
         sampleRate: 48000,
         channelData: [channel0, channel1],
@@ -195,16 +195,16 @@ describe('load', () => {
         length: channel0.length
       };
 
-      const result = await load(stereoAudio, { 
+      const result = await load(stereoAudio, {
         sampleRate: 44100,
         channels: 'mono',
-        normalize: true 
+        normalize: true
       });
 
       expect(result.sampleRate).toBe(44100);
       expect(result.numberOfChannels).toBe(1);
       expect(result.length).toBeCloseTo((stereoAudio.length * 44100) / 48000, 100);
-      
+
       // 正規化の確認
       let maxAmplitude = 0;
       const channelData = result.channelData[0];
@@ -233,7 +233,7 @@ describe('load', () => {
       expect(channelData).toBeDefined();
       if (channelData) {
         expect(channelData.length).toBeGreaterThan(0);
-        
+
         // 振幅の範囲が合理的であることを確認
         let maxAmplitude = 0;
         for (const sample of channelData) {
@@ -269,9 +269,9 @@ describe('load', () => {
       const originalSignal = createSineWave(1000, 1.0, 44100, 0.5);
       const originalAudio = createTestAudioData(originalSignal, 44100);
 
-      await expect(load(originalAudio, { sampleRate: 48000 }))
-        .rejects
-        .toThrow('この環境ではサンプルレート変換がサポートされていません');
+      await expect(load(originalAudio, { sampleRate: 48000 })).rejects.toThrow(
+        'この環境ではサンプルレート変換がサポートされていません'
+      );
     });
   });
 
@@ -297,8 +297,8 @@ describe('load', () => {
       };
 
       // サンプルレート変換なし、正規化のみでテスト
-      const result = await load(emptyAudio, { 
-        normalize: true 
+      const result = await load(emptyAudio, {
+        normalize: true
       });
 
       expect(result.numberOfChannels).toBe(1);
@@ -306,4 +306,4 @@ describe('load', () => {
       expect(result.length).toBe(0);
     });
   });
-}); 
+});

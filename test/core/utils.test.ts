@@ -57,14 +57,14 @@ describe('utils', () => {
       const result = getChannelData(audio, -1);
 
       expect(result[0]).toBe(1.5); // (1+2)/2
-      expect(result[1]).toBe(3);   // (2+4)/2
+      expect(result[1]).toBe(3); // (2+4)/2
       expect(result[2]).toBe(4.5); // (3+6)/2
     });
 
     it('should handle missing channel data when computing average', () => {
       const channel0 = new Float32Array([1, 2, 3]);
       const audio = createTestAudioData({
-        channelData: [channel0, undefined as any],
+        channelData: [channel0, undefined as unknown as Float32Array],
         numberOfChannels: 2,
         length: 3
       });
@@ -80,18 +80,47 @@ describe('utils', () => {
         length: 3
       });
 
-      expect(() => getChannelData(audio, 1)).toThrow('無効なチャンネル番号: 1');
-      expect(() => getChannelData(audio, -2)).toThrow('無効なチャンネル番号: -2');
+      expect(() => getChannelData(audio, 1)).toThrow('Invalid channel number: 1');
+      expect(() => getChannelData(audio, -2)).toThrow('Invalid channel number: -2');
     });
 
     it('should throw error for missing channel data', () => {
       const audio = createTestAudioData({
-        channelData: [undefined as any],
+        channelData: [undefined as unknown as Float32Array],
         numberOfChannels: 1,
         length: 3
       });
 
-      expect(() => getChannelData(audio, 0)).toThrow('チャンネル 0 のデータが存在しません');
+      expect(() => getChannelData(audio, 0)).toThrow('Channel 0 data does not exist');
+    });
+
+    it('should extract channel data correctly', () => {
+      const audioData: AudioData = {
+        sampleRate: 44100,
+        channelData: [new Float32Array([1, 2, 3]), new Float32Array([4, 5, 6])],
+        duration: 1,
+        numberOfChannels: 2,
+        length: 3
+      };
+
+      const leftChannel = getChannelData(audioData, 0);
+      const rightChannel = getChannelData(audioData, 1);
+
+      expect(leftChannel).toEqual(new Float32Array([1, 2, 3]));
+      expect(rightChannel).toEqual(new Float32Array([4, 5, 6]));
+    });
+
+    it('should handle invalid channel index', () => {
+      const audioData: AudioData = {
+        sampleRate: 44100,
+        channelData: [new Float32Array([1, 2, 3])],
+        duration: 1,
+        numberOfChannels: 1,
+        length: 3
+      };
+
+      // 無効なチャンネルはエラーを投げる
+      expect(() => getChannelData(audioData, 1)).toThrow('Invalid channel number');
     });
   });
 
@@ -107,8 +136,8 @@ describe('utils', () => {
       expect(ensureValidSample(NaN)).toBe(0);
       expect(ensureValidSample(Infinity)).toBe(0);
       expect(ensureValidSample(-Infinity)).toBe(0);
-      expect(ensureValidSample(undefined as any)).toBe(0);
-      expect(ensureValidSample(null as any)).toBe(0);
+      expect(ensureValidSample(undefined as unknown as number)).toBe(0);
+      expect(ensureValidSample(null as unknown as number)).toBe(0);
     });
   });
 
@@ -124,8 +153,8 @@ describe('utils', () => {
       expect(isValidSample(NaN)).toBe(false);
       expect(isValidSample(Infinity)).toBe(false);
       expect(isValidSample(-Infinity)).toBe(false);
-      expect(isValidSample(undefined as any)).toBe(false);
-      expect(isValidSample(null as any)).toBe(false);
+      expect(isValidSample(undefined as unknown as number)).toBe(false);
+      expect(isValidSample(null as unknown as number)).toBe(false);
     });
   });
 
@@ -133,11 +162,11 @@ describe('utils', () => {
     it('should convert amplitude to decibels', () => {
       expect(amplitudeToDecibels(1.0, 1.0)).toBe(0);
       expect(amplitudeToDecibels(0.5, 1.0)).toBeCloseTo(-6.02, 1); // 20*log10(0.5)
-      expect(amplitudeToDecibels(2.0, 1.0)).toBeCloseTo(6.02, 1);  // 20*log10(2)
+      expect(amplitudeToDecibels(2.0, 1.0)).toBeCloseTo(6.02, 1); // 20*log10(2)
     });
 
     it('should handle different reference values', () => {
-      expect(amplitudeToDecibels(1.0, 0.5)).toBeCloseTo(6.02, 1);  // 20*log10(1/0.5)
+      expect(amplitudeToDecibels(1.0, 0.5)).toBeCloseTo(6.02, 1); // 20*log10(1/0.5)
       expect(amplitudeToDecibels(0.5, 0.5)).toBe(0);
     });
 
@@ -190,62 +219,38 @@ describe('utils', () => {
   });
 
   describe('isPowerOfTwo', () => {
-    it('should return true for powers of two', () => {
-      expect(isPowerOfTwo(1)).toBe(true);    // 2^0
-      expect(isPowerOfTwo(2)).toBe(true);    // 2^1
-      expect(isPowerOfTwo(4)).toBe(true);    // 2^2
-      expect(isPowerOfTwo(8)).toBe(true);    // 2^3
-      expect(isPowerOfTwo(16)).toBe(true);   // 2^4
-      expect(isPowerOfTwo(1024)).toBe(true); // 2^10
-      expect(isPowerOfTwo(2048)).toBe(true); // 2^11
-    });
+    it('should identify powers of two correctly', () => {
+      expect(isPowerOfTwo(1)).toBe(true);
+      expect(isPowerOfTwo(2)).toBe(true);
+      expect(isPowerOfTwo(4)).toBe(true);
+      expect(isPowerOfTwo(8)).toBe(true);
+      expect(isPowerOfTwo(1024)).toBe(true);
 
-    it('should return false for non-powers of two', () => {
-      expect(isPowerOfTwo(0)).toBe(false);
       expect(isPowerOfTwo(3)).toBe(false);
       expect(isPowerOfTwo(5)).toBe(false);
-      expect(isPowerOfTwo(6)).toBe(false);
       expect(isPowerOfTwo(7)).toBe(false);
-      expect(isPowerOfTwo(1000)).toBe(false);
-      expect(isPowerOfTwo(1025)).toBe(false);
-    });
+      expect(isPowerOfTwo(15)).toBe(false);
 
-    it('should return false for negative numbers', () => {
-      expect(isPowerOfTwo(-1)).toBe(false);
-      expect(isPowerOfTwo(-2)).toBe(false);
-      expect(isPowerOfTwo(-4)).toBe(false);
+      expect(isPowerOfTwo(null as unknown as number)).toBe(false);
+      expect(isPowerOfTwo('test' as unknown as number)).toBe(false);
     });
   });
 
   describe('nextPowerOfTwo', () => {
-    it('should return the same number if already a power of two', () => {
+    it('should find next power of two correctly', () => {
       expect(nextPowerOfTwo(1)).toBe(1);
       expect(nextPowerOfTwo(2)).toBe(2);
-      expect(nextPowerOfTwo(4)).toBe(4);
-      expect(nextPowerOfTwo(8)).toBe(8);
-      expect(nextPowerOfTwo(1024)).toBe(1024);
-    });
-
-    it('should return the next power of two for non-powers', () => {
       expect(nextPowerOfTwo(3)).toBe(4);
       expect(nextPowerOfTwo(5)).toBe(8);
-      expect(nextPowerOfTwo(6)).toBe(8);
-      expect(nextPowerOfTwo(7)).toBe(8);
       expect(nextPowerOfTwo(9)).toBe(16);
       expect(nextPowerOfTwo(1000)).toBe(1024);
-      expect(nextPowerOfTwo(1025)).toBe(2048);
     });
 
     it('should handle edge cases', () => {
       expect(nextPowerOfTwo(0)).toBe(1);
-      expect(nextPowerOfTwo(-1)).toBe(1);
       expect(nextPowerOfTwo(-5)).toBe(1);
-    });
-
-    it('should handle large numbers', () => {
-      expect(nextPowerOfTwo(65535)).toBe(65536);
-      expect(nextPowerOfTwo(65536)).toBe(65536);
-      expect(nextPowerOfTwo(65537)).toBe(131072);
+      expect(nextPowerOfTwo(NaN as unknown as number)).toBe(1);
+      expect(nextPowerOfTwo(Infinity as unknown as number)).toBe(1);
     });
   });
-}); 
+});

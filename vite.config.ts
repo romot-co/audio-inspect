@@ -25,8 +25,14 @@ export default defineConfig({
   
   // テスト設定
   test: {
-    globals: true,
     environment: 'node',
+    globals: true,
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/e2e/**',
+      '**/.{idea,git,cache,output,temp}/**'
+    ],
     setupFiles: ['test/setup.ts'],
     testTimeout: 10000, // 10秒
     hookTimeout: 10000,
@@ -46,18 +52,12 @@ export default defineConfig({
       reporter: ['text', 'json', 'html', 'text-summary'],
       reportsDirectory: 'coverage',
       exclude: [
-        'node_modules/',
-        'test/',
-        'dist/',
-        'coverage/',
-        '**/*.d.ts',
-        '**/*.test.ts',
-        '**/*.spec.ts',
-        '**/setup.ts',
-        'eslint.config.js',
-        'vite.config.ts',
-        'tsup.config.ts',
-        'vitest.config.ts'
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/e2e/**',
+        '**/test/**',
+        '**/*.config.*',
+        '**/*.d.ts'
       ],
       include: ['src/**/*.ts'],
       all: true,

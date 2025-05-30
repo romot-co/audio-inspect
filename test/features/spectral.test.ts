@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { getSpectralFeatures, getTimeVaryingSpectralFeatures } from '../../src/features/spectral.js';
+import {
+  getSpectralFeatures,
+  getTimeVaryingSpectralFeatures
+} from '../../src/features/spectral.js';
 import type { AudioData } from '../../src/types.js';
 
 // テスト用のAudioDataを作成するヘルパー
@@ -38,7 +41,7 @@ function createComplexSignal(sampleRate = 44100, duration = 1): Float32Array {
   for (let i = 0; i < length; i++) {
     const t = i / sampleRate;
     // 複数の周波数成分を含む信号
-    data[i] = 
+    data[i] =
       0.5 * Math.sin(2 * Math.PI * 440 * t) +
       0.3 * Math.sin(2 * Math.PI * 880 * t) +
       0.2 * Math.sin(2 * Math.PI * 1320 * t);
@@ -55,7 +58,12 @@ function createWhiteNoise(length: number, amplitude = 1): Float32Array {
   return data;
 }
 
-function createSweep(startFreq: number, endFreq: number, duration: number, sampleRate = 44100): Float32Array {
+function createSweep(
+  startFreq: number,
+  endFreq: number,
+  duration: number,
+  sampleRate = 44100
+): Float32Array {
   const length = Math.floor(duration * sampleRate);
   const data = new Float32Array(length);
 
@@ -87,7 +95,7 @@ describe('getSpectralFeatures', () => {
       // サイン波の場合、重心は440Hz周辺にあるはず
       expect(result.spectralCentroid).toBeGreaterThan(300);
       expect(result.spectralCentroid).toBeLessThan(600);
-      
+
       // 単一周波数なので帯域幅は狭いはず
       expect(result.spectralBandwidth).toBeGreaterThan(0);
       expect(result.spectralBandwidth).toBeLessThan(1000);
@@ -106,7 +114,7 @@ describe('getSpectralFeatures', () => {
 
       // 複数の周波数成分があるので帯域幅は広いはず
       expect(result.spectralBandwidth).toBeGreaterThan(100);
-      
+
       // 重心は最も強い成分（440Hz）周辺にあるはず
       expect(result.spectralCentroid).toBeGreaterThan(400);
       expect(result.spectralCentroid).toBeLessThan(1000);
@@ -115,7 +123,7 @@ describe('getSpectralFeatures', () => {
     it('should calculate zero crossing rate', async () => {
       const highFreq = createSineWave(2000, 1.0, 44100, 1.0);
       const lowFreq = createSineWave(100, 1.0, 44100, 1.0);
-      
+
       const highFreqAudio = createTestAudioData(highFreq);
       const lowFreqAudio = createTestAudioData(lowFreq);
 
@@ -155,7 +163,7 @@ describe('getSpectralFeatures', () => {
 
       expect(result1024.spectralCentroid).toBeDefined();
       expect(result2048.spectralCentroid).toBeDefined();
-      
+
       // 異なるFFTサイズでも合理的な結果が得られる
       expect(Math.abs(result1024.spectralCentroid - result2048.spectralCentroid)).toBeLessThan(100);
     });
@@ -188,7 +196,7 @@ describe('getSpectralFeatures', () => {
       expect(blackmanResult.spectralCentroid).toBeDefined();
 
       // 窓関数によって若干結果が変わる可能性がある
-      [hannResult, hammingResult, blackmanResult].forEach(result => {
+      [hannResult, hammingResult, blackmanResult].forEach((result) => {
         expect(result.spectralCentroid).toBeGreaterThan(300);
         expect(result.spectralCentroid).toBeLessThan(800);
       });
@@ -203,7 +211,7 @@ describe('getSpectralFeatures', () => {
 
       expect(rolloff85.spectralRolloff).toBeDefined();
       expect(rolloff95.spectralRolloff).toBeDefined();
-      
+
       // 95%の方が85%より高い周波数になるはず
       expect(rolloff95.spectralRolloff).toBeGreaterThan(rolloff85.spectralRolloff);
     });
@@ -213,7 +221,7 @@ describe('getSpectralFeatures', () => {
     it('should analyze specified channel', async () => {
       const channel0 = createSineWave(440, 1.0, 44100, 1.0);
       const channel1 = createSineWave(880, 1.0, 44100, 1.0);
-      
+
       const audio: AudioData = {
         sampleRate: 44100,
         channelData: [channel0, channel1],
@@ -302,11 +310,11 @@ describe('getTimeVaryingSpectralFeatures', () => {
       // 前半は低い周波数、後半は高い周波数
       const firstHalf = createSineWave(440, 1.5, 44100, 1.0);
       const secondHalf = createSineWave(880, 1.5, 44100, 1.0);
-      
+
       const combinedSignal = new Float32Array(firstHalf.length + secondHalf.length);
       combinedSignal.set(firstHalf, 0);
       combinedSignal.set(secondHalf, firstHalf.length);
-      
+
       const audio = createTestAudioData(combinedSignal);
 
       const result = await getTimeVaryingSpectralFeatures(audio, {
@@ -320,7 +328,7 @@ describe('getTimeVaryingSpectralFeatures', () => {
       // 時間とともにスペクトル重心が変化しているはず
       const firstFrameCentroid = result.spectralCentroid[0];
       const lastFrameCentroid = result.spectralCentroid[result.spectralCentroid.length - 1];
-      
+
       if (firstFrameCentroid !== undefined && lastFrameCentroid !== undefined) {
         expect(lastFrameCentroid).toBeGreaterThan(firstFrameCentroid);
       }
@@ -338,9 +346,10 @@ describe('getTimeVaryingSpectralFeatures', () => {
       expect(result.spectralFlux).toBeDefined();
       if (result.spectralFlux) {
         expect(result.spectralFlux.length).toBe(result.times.length);
-        
+
         // スイープ信号なので全体的にfluxが高いはず
-        const avgFlux = result.spectralFlux.reduce((sum, val) => sum + val, 0) / result.spectralFlux.length;
+        const avgFlux =
+          result.spectralFlux.reduce((sum, val) => sum + val, 0) / result.spectralFlux.length;
         expect(avgFlux).toBeGreaterThan(0);
       }
     });
@@ -377,11 +386,11 @@ describe('getTimeVaryingSpectralFeatures', () => {
       expect(result.times.length).toBeGreaterThan(0);
       expect(result.spectralCentroid.length).toBe(result.times.length);
       expect(result.spectralBandwidth.length).toBe(result.times.length);
-      
+
       // スイープ信号なので重心が変化しているはず
       const firstCentroid = result.spectralCentroid[0];
       const lastCentroid = result.spectralCentroid[result.spectralCentroid.length - 1];
-      
+
       if (firstCentroid !== undefined && lastCentroid !== undefined) {
         expect(lastCentroid).toBeGreaterThan(firstCentroid);
       }
@@ -392,7 +401,7 @@ describe('getTimeVaryingSpectralFeatures', () => {
     it('should analyze specified channel over time', async () => {
       const channel0 = createSweep(440, 880, 2.0, 44100);
       const channel1 = createSweep(880, 1760, 2.0, 44100);
-      
+
       const audio: AudioData = {
         sampleRate: 44100,
         channelData: [channel0, channel1],
@@ -406,7 +415,7 @@ describe('getTimeVaryingSpectralFeatures', () => {
 
       expect(result0.times.length).toBeGreaterThan(1);
       expect(result1.times.length).toBeGreaterThan(1);
-      
+
       // チャンネル1の方が一般的に高い周波数を持つはず
       if (result0.spectralCentroid[0] !== undefined && result1.spectralCentroid[0] !== undefined) {
         expect(result1.spectralCentroid[0]).toBeGreaterThan(result0.spectralCentroid[0]);
@@ -433,11 +442,11 @@ describe('getTimeVaryingSpectralFeatures', () => {
 
       expect(result.times.length).toBeGreaterThan(0);
       expect(result.spectralCentroid.length).toBe(result.times.length);
-      
+
       // 全フレームでゼロ交差率が0のはず
-      result.zeroCrossingRate.forEach(zcr => {
+      result.zeroCrossingRate.forEach((zcr) => {
         expect(zcr).toBe(0);
       });
     });
   });
-}); 
+});

@@ -1,4 +1,8 @@
 /**
+ * audio-inspect ライブラリの型定義
+ */
+
+/**
  * 音声データの構造
  */
 interface AudioData {

@@ -43,10 +43,7 @@ function getChannelData(audio, channel) {
       for (let ch = 0; ch < audio.numberOfChannels; ch++) {
         const channelData2 = audio.channelData[ch];
         if (!channelData2) {
-          throw new AudioInspectError(
-            "INVALID_INPUT",
-            `\u30C1\u30E3\u30F3\u30CD\u30EB ${ch} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-          );
+          throw new AudioInspectError("INVALID_INPUT", `Channel ${ch} data does not exist`);
         }
         if (i < channelData2.length) {
           const sample = channelData2[i];
@@ -62,15 +59,12 @@ function getChannelData(audio, channel) {
   if (channel < 0 || channel >= audio.numberOfChannels) {
     throw new AudioInspectError(
       "INVALID_INPUT",
-      `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}\u3002\u6709\u52B9\u7BC4\u56F2\u306F 0-${audio.numberOfChannels - 1} \u307E\u305F\u306F -1\uFF08\u5E73\u5747\uFF09\u3067\u3059`
+      `Invalid channel number: ${channel}. Valid range is 0-${audio.numberOfChannels - 1} or -1 (average)`
     );
   }
   const channelData = audio.channelData[channel];
   if (!channelData) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `Channel ${channel} data does not exist`);
   }
   return channelData;
 }
@@ -170,12 +164,7 @@ function calculateFrameCrestFactor(frameData, method = "simple") {
   return { peak: peakVal, rms: rmsVal, cfDb, cfLinear };
 }
 function getCrestFactor(audio, options = {}) {
-  const {
-    channel = 0,
-    windowSize,
-    hopSize,
-    method = "simple"
-  } = options;
+  const { channel = 0, windowSize, hopSize, method = "simple" } = options;
   const amplitudeOpts = { channel, asDB: false };
   const overallPeak = getPeakAmplitude(audio, amplitudeOpts);
   const overallRms = getRMS(audio, amplitudeOpts);
@@ -190,15 +179,14 @@ function getCrestFactor(audio, options = {}) {
       );
     }
     if (hopSize > windowSize) {
-      console.warn("[audio-inspect] hopSize\u304CwindowSize\u3088\u308A\u5927\u304D\u3044\u305F\u3081\u3001\u5206\u6790\u7A93\u9593\u306B\u30AE\u30E3\u30C3\u30D7\u304C\u751F\u3058\u307E\u3059");
+      console.warn(
+        "[audio-inspect] hopSize\u304CwindowSize\u3088\u308A\u5927\u304D\u3044\u305F\u3081\u3001\u5206\u6790\u7A93\u9593\u306B\u30AE\u30E3\u30C3\u30D7\u304C\u751F\u3058\u307E\u3059"
+      );
     }
     const windowSizeSamples = Math.floor(windowSize * audio.sampleRate);
     const hopSizeSamples = Math.floor(hopSize * audio.sampleRate);
     if (windowSizeSamples === 0 || hopSizeSamples === 0) {
-      throw new AudioInspectError(
-        "INVALID_INPUT",
-        "\u30B5\u30F3\u30D7\u30EB\u30EC\u30FC\u30C8\u306B\u5BFE\u3057\u3066\u7A93\u30B5\u30A4\u30BA\u304C\u5C0F\u3055\u3059\u304E\u307E\u3059"
-      );
+      throw new AudioInspectError("INVALID_INPUT", "\u30B5\u30F3\u30D7\u30EB\u30EC\u30FC\u30C8\u306B\u5BFE\u3057\u3066\u7A93\u30B5\u30A4\u30BA\u304C\u5C0F\u3055\u3059\u304E\u307E\u3059");
     }
     const channelData = getChannelData(audio, channel);
     const dataLength = channelData.length;

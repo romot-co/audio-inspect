@@ -17,10 +17,7 @@ function getChannelData(audio, channel) {
       for (let ch = 0; ch < audio.numberOfChannels; ch++) {
         const channelData2 = audio.channelData[ch];
         if (!channelData2) {
-          throw new AudioInspectError(
-            "INVALID_INPUT",
-            `\u30C1\u30E3\u30F3\u30CD\u30EB ${ch} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-          );
+          throw new AudioInspectError("INVALID_INPUT", `Channel ${ch} data does not exist`);
         }
         if (i < channelData2.length) {
           const sample = channelData2[i];
@@ -36,15 +33,12 @@ function getChannelData(audio, channel) {
   if (channel < 0 || channel >= audio.numberOfChannels) {
     throw new AudioInspectError(
       "INVALID_INPUT",
-      `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}\u3002\u6709\u52B9\u7BC4\u56F2\u306F 0-${audio.numberOfChannels - 1} \u307E\u305F\u306F -1\uFF08\u5E73\u5747\uFF09\u3067\u3059`
+      `Invalid channel number: ${channel}. Valid range is 0-${audio.numberOfChannels - 1} or -1 (average)`
     );
   }
   const channelData = audio.channelData[channel];
   if (!channelData) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `Channel ${channel} data does not exist`);
   }
   return channelData;
 }
@@ -230,8 +224,10 @@ function getZeroCrossing(audio, channel = 0) {
 function getWaveform(audio, options = {}) {
   const { framesPerSecond = 60, channel = 0, method = "rms" } = options;
   const channelData = getChannelData(audio, channel);
-  const frameCount = Math.ceil(audio.duration * framesPerSecond);
-  const samplesPerFrame = Math.floor(audio.length / frameCount);
+  const desiredFrameCount = Math.ceil(audio.duration * framesPerSecond);
+  const maxPossibleFrameCount = audio.length > 0 ? audio.length : desiredFrameCount > 0 ? 1 : 0;
+  const frameCount = Math.min(desiredFrameCount, maxPossibleFrameCount);
+  const samplesPerFrame = frameCount > 0 ? Math.max(1, Math.floor(audio.length / frameCount)) : 0;
   const waveform = [];
   let maxAmplitude = 0;
   let totalAmplitude = 0;
@@ -377,10 +373,7 @@ var NativeFFTProvider = class {
     this.size = size;
     this.sampleRate = sampleRate;
     if (!this.isPowerOfTwo(size)) {
-      throw new AudioInspectError(
-        "INVALID_INPUT",
-        "FFT\u30B5\u30A4\u30BA\u306F2\u306E\u51AA\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059"
-      );
+      throw new AudioInspectError("INVALID_INPUT", "FFT\u30B5\u30A4\u30BA\u306F2\u306E\u51AA\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
     }
     this.precomputeTables();
   }
@@ -550,12 +543,12 @@ function getChannelData2(audio, channel) {
     }
     return averageData;
   }
-  if (channel < 0 || channel >= audio.numberOfChannels) {
-    throw new AudioInspectError("INVALID_INPUT", `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`);
+  if (channel < -1 || channel >= audio.numberOfChannels) {
+    throw new AudioInspectError("INVALID_INPUT", `Invalid channel number: ${channel}`);
   }
   const channelData = audio.channelData[channel];
   if (!channelData) {
-    throw new AudioInspectError("INVALID_INPUT", `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`);
+    throw new AudioInspectError("INVALID_INPUT", `Channel ${channel} data does not exist`);
   }
   return channelData;
 }
@@ -655,10 +648,21 @@ function magnitudeToDecibels(magnitude) {
 }
 async function computeSpectrogram(data, sampleRate, fftSize, timeFrames, overlap, options) {
   const hopSize = Math.floor(fftSize * (1 - overlap));
-  const actualFrames = Math.min(timeFrames, Math.floor((data.length - fftSize) / hopSize) + 1);
+  let numPossibleFrames;
+  if (data.length === 0) {
+    numPossibleFrames = 0;
+  } else if (data.length < fftSize) {
+    numPossibleFrames = 1;
+  } else {
+    numPossibleFrames = Math.floor((data.length - fftSize) / hopSize) + 1;
+  }
+  const actualFrames = Math.min(timeFrames, numPossibleFrames);
   const times = new Float32Array(actualFrames);
   const intensities = [];
   let frequencies = new Float32Array();
+  let filteredFrequencies = new Float32Array();
+  let frequencyStartIndex = 0;
+  let frequencyEndIndex = 0;
   const fftProvider = await FFTProviderFactory.createProvider({
     type: options.provider || "webfft",
     fftSize,
@@ -669,16 +673,24 @@ async function computeSpectrogram(data, sampleRate, fftSize, timeFrames, overlap
     for (let frame = 0; frame < actualFrames; frame++) {
       const startSample = frame * hopSize;
       const frameData = new Float32Array(fftSize);
-      for (let i = 0; i < fftSize && startSample + i < data.length; i++) {
-        frameData[i] = data[startSample + i] || 0;
+      for (let i = 0; i < fftSize; i++) {
+        frameData[i] = startSample + i < data.length ? data[startSample + i] || 0 : 0;
       }
       const windowedData = applyWindow(frameData, options.windowFunction || "hann");
       const fftResult = fftProvider.fft(windowedData);
       if (frame === 0) {
         frequencies = fftResult.frequencies;
+        const minFreq = options.minFrequency || 0;
+        const maxFreq = options.maxFrequency || sampleRate / 2;
+        frequencyStartIndex = frequencies.findIndex((f) => f >= minFreq);
+        if (frequencyStartIndex === -1) frequencyStartIndex = 0;
+        const tempEndIndex = frequencies.findIndex((f) => f > maxFreq);
+        frequencyEndIndex = tempEndIndex === -1 ? frequencies.length : tempEndIndex;
+        filteredFrequencies = frequencies.slice(frequencyStartIndex, frequencyEndIndex);
       }
       const magnitude = fftResult.magnitude;
-      const frameIntensity = options.decibels ? magnitudeToDecibels(magnitude) : magnitude;
+      const filteredMagnitude = magnitude.slice(frequencyStartIndex, frequencyEndIndex);
+      const frameIntensity = options.decibels ? magnitudeToDecibels(filteredMagnitude) : filteredMagnitude;
       intensities.push(frameIntensity);
       times[frame] = (startSample + fftSize / 2) / sampleRate;
     }
@@ -687,10 +699,11 @@ async function computeSpectrogram(data, sampleRate, fftSize, timeFrames, overlap
   }
   return {
     times,
-    frequencies,
+    frequencies: filteredFrequencies,
+    // フィルタリングされた周波数軸を返す
     intensities,
     timeFrames: actualFrames,
-    frequencyBins: frequencies.length
+    frequencyBins: filteredFrequencies.length
   };
 }
 
@@ -799,10 +812,7 @@ async function getSpectralFeatures(audio, options = {}) {
     rolloffThreshold = 0.85
   } = options;
   if (channel >= audio.numberOfChannels) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`);
   }
   const fftResult = await getFFT(audio, {
     fftSize,
@@ -834,17 +844,10 @@ async function getSpectralFeatures(audio, options = {}) {
     minFrequency,
     maxFrequency
   );
-  const spectralFlatness = calculateSpectralFlatness(
-    fftResult.magnitude,
-    minIndex,
-    maxIndex
-  );
+  const spectralFlatness = calculateSpectralFlatness(fftResult.magnitude, minIndex, maxIndex);
   const samples = audio.channelData[channel];
   if (!samples) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`);
   }
   const zeroCrossingRate = calculateZeroCrossingRate(samples);
   return {
@@ -872,24 +875,15 @@ async function getTimeVaryingSpectralFeatures(audio, options = {}) {
     numFrames
   } = options;
   if (channel >= audio.numberOfChannels) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`);
   }
   const samples = audio.channelData[channel];
   if (!samples) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`);
   }
   const totalFrames = numFrames || Math.floor((samples.length - frameSize) / hopSize) + 1;
   if (totalFrames <= 0) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      "\u30D5\u30EC\u30FC\u30E0\u6570\u304C\u4E0D\u6B63\u3067\u3059"
-    );
+    throw new AudioInspectError("INVALID_INPUT", "\u30D5\u30EC\u30FC\u30E0\u6570\u304C\u4E0D\u6B63\u3067\u3059");
   }
   const times = new Float32Array(totalFrames);
   const spectralCentroid = new Float32Array(totalFrames);
@@ -978,19 +972,15 @@ function getEnergy(audio, options = {}) {
     windowFunction = "rectangular"
   } = options;
   if (frameSize <= 0 || !Number.isInteger(frameSize)) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      "frameSize\u306F\u6B63\u306E\u6574\u6570\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059"
-    );
+    throw new AudioInspectError("INVALID_INPUT", "frameSize\u306F\u6B63\u306E\u6574\u6570\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
   }
   if (hopSize <= 0 || !Number.isInteger(hopSize)) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      "hopSize\u306F\u6B63\u306E\u6574\u6570\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059"
-    );
+    throw new AudioInspectError("INVALID_INPUT", "hopSize\u306F\u6B63\u306E\u6574\u6570\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
   }
   if (hopSize > frameSize) {
-    console.warn("[audio-inspect] hopSize\u304CframeSize\u3088\u308A\u5927\u304D\u3044\u305F\u3081\u3001\u30D5\u30EC\u30FC\u30E0\u9593\u306B\u30AE\u30E3\u30C3\u30D7\u304C\u751F\u3058\u307E\u3059");
+    console.warn(
+      "[audio-inspect] hopSize\u304CframeSize\u3088\u308A\u5927\u304D\u3044\u305F\u3081\u3001\u30D5\u30EC\u30FC\u30E0\u9593\u306B\u30AE\u30E3\u30C3\u30D7\u304C\u751F\u3058\u307E\u3059"
+    );
   }
   const channelData = getChannelData(audio, channel);
   const dataLength = channelData.length;
@@ -1114,12 +1104,7 @@ function calculateFrameCrestFactor(frameData, method = "simple") {
   return { peak: peakVal, rms: rmsVal, cfDb, cfLinear };
 }
 function getCrestFactor(audio, options = {}) {
-  const {
-    channel = 0,
-    windowSize,
-    hopSize,
-    method = "simple"
-  } = options;
+  const { channel = 0, windowSize, hopSize, method = "simple" } = options;
   const amplitudeOpts = { channel, asDB: false };
   const overallPeak = getPeakAmplitude(audio, amplitudeOpts);
   const overallRms = getRMS(audio, amplitudeOpts);
@@ -1134,15 +1119,14 @@ function getCrestFactor(audio, options = {}) {
       );
     }
     if (hopSize > windowSize) {
-      console.warn("[audio-inspect] hopSize\u304CwindowSize\u3088\u308A\u5927\u304D\u3044\u305F\u3081\u3001\u5206\u6790\u7A93\u9593\u306B\u30AE\u30E3\u30C3\u30D7\u304C\u751F\u3058\u307E\u3059");
+      console.warn(
+        "[audio-inspect] hopSize\u304CwindowSize\u3088\u308A\u5927\u304D\u3044\u305F\u3081\u3001\u5206\u6790\u7A93\u9593\u306B\u30AE\u30E3\u30C3\u30D7\u304C\u751F\u3058\u307E\u3059"
+      );
     }
     const windowSizeSamples = Math.floor(windowSize * audio.sampleRate);
     const hopSizeSamples = Math.floor(hopSize * audio.sampleRate);
     if (windowSizeSamples === 0 || hopSizeSamples === 0) {
-      throw new AudioInspectError(
-        "INVALID_INPUT",
-        "\u30B5\u30F3\u30D7\u30EB\u30EC\u30FC\u30C8\u306B\u5BFE\u3057\u3066\u7A93\u30B5\u30A4\u30BA\u304C\u5C0F\u3055\u3059\u304E\u307E\u3059"
-      );
+      throw new AudioInspectError("INVALID_INPUT", "\u30B5\u30F3\u30D7\u30EB\u30EC\u30FC\u30C8\u306B\u5BFE\u3057\u3066\u7A93\u30B5\u30A4\u30BA\u304C\u5C0F\u3055\u3059\u304E\u307E\u3059");
     }
     const channelData = getChannelData(audio, channel);
     const dataLength = channelData.length;
@@ -1266,10 +1250,7 @@ function calculateFrequencyWidth(leftMag, rightMag, leftPhase, rightPhase) {
 }
 async function getStereoAnalysis(audio, options = {}) {
   if (audio.numberOfChannels < 2) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      "\u30B9\u30C6\u30EC\u30AA\u89E3\u6790\u306B\u306F2\u30C1\u30E3\u30F3\u30CD\u30EB\u4EE5\u4E0A\u306E\u97F3\u58F0\u304C\u5FC5\u8981\u3067\u3059"
-    );
+    throw new AudioInspectError("INVALID_INPUT", "\u30B9\u30C6\u30EC\u30AA\u89E3\u6790\u306B\u306F2\u30C1\u30E3\u30F3\u30CD\u30EB\u4EE5\u4E0A\u306E\u97F3\u58F0\u304C\u5FC5\u8981\u3067\u3059");
   }
   const {
     frameSize = audio.length,
@@ -1280,10 +1261,7 @@ async function getStereoAnalysis(audio, options = {}) {
   const left = audio.channelData[0];
   const right = audio.channelData[1];
   if (!left || !right) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      "L/R\u30C1\u30E3\u30F3\u30CD\u30EB\u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093"
-    );
+    throw new AudioInspectError("INVALID_INPUT", "L/R\u30C1\u30E3\u30F3\u30CD\u30EB\u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093");
   }
   const len = Math.min(left.length, right.length);
   if (len === 0) {
@@ -1401,10 +1379,12 @@ async function getStereoAnalysis(audio, options = {}) {
   return result;
 }
 function getTimeVaryingStereoAnalysis(_audio, _options = {}) {
-  return Promise.reject(new AudioInspectError(
-    "UNSUPPORTED_FORMAT",
-    "\u6642\u7CFB\u5217\u30B9\u30C6\u30EC\u30AA\u89E3\u6790\u306F\u5C06\u6765\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3067\u5B9F\u88C5\u4E88\u5B9A\u3067\u3059"
-  ));
+  return Promise.reject(
+    new AudioInspectError(
+      "UNSUPPORTED_FORMAT",
+      "\u6642\u7CFB\u5217\u30B9\u30C6\u30EC\u30AA\u89E3\u6790\u306F\u5C06\u6765\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3067\u5B9F\u88C5\u4E88\u5B9A\u3067\u3059"
+    )
+  );
 }
 
 // src/features/vad.ts
@@ -1627,12 +1607,7 @@ function getVAD(audio, options = {}) {
     sr,
     false
   );
-  const zcrs = calculateFrameZCRs(
-    channelData,
-    frameSizeSamples,
-    hopSizeSamples,
-    true
-  );
+  const zcrs = calculateFrameZCRs(channelData, frameSizeSamples, hopSizeSamples, true);
   if (energies.length === 0) {
     return { segments: [], speechRatio: 0 };
   }
@@ -1663,11 +1638,7 @@ function getVAD(audio, options = {}) {
       break;
     }
     case "adaptive": {
-      const adaptiveThreshold = calculateAdaptiveThreshold(
-        energies,
-        adaptiveAlpha,
-        noiseFactor
-      );
+      const adaptiveThreshold = calculateAdaptiveThreshold(energies, adaptiveAlpha, noiseFactor);
       for (let i = 0; i < energies.length; i++) {
         const energy = energies[i];
         const zcr = zcrs[i];
@@ -1810,9 +1781,7 @@ function getLUFS(audio, options = {}) {
   }
   const blockLoudnessValues = [];
   for (let pos = 0; pos + blockSizeSamples <= dataLength; pos += hopSizeSamples) {
-    const blockChannels = kWeightedChannels.map(
-      (ch) => ch.subarray(pos, pos + blockSizeSamples)
-    );
+    const blockChannels = kWeightedChannels.map((ch) => ch.subarray(pos, pos + blockSizeSamples));
     const loudness = calculateBlockLoudness(blockChannels);
     if (isFinite(loudness)) {
       blockLoudnessValues.push(loudness);

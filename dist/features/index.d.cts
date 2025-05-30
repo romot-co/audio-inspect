@@ -1,4 +1,26 @@
 /**
+ * FFTプロバイダーの種類
+ */
+type FFTProviderType = 'webfft' | 'native' | 'custom';
+/**
+ * FFT結果
+ */
+interface FFTResult {
+    /** 複素数結果（インターリーブ形式：実部、虚部、実部、虚部...） */
+    complex: Float32Array;
+    /** 振幅スペクトラム */
+    magnitude: Float32Array;
+    /** 位相スペクトラム */
+    phase: Float32Array;
+    /** 周波数ビン（Hz） */
+    frequencies: Float32Array;
+}
+
+/**
+ * audio-inspect ライブラリの型定義
+ */
+
+/**
  * 音声データの構造
  */
 interface AudioData {
@@ -113,24 +135,6 @@ interface WaveformResult {
  * 時間軸に沿った波形データを取得
  */
 declare function getWaveform(audio: AudioData, options?: WaveformOptions): WaveformResult;
-
-/**
- * FFTプロバイダーの種類
- */
-type FFTProviderType = 'webfft' | 'native' | 'custom';
-/**
- * FFT結果
- */
-interface FFTResult {
-    /** 複素数結果（インターリーブ形式：実部、虚部、実部、虚部...） */
-    complex: Float32Array;
-    /** 振幅スペクトラム */
-    magnitude: Float32Array;
-    /** 位相スペクトラム */
-    phase: Float32Array;
-    /** 周波数ビン（Hz） */
-    frequencies: Float32Array;
-}
 
 /**
  * FFT分析のオプション

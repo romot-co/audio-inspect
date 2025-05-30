@@ -118,9 +118,7 @@ function getLUFS(audio, options = {}) {
   }
   const blockLoudnessValues = [];
   for (let pos = 0; pos + blockSizeSamples <= dataLength; pos += hopSizeSamples) {
-    const blockChannels = kWeightedChannels.map(
-      (ch) => ch.subarray(pos, pos + blockSizeSamples)
-    );
+    const blockChannels = kWeightedChannels.map((ch) => ch.subarray(pos, pos + blockSizeSamples));
     const loudness = calculateBlockLoudness(blockChannels);
     if (isFinite(loudness)) {
       blockLoudnessValues.push(loudness);

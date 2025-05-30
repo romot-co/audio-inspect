@@ -122,10 +122,7 @@ var NativeFFTProvider = class {
     this.size = size;
     this.sampleRate = sampleRate;
     if (!this.isPowerOfTwo(size)) {
-      throw new AudioInspectError(
-        "INVALID_INPUT",
-        "FFT\u30B5\u30A4\u30BA\u306F2\u306E\u51AA\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059"
-      );
+      throw new AudioInspectError("INVALID_INPUT", "FFT\u30B5\u30A4\u30BA\u306F2\u306E\u51AA\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
     }
     this.precomputeTables();
   }
@@ -295,12 +292,12 @@ function getChannelData(audio, channel) {
     }
     return averageData;
   }
-  if (channel < 0 || channel >= audio.numberOfChannels) {
-    throw new AudioInspectError("INVALID_INPUT", `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`);
+  if (channel < -1 || channel >= audio.numberOfChannels) {
+    throw new AudioInspectError("INVALID_INPUT", `Invalid channel number: ${channel}`);
   }
   const channelData = audio.channelData[channel];
   if (!channelData) {
-    throw new AudioInspectError("INVALID_INPUT", `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`);
+    throw new AudioInspectError("INVALID_INPUT", `Channel ${channel} data does not exist`);
   }
   return channelData;
 }
@@ -400,10 +397,21 @@ function magnitudeToDecibels(magnitude) {
 }
 async function computeSpectrogram(data, sampleRate, fftSize, timeFrames, overlap, options) {
   const hopSize = Math.floor(fftSize * (1 - overlap));
-  const actualFrames = Math.min(timeFrames, Math.floor((data.length - fftSize) / hopSize) + 1);
+  let numPossibleFrames;
+  if (data.length === 0) {
+    numPossibleFrames = 0;
+  } else if (data.length < fftSize) {
+    numPossibleFrames = 1;
+  } else {
+    numPossibleFrames = Math.floor((data.length - fftSize) / hopSize) + 1;
+  }
+  const actualFrames = Math.min(timeFrames, numPossibleFrames);
   const times = new Float32Array(actualFrames);
   const intensities = [];
   let frequencies = new Float32Array();
+  let filteredFrequencies = new Float32Array();
+  let frequencyStartIndex = 0;
+  let frequencyEndIndex = 0;
   const fftProvider = await FFTProviderFactory.createProvider({
     type: options.provider || "webfft",
     fftSize,
@@ -414,16 +422,24 @@ async function computeSpectrogram(data, sampleRate, fftSize, timeFrames, overlap
     for (let frame = 0; frame < actualFrames; frame++) {
       const startSample = frame * hopSize;
       const frameData = new Float32Array(fftSize);
-      for (let i = 0; i < fftSize && startSample + i < data.length; i++) {
-        frameData[i] = data[startSample + i] || 0;
+      for (let i = 0; i < fftSize; i++) {
+        frameData[i] = startSample + i < data.length ? data[startSample + i] || 0 : 0;
       }
       const windowedData = applyWindow(frameData, options.windowFunction || "hann");
       const fftResult = fftProvider.fft(windowedData);
       if (frame === 0) {
         frequencies = fftResult.frequencies;
+        const minFreq = options.minFrequency || 0;
+        const maxFreq = options.maxFrequency || sampleRate / 2;
+        frequencyStartIndex = frequencies.findIndex((f) => f >= minFreq);
+        if (frequencyStartIndex === -1) frequencyStartIndex = 0;
+        const tempEndIndex = frequencies.findIndex((f) => f > maxFreq);
+        frequencyEndIndex = tempEndIndex === -1 ? frequencies.length : tempEndIndex;
+        filteredFrequencies = frequencies.slice(frequencyStartIndex, frequencyEndIndex);
       }
       const magnitude = fftResult.magnitude;
-      const frameIntensity = options.decibels ? magnitudeToDecibels(magnitude) : magnitude;
+      const filteredMagnitude = magnitude.slice(frequencyStartIndex, frequencyEndIndex);
+      const frameIntensity = options.decibels ? magnitudeToDecibels(filteredMagnitude) : filteredMagnitude;
       intensities.push(frameIntensity);
       times[frame] = (startSample + fftSize / 2) / sampleRate;
     }
@@ -432,10 +448,11 @@ async function computeSpectrogram(data, sampleRate, fftSize, timeFrames, overlap
   }
   return {
     times,
-    frequencies,
+    frequencies: filteredFrequencies,
+    // フィルタリングされた周波数軸を返す
     intensities,
     timeFrames: actualFrames,
-    frequencyBins: frequencies.length
+    frequencyBins: filteredFrequencies.length
   };
 }
 //# sourceMappingURL=frequency.cjs.map

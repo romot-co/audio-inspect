@@ -43,10 +43,7 @@ function getChannelData(audio, channel) {
       for (let ch = 0; ch < audio.numberOfChannels; ch++) {
         const channelData2 = audio.channelData[ch];
         if (!channelData2) {
-          throw new AudioInspectError(
-            "INVALID_INPUT",
-            `\u30C1\u30E3\u30F3\u30CD\u30EB ${ch} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-          );
+          throw new AudioInspectError("INVALID_INPUT", `Channel ${ch} data does not exist`);
         }
         if (i < channelData2.length) {
           const sample = channelData2[i];
@@ -62,15 +59,12 @@ function getChannelData(audio, channel) {
   if (channel < 0 || channel >= audio.numberOfChannels) {
     throw new AudioInspectError(
       "INVALID_INPUT",
-      `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}\u3002\u6709\u52B9\u7BC4\u56F2\u306F 0-${audio.numberOfChannels - 1} \u307E\u305F\u306F -1\uFF08\u5E73\u5747\uFF09\u3067\u3059`
+      `Invalid channel number: ${channel}. Valid range is 0-${audio.numberOfChannels - 1} or -1 (average)`
     );
   }
   const channelData = audio.channelData[channel];
   if (!channelData) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `Channel ${channel} data does not exist`);
   }
   return channelData;
 }
@@ -301,12 +295,7 @@ function getVAD(audio, options = {}) {
     sr,
     false
   );
-  const zcrs = calculateFrameZCRs(
-    channelData,
-    frameSizeSamples,
-    hopSizeSamples,
-    true
-  );
+  const zcrs = calculateFrameZCRs(channelData, frameSizeSamples, hopSizeSamples, true);
   if (energies.length === 0) {
     return { segments: [], speechRatio: 0 };
   }
@@ -337,11 +326,7 @@ function getVAD(audio, options = {}) {
       break;
     }
     case "adaptive": {
-      const adaptiveThreshold = calculateAdaptiveThreshold(
-        energies,
-        adaptiveAlpha,
-        noiseFactor
-      );
+      const adaptiveThreshold = calculateAdaptiveThreshold(energies, adaptiveAlpha, noiseFactor);
       for (let i = 0; i < energies.length; i++) {
         const energy = energies[i];
         const zcr = zcrs[i];

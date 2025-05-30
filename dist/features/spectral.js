@@ -93,10 +93,7 @@ var NativeFFTProvider = class {
     this.size = size;
     this.sampleRate = sampleRate;
     if (!this.isPowerOfTwo(size)) {
-      throw new AudioInspectError(
-        "INVALID_INPUT",
-        "FFT\u30B5\u30A4\u30BA\u306F2\u306E\u51AA\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059"
-      );
+      throw new AudioInspectError("INVALID_INPUT", "FFT\u30B5\u30A4\u30BA\u306F2\u306E\u51AA\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
     }
     this.precomputeTables();
   }
@@ -266,12 +263,12 @@ function getChannelData(audio, channel) {
     }
     return averageData;
   }
-  if (channel < 0 || channel >= audio.numberOfChannels) {
-    throw new AudioInspectError("INVALID_INPUT", `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`);
+  if (channel < -1 || channel >= audio.numberOfChannels) {
+    throw new AudioInspectError("INVALID_INPUT", `Invalid channel number: ${channel}`);
   }
   const channelData = audio.channelData[channel];
   if (!channelData) {
-    throw new AudioInspectError("INVALID_INPUT", `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`);
+    throw new AudioInspectError("INVALID_INPUT", `Channel ${channel} data does not exist`);
   }
   return channelData;
 }
@@ -416,10 +413,7 @@ async function getSpectralFeatures(audio, options = {}) {
     rolloffThreshold = 0.85
   } = options;
   if (channel >= audio.numberOfChannels) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`);
   }
   const fftResult = await getFFT(audio, {
     fftSize,
@@ -451,17 +445,10 @@ async function getSpectralFeatures(audio, options = {}) {
     minFrequency,
     maxFrequency
   );
-  const spectralFlatness = calculateSpectralFlatness(
-    fftResult.magnitude,
-    minIndex,
-    maxIndex
-  );
+  const spectralFlatness = calculateSpectralFlatness(fftResult.magnitude, minIndex, maxIndex);
   const samples = audio.channelData[channel];
   if (!samples) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`);
   }
   const zeroCrossingRate = calculateZeroCrossingRate(samples);
   return {
@@ -489,24 +476,15 @@ async function getTimeVaryingSpectralFeatures(audio, options = {}) {
     numFrames
   } = options;
   if (channel >= audio.numberOfChannels) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`);
   }
   const samples = audio.channelData[channel];
   if (!samples) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`);
   }
   const totalFrames = numFrames || Math.floor((samples.length - frameSize) / hopSize) + 1;
   if (totalFrames <= 0) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      "\u30D5\u30EC\u30FC\u30E0\u6570\u304C\u4E0D\u6B63\u3067\u3059"
-    );
+    throw new AudioInspectError("INVALID_INPUT", "\u30D5\u30EC\u30FC\u30E0\u6570\u304C\u4E0D\u6B63\u3067\u3059");
   }
   const times = new Float32Array(totalFrames);
   const spectralCentroid = new Float32Array(totalFrames);

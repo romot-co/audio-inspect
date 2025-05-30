@@ -98,10 +98,10 @@ describe('Integration Tests', () => {
       );
       
       // RMS計算
-      const rms = await analyze(audio, getRMS);
+      const rms = await analyze(audio, (audio) => getRMS(audio));
       
       // ゼロクロッシング率計算
-      const zcr = await analyze(audio, getZeroCrossing);
+      const zcr = await analyze(audio, (audio) => getZeroCrossing(audio));
       
       // 結果の検証
       expect(peaks.peaks.length).toBeGreaterThan(0);
@@ -127,8 +127,8 @@ describe('Integration Tests', () => {
       // 並列実行
       const [peaks, rms, zcr] = await Promise.all([
         analyze(audio, (audio) => getPeaks(audio, { count: 5, threshold: 0.7 })),
-        analyze(audio, getRMS),
-        analyze(audio, getZeroCrossing)
+        analyze(audio, (audio) => getRMS(audio)),
+        analyze(audio, (audio) => getZeroCrossing(audio))
       ]);
       
       expect(peaks.peaks.length).toBeGreaterThan(0);
@@ -318,11 +318,11 @@ describe('Integration Tests', () => {
       const audio = createTestAudioData(new Float32Array(1000));
       
       const faultyFeature = (): never => {
-        throw new Error('Feature processing failed');
+        throw new Error('Feature extraction failed');
       };
       
       await expect(analyze(audio, faultyFeature))
-        .rejects.toThrow('特徴量の抽出に失敗しました');
+        .rejects.toThrow('Feature extraction failed');
     });
 
     it('should handle empty audio gracefully', async () => {
@@ -330,7 +330,7 @@ describe('Integration Tests', () => {
       
       // analyze関数の検証で弾かれるはず
       await expect(analyze(emptyAudio, getPeaks))
-        .rejects.toThrow('データ長が無効です');
+        .rejects.toThrow('Data length is invalid');
     });
 
     it('should handle invalid parameters gracefully', async () => {
@@ -338,7 +338,7 @@ describe('Integration Tests', () => {
       
       // 無効なチャンネル指定
       await expect(analyze(audio, (audio) => getRMS(audio, 5)))
-        .rejects.toThrow('無効なチャンネル番号');
+        .rejects.toThrow('Invalid channel number');
       
       // 無効な閾値でピーク検出 - エラーがスローされることを期待
       await expect(analyze(audio, (audio) => 
@@ -356,8 +356,8 @@ describe('Integration Tests', () => {
       
       const [peaks, rms, zcr, energy] = await Promise.all([
         analyze(audio, (audio) => getPeaks(audio, { count: 20 })),
-        analyze(audio, getRMS),
-        analyze(audio, getZeroCrossing),
+        analyze(audio, (audio) => getRMS(audio)),
+        analyze(audio, (audio) => getZeroCrossing(audio)),
         analyze(audio, getEnergy)
       ]);
       
@@ -383,7 +383,7 @@ describe('Integration Tests', () => {
           getPeaks(audio, { count: 5, threshold: 0.5 })
         );
         
-        const rms = await analyze(audio, getRMS);
+        const rms = await analyze(audio, (audio) => getRMS(audio));
         
         expect(peaks.peaks.length).toBeGreaterThan(0);
         expect(rms).toBeGreaterThan(0);
@@ -458,7 +458,7 @@ describe('Integration Tests', () => {
       const [vad, peaks, zcr, spectral] = await Promise.all([
         analyze(audio, (audio) => getVAD(audio, { method: 'combined' })),
         analyze(audio, (audio) => getPeaks(audio, { count: 15, threshold: 0.1 })),
-        analyze(audio, getZeroCrossing),
+        analyze(audio, (audio) => getZeroCrossing(audio)),
         analyze(audio, getSpectralFeatures)
       ]);
       
@@ -499,9 +499,9 @@ describe('Integration Tests', () => {
           const chunkAudio = createTestAudioData(chunk);
           
           const [rms, peaks, zcr] = await Promise.all([
-            analyze(chunkAudio, getRMS),
+            analyze(chunkAudio, (audio) => getRMS(audio)),
             analyze(chunkAudio, (audio) => getPeaks(audio, { count: 3, threshold: 0.5 })),
-            analyze(chunkAudio, getZeroCrossing)
+            analyze(chunkAudio, (audio) => getZeroCrossing(audio))
           ]);
           
           chunkResults.push({

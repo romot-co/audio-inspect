@@ -1,25 +1,22 @@
 import { AudioData, AudioInspectError } from '../types.js';
 
 /**
- * チャンネルデータを安全に取得する共通関数
- * @param audio - AudioData オブジェクト
- * @param channel - チャンネル番号 (-1 で全チャンネルの平均)
- * @returns 指定されたチャンネルのデータ
- * @throws AudioInspectError チャンネルが無効な場合
+ * Safely get channel data common function
+ * @param audio - AudioData object
+ * @param channel - Channel number (-1 for average of all channels)
+ * @returns Data of the specified channel
+ * @throws AudioInspectError if channel is invalid
  */
 export function getChannelData(audio: AudioData, channel: number): Float32Array {
   if (channel === -1) {
-    // 全チャンネルの平均を計算
+    // Calculate average of all channels
     const averageData = new Float32Array(audio.length);
     for (let i = 0; i < audio.length; i++) {
       let sum = 0;
       for (let ch = 0; ch < audio.numberOfChannels; ch++) {
         const channelData = audio.channelData[ch];
         if (!channelData) {
-          throw new AudioInspectError(
-            'INVALID_INPUT',
-            `チャンネル ${ch} のデータが存在しません`
-          );
+          throw new AudioInspectError('INVALID_INPUT', `Channel ${ch} data does not exist`);
         }
         if (i < channelData.length) {
           const sample = channelData[i];
@@ -36,45 +33,38 @@ export function getChannelData(audio: AudioData, channel: number): Float32Array 
   if (channel < 0 || channel >= audio.numberOfChannels) {
     throw new AudioInspectError(
       'INVALID_INPUT',
-      `無効なチャンネル番号: ${channel}。有効範囲は 0-${audio.numberOfChannels - 1} または -1（平均）です`
+      `Invalid channel number: ${channel}. Valid range is 0-${audio.numberOfChannels - 1} or -1 (average)`
     );
   }
 
   const channelData = audio.channelData[channel];
   if (!channelData) {
-    throw new AudioInspectError(
-      'INVALID_INPUT',
-      `チャンネル ${channel} のデータが存在しません`
-    );
+    throw new AudioInspectError('INVALID_INPUT', `Channel ${channel} data does not exist`);
   }
 
   return channelData;
 }
 
 /**
- * 数値が2の冪かどうかを判定
+ * Check if a number is a power of two
  */
 export function isPowerOfTwo(n: number): boolean {
   return n > 0 && Number.isInteger(n) && (n & (n - 1)) === 0;
 }
 
 /**
- * 次の2の冪を計算
+ * Calculate the next power of two
  */
 export function nextPowerOfTwo(n: number): number {
-  if (n <= 0) return 1;
+  if (!isValidSample(n) || n <= 0) return 1;
   if (isPowerOfTwo(n)) return n;
   return Math.pow(2, Math.ceil(Math.log2(n)));
 }
 
 /**
- * 型安全な配列アクセス
+ * Type-safe array access
  */
-export function safeArrayAccess<T>(
-  array: ArrayLike<T>,
-  index: number,
-  defaultValue: T
-): T {
+export function safeArrayAccess<T>(array: ArrayLike<T>, index: number, defaultValue: T): T {
   if (index >= 0 && index < array.length) {
     return array[index] ?? defaultValue;
   }
@@ -82,21 +72,24 @@ export function safeArrayAccess<T>(
 }
 
 /**
- * 数値の妥当性を検証
+ * Validate number validity
  */
 export function isValidSample(value: unknown): value is number {
   return typeof value === 'number' && !isNaN(value) && isFinite(value);
 }
 
 /**
- * サンプル値の安全な取得
+ * Safe retrieval of sample values
  */
-export function ensureValidSample(value: number | undefined | null, defaultValue: number = 0): number {
+export function ensureValidSample(
+  value: number | undefined | null,
+  defaultValue: number = 0
+): number {
   return isValidSample(value) ? value : defaultValue;
 }
 
 /**
- * Float32Arrayの安全な確保
+ * Safe allocation of Float32Array
  */
 export function ensureFloat32Array(
   data: Float32Array | undefined | null,
@@ -109,26 +102,24 @@ export function ensureFloat32Array(
 }
 
 /**
- * 振幅をdBに変換
+ * Convert amplitude to dB
  */
 export function amplitudeToDecibels(amplitude: number, reference: number = 1.0): number {
   const MIN_AMPLITUDE_FOR_DB = 1e-10; // -200 dBFS
   const SILENCE_DB = -Infinity;
-  
+
   if (amplitude <= 0 || reference <= 0) {
     return SILENCE_DB;
   }
-  
+
   const ratio = amplitude / reference;
-  return ratio > MIN_AMPLITUDE_FOR_DB 
-    ? 20 * Math.log10(ratio) 
-    : SILENCE_DB;
+  return ratio > MIN_AMPLITUDE_FOR_DB ? 20 * Math.log10(ratio) : SILENCE_DB;
 }
 
 /**
- * dBを振幅に変換
+ * Convert dB to amplitude
  */
 export function decibelsToAmplitude(db: number, reference: number = 1.0): number {
   if (!isFinite(db)) return 0;
   return reference * Math.pow(10, db / 20);
-} 
+}

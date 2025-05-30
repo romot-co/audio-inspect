@@ -228,7 +228,7 @@ function calculateZeroCrossingRate(samples: Float32Array): number {
   for (let i = 1; i < samples.length; i++) {
     const prev = ensureValidSample(samples[i - 1]);
     const curr = ensureValidSample(samples[i]);
-    
+
     if ((prev >= 0 && curr < 0) || (prev < 0 && curr >= 0)) {
       crossings++;
     }
@@ -284,10 +284,7 @@ export async function getSpectralFeatures(
   } = options;
 
   if (channel >= audio.numberOfChannels) {
-    throw new AudioInspectError(
-      'INVALID_INPUT',
-      `無効なチャンネル番号: ${channel}`
-    );
+    throw new AudioInspectError('INVALID_INPUT', `無効なチャンネル番号: ${channel}`);
   }
 
   // FFT解析
@@ -298,10 +295,10 @@ export async function getSpectralFeatures(
   });
 
   // 周波数範囲のインデックスを計算
-  const minIndex = Math.max(0, Math.floor(minFrequency * fftSize / audio.sampleRate));
+  const minIndex = Math.max(0, Math.floor((minFrequency * fftSize) / audio.sampleRate));
   const maxIndex = Math.min(
     fftResult.frequencies.length - 1,
-    Math.floor(maxFrequency * fftSize / audio.sampleRate)
+    Math.floor((maxFrequency * fftSize) / audio.sampleRate)
   );
 
   // スペクトル重心
@@ -331,19 +328,12 @@ export async function getSpectralFeatures(
   );
 
   // スペクトルフラットネス
-  const spectralFlatness = calculateSpectralFlatness(
-    fftResult.magnitude,
-    minIndex,
-    maxIndex
-  );
+  const spectralFlatness = calculateSpectralFlatness(fftResult.magnitude, minIndex, maxIndex);
 
   // ゼロ交差率
   const samples = audio.channelData[channel];
   if (!samples) {
-    throw new AudioInspectError(
-      'INVALID_INPUT',
-      `チャンネル ${channel} のデータが存在しません`
-    );
+    throw new AudioInspectError('INVALID_INPUT', `チャンネル ${channel} のデータが存在しません`);
   }
   const zeroCrossingRate = calculateZeroCrossingRate(samples);
 
@@ -383,27 +373,18 @@ export async function getTimeVaryingSpectralFeatures(
   } = options;
 
   if (channel >= audio.numberOfChannels) {
-    throw new AudioInspectError(
-      'INVALID_INPUT',
-      `無効なチャンネル番号: ${channel}`
-    );
+    throw new AudioInspectError('INVALID_INPUT', `無効なチャンネル番号: ${channel}`);
   }
 
   const samples = audio.channelData[channel];
   if (!samples) {
-    throw new AudioInspectError(
-      'INVALID_INPUT',
-      `チャンネル ${channel} のデータが存在しません`
-    );
+    throw new AudioInspectError('INVALID_INPUT', `チャンネル ${channel} のデータが存在しません`);
   }
-  
+
   const totalFrames = numFrames || Math.floor((samples.length - frameSize) / hopSize) + 1;
-  
+
   if (totalFrames <= 0) {
-    throw new AudioInspectError(
-      'INVALID_INPUT',
-      'フレーム数が不正です'
-    );
+    throw new AudioInspectError('INVALID_INPUT', 'フレーム数が不正です');
   }
 
   // 結果配列の初期化
@@ -421,13 +402,13 @@ export async function getTimeVaryingSpectralFeatures(
   for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
     const startSample = frameIndex * hopSize;
     const endSample = Math.min(startSample + frameSize, samples.length);
-    
+
     // 時間位置
     times[frameIndex] = startSample / audio.sampleRate;
 
     // フレームデータの抽出
     const frameData = samples.subarray(startSample, endSample);
-    
+
     // 短いフレームの場合はゼロパディング
     const paddedFrame = new Float32Array(frameSize);
     paddedFrame.set(frameData);
@@ -477,4 +458,4 @@ export async function getTimeVaryingSpectralFeatures(
       numFrames: totalFrames
     }
   };
-} 
+}

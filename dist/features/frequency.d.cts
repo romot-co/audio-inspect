@@ -1,20 +1,4 @@
 /**
- * 音声データの構造
- */
-interface AudioData {
-    /** サンプルレート（Hz） */
-    sampleRate: number;
-    /** チャンネルごとのオーディオデータ */
-    channelData: Float32Array[];
-    /** 音声の長さ（秒） */
-    duration: number;
-    /** チャンネル数 */
-    numberOfChannels: number;
-    /** サンプル数 */
-    length: number;
-}
-
-/**
  * FFTプロバイダーの種類
  */
 type FFTProviderType = 'webfft' | 'native' | 'custom';
@@ -30,6 +14,26 @@ interface FFTResult {
     phase: Float32Array;
     /** 周波数ビン（Hz） */
     frequencies: Float32Array;
+}
+
+/**
+ * audio-inspect ライブラリの型定義
+ */
+
+/**
+ * 音声データの構造
+ */
+interface AudioData {
+    /** サンプルレート（Hz） */
+    sampleRate: number;
+    /** チャンネルごとのオーディオデータ */
+    channelData: Float32Array[];
+    /** 音声の長さ（秒） */
+    duration: number;
+    /** チャンネル数 */
+    numberOfChannels: number;
+    /** サンプル数 */
+    length: number;
 }
 
 /**

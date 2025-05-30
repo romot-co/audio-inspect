@@ -47,12 +47,12 @@ function createSpeechLikeSignal(duration: number, sampleRate = 44100): Float32Ar
     const t = i / sampleRate;
     // 音声様信号（複数の周波数成分とエンベロープ）
     const envelope = Math.sin(2 * Math.PI * 5 * t) * 0.5 + 0.5; // 5Hz エンベロープ
-    const carrier = 
+    const carrier =
       0.3 * Math.sin(2 * Math.PI * 200 * t) +
       0.4 * Math.sin(2 * Math.PI * 400 * t) +
       0.2 * Math.sin(2 * Math.PI * 800 * t) +
       0.1 * (Math.random() - 0.5); // ノイズ成分
-    
+
     data[i] = carrier * envelope * 0.5;
   }
 
@@ -67,19 +67,19 @@ function createMixedSignal(
 ): Float32Array {
   const speechSignal = createSpeechLikeSignal(speechDuration, sampleRate);
   const silenceSignal = new Float32Array(Math.floor(silenceDuration * sampleRate));
-  
+
   // 微細なノイズを無音部分に追加
   for (let i = 0; i < silenceSignal.length; i++) {
     silenceSignal[i] = (Math.random() - 0.5) * 0.01;
   }
 
   const combined = new Float32Array(speechSignal.length + silenceSignal.length);
-  
+
   // スピーチ信号を正規化
   for (let i = 0; i < speechSignal.length; i++) {
     combined[i] = (speechSignal[i] ?? 0) * speechAmplitude;
   }
-  
+
   combined.set(silenceSignal, speechSignal.length);
   return combined;
 }
@@ -95,13 +95,13 @@ describe('getVAD', () => {
       expect(result.segments).toBeDefined();
       expect(result.speechRatio).toBeDefined();
       expect(result.segments.length).toBeGreaterThan(0);
-      
+
       // 音声比率は0-1の範囲内
       expect(result.speechRatio).toBeGreaterThanOrEqual(0);
       expect(result.speechRatio).toBeLessThanOrEqual(1);
 
       // セグメントは有効な時間範囲を持つ
-      result.segments.forEach(segment => {
+      result.segments.forEach((segment) => {
         expect(segment.start).toBeGreaterThanOrEqual(0);
         expect(segment.end).toBeGreaterThan(segment.start);
         expect(segment.end).toBeLessThanOrEqual(audio.duration);
@@ -117,9 +117,9 @@ describe('getVAD', () => {
 
       expect(result.segments).toBeDefined();
       expect(result.speechRatio).toBeGreaterThanOrEqual(0); // 実装依存のため調整
-      
+
       // 音声セグメントが存在するはず
-      const speechSegments = result.segments.filter(s => s.type === 'speech');
+      const speechSegments = result.segments.filter((s) => s.type === 'speech');
       expect(speechSegments.length).toBeGreaterThanOrEqual(0);
     });
 
@@ -131,9 +131,9 @@ describe('getVAD', () => {
 
       expect(result.segments).toBeDefined();
       expect(result.speechRatio).toBeLessThan(0.1); // 主に無音
-      
+
       // 無音セグメントが存在するはず
-      const silenceSegments = result.segments.filter(s => s.type === 'silence');
+      const silenceSegments = result.segments.filter((s) => s.type === 'silence');
       expect(silenceSegments.length).toBeGreaterThan(0);
     });
   });
@@ -185,14 +185,14 @@ describe('getVAD', () => {
       const speechSignal = createSpeechLikeSignal(2.0);
       const audio = createTestAudioData(speechSignal);
 
-      const lowThreshold = getVAD(audio, { 
+      const lowThreshold = getVAD(audio, {
         method: 'energy',
-        energyThreshold: 0.001 
+        energyThreshold: 0.001
       });
-      
-      const highThreshold = getVAD(audio, { 
+
+      const highThreshold = getVAD(audio, {
         method: 'energy',
-        energyThreshold: 0.1 
+        energyThreshold: 0.1
       });
 
       // 低い閾値の方が多くの音声を検出するはず
@@ -224,7 +224,7 @@ describe('getVAD', () => {
 
       expect(smallFrames.segments).toBeDefined();
       expect(largeFrames.segments).toBeDefined();
-      
+
       // 両方とも合理的な結果を返すはず
       expect(smallFrames.speechRatio).toBeGreaterThanOrEqual(0);
       expect(largeFrames.speechRatio).toBeGreaterThanOrEqual(0);
@@ -254,10 +254,10 @@ describe('getVAD', () => {
       });
 
       expect(result.segments).toBeDefined();
-      
+
       // 最小無音時間を満たすセグメントのみ存在
-      const silenceSegments = result.segments.filter(s => s.type === 'silence');
-      silenceSegments.forEach(segment => {
+      const silenceSegments = result.segments.filter((s) => s.type === 'silence');
+      silenceSegments.forEach((segment) => {
         const duration = (segment.end - segment.start) * 1000; // ms
         expect(duration).toBeGreaterThanOrEqual(180); // 少し余裕を持って
       });
@@ -272,10 +272,10 @@ describe('getVAD', () => {
       });
 
       expect(result.segments).toBeDefined();
-      
+
       // 最小音声時間を満たすセグメントのみ存在
-      const speechSegments = result.segments.filter(s => s.type === 'speech');
-      speechSegments.forEach(segment => {
+      const speechSegments = result.segments.filter((s) => s.type === 'speech');
+      speechSegments.forEach((segment) => {
         const duration = (segment.end - segment.start) * 1000; // ms
         expect(duration).toBeGreaterThanOrEqual(180); // 少し余裕を持って
       });
@@ -305,7 +305,7 @@ describe('getVAD', () => {
 
       expect(withSmoothing.segments).toBeDefined();
       expect(withoutSmoothing.segments).toBeDefined();
-      
+
       // 平滑化により短いセグメントが統合されるはず
       expect(withSmoothing.segments.length).toBeLessThanOrEqual(withoutSmoothing.segments.length);
     });
@@ -316,7 +316,7 @@ describe('getVAD', () => {
 
       const result = getVAD(audio);
 
-      result.segments.forEach(segment => {
+      result.segments.forEach((segment) => {
         if (segment.confidence !== undefined) {
           expect(segment.confidence).toBeGreaterThanOrEqual(0);
           expect(segment.confidence).toBeLessThanOrEqual(1);
@@ -376,11 +376,11 @@ describe('getVAD', () => {
     it('should handle alternating patterns', () => {
       // 短い音声と無音の交互パターン
       const pattern = new Float32Array(44100 * 4); // 4秒
-      
+
       for (let i = 0; i < pattern.length; i++) {
         const time = i / 44100;
         const segment = Math.floor(time * 10) % 2; // 100msごとに切り替え
-        
+
         if (segment === 0) {
           // 音声様信号
           pattern[i] = 0.2 * Math.sin(2 * Math.PI * 440 * time);
@@ -426,16 +426,15 @@ describe('getVAD', () => {
     it('should adapt to signal characteristics', () => {
       // ノイズレベルが変化する信号
       const variableSignal = new Float32Array(44100 * 3); // 3秒
-      
+
       for (let i = 0; i < variableSignal.length; i++) {
         const time = i / 44100;
         const noiseLevel = 0.01 + 0.05 * Math.sin(2 * Math.PI * 0.5 * time); // ゆっくり変化するノイズレベル
-        
+
         if (time < 1.5) {
           // 前半: 音声 + ノイズ
-          variableSignal[i] = 
-            0.2 * Math.sin(2 * Math.PI * 300 * time) + 
-            noiseLevel * (Math.random() - 0.5);
+          variableSignal[i] =
+            0.2 * Math.sin(2 * Math.PI * 300 * time) + noiseLevel * (Math.random() - 0.5);
         } else {
           // 後半: ノイズのみ
           variableSignal[i] = noiseLevel * (Math.random() - 0.5);
@@ -443,7 +442,7 @@ describe('getVAD', () => {
       }
 
       const audio = createTestAudioData(variableSignal);
-      const result = getVAD(audio, { 
+      const result = getVAD(audio, {
         method: 'adaptive',
         adaptiveAlpha: 0.1,
         noiseFactor: 3.0
@@ -452,10 +451,10 @@ describe('getVAD', () => {
       expect(result.segments).toBeDefined();
       expect(result.speechRatio).toBeGreaterThanOrEqual(0); // 実装依存のため調整
       expect(result.speechRatio).toBeLessThanOrEqual(1);
-      
+
       // 適応的手法により適切にセグメント化されているはず
-      const speechSegments = result.segments.filter(s => s.type === 'speech');
+      const speechSegments = result.segments.filter((s) => s.type === 'speech');
       expect(speechSegments.length).toBeGreaterThanOrEqual(0);
     });
   });
-}); 
+});

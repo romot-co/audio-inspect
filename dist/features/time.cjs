@@ -48,10 +48,7 @@ function getChannelData(audio, channel) {
       for (let ch = 0; ch < audio.numberOfChannels; ch++) {
         const channelData2 = audio.channelData[ch];
         if (!channelData2) {
-          throw new AudioInspectError(
-            "INVALID_INPUT",
-            `\u30C1\u30E3\u30F3\u30CD\u30EB ${ch} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-          );
+          throw new AudioInspectError("INVALID_INPUT", `Channel ${ch} data does not exist`);
         }
         if (i < channelData2.length) {
           const sample = channelData2[i];
@@ -67,15 +64,12 @@ function getChannelData(audio, channel) {
   if (channel < 0 || channel >= audio.numberOfChannels) {
     throw new AudioInspectError(
       "INVALID_INPUT",
-      `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}\u3002\u6709\u52B9\u7BC4\u56F2\u306F 0-${audio.numberOfChannels - 1} \u307E\u305F\u306F -1\uFF08\u5E73\u5747\uFF09\u3067\u3059`
+      `Invalid channel number: ${channel}. Valid range is 0-${audio.numberOfChannels - 1} or -1 (average)`
     );
   }
   const channelData = audio.channelData[channel];
   if (!channelData) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `Channel ${channel} data does not exist`);
   }
   return channelData;
 }
@@ -261,8 +255,10 @@ function getZeroCrossing(audio, channel = 0) {
 function getWaveform(audio, options = {}) {
   const { framesPerSecond = 60, channel = 0, method = "rms" } = options;
   const channelData = getChannelData(audio, channel);
-  const frameCount = Math.ceil(audio.duration * framesPerSecond);
-  const samplesPerFrame = Math.floor(audio.length / frameCount);
+  const desiredFrameCount = Math.ceil(audio.duration * framesPerSecond);
+  const maxPossibleFrameCount = audio.length > 0 ? audio.length : desiredFrameCount > 0 ? 1 : 0;
+  const frameCount = Math.min(desiredFrameCount, maxPossibleFrameCount);
+  const samplesPerFrame = frameCount > 0 ? Math.max(1, Math.floor(audio.length / frameCount)) : 0;
   const waveform = [];
   let maxAmplitude = 0;
   let totalAmplitude = 0;

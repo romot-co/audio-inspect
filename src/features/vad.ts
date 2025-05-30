@@ -6,30 +6,30 @@ export interface VADOptions {
   frameSizeMs?: number;
   hopSizeMs?: number;
   method?: 'energy' | 'zcr' | 'combined' | 'adaptive';
-  
+
   // 閾値パラメータ
-  energyThreshold?: number;      // 固定エネルギー閾値
-  zcrThresholdLow?: number;      // ZCR下限（有声音）
-  zcrThresholdHigh?: number;     // ZCR上限（無声音）
-  
+  energyThreshold?: number; // 固定エネルギー閾値
+  zcrThresholdLow?: number; // ZCR下限（有声音）
+  zcrThresholdHigh?: number; // ZCR上限（無声音）
+
   // 適応的閾値用パラメータ
-  adaptiveAlpha?: number;        // 適応率 (0-1)
-  noiseFactor?: number;          // ノイズレベルに対する倍率
-  
+  adaptiveAlpha?: number; // 適応率 (0-1)
+  noiseFactor?: number; // ノイズレベルに対する倍率
+
   // 時間制約
   minSilenceDurationMs?: number;
   minSpeechDurationMs?: number;
-  
+
   // 追加オプション
-  preEmphasis?: boolean;         // プリエンファシスフィルタ
-  smoothing?: boolean;           // 判定結果の平滑化
+  preEmphasis?: boolean; // プリエンファシスフィルタ
+  smoothing?: boolean; // 判定結果の平滑化
 }
 
 export interface VADSegment {
   start: number;
   end: number;
   type: 'speech' | 'silence';
-  confidence?: number;  // 判定の信頼度 (0-1)
+  confidence?: number; // 判定の信頼度 (0-1)
 }
 
 export interface VADResult {
@@ -38,7 +38,7 @@ export interface VADResult {
   features?: {
     energies: Float32Array;
     zcrs: Float32Array;
-    decisions: Float32Array;  // 0-1の連続値
+    decisions: Float32Array; // 0-1の連続値
     times: Float32Array;
   };
 }
@@ -49,13 +49,13 @@ export interface VADResult {
 function applyPreEmphasis(data: Float32Array, alpha: number = 0.97): Float32Array {
   const filtered = new Float32Array(data.length);
   filtered[0] = data[0] || 0;
-  
+
   for (let i = 1; i < data.length; i++) {
     const current = ensureValidSample(data[i]);
     const previous = ensureValidSample(data[i - 1]);
     filtered[i] = current - alpha * previous;
   }
-  
+
   return filtered;
 }
 
@@ -70,7 +70,7 @@ function calculateFrameEnergies(
   useLogEnergy: boolean = false
 ): { energies: Float32Array; times: Float32Array } {
   const dataLength = channelData.length;
-  
+
   if (dataLength < frameSizeSamples) {
     return { energies: new Float32Array(0), times: new Float32Array(0) };
   }
@@ -82,24 +82,24 @@ function calculateFrameEnergies(
   for (let i = 0; i < frameCount; i++) {
     const start = i * hopSizeSamples;
     const end = Math.min(start + frameSizeSamples, dataLength);
-    
+
     let energy = 0;
     let validSamples = 0;
-    
+
     for (let j = start; j < end; j++) {
       const sample = ensureValidSample(channelData[j]);
       energy += sample * sample;
       validSamples++;
     }
-    
+
     energy = validSamples > 0 ? energy / validSamples : 0; // 正規化
-    
+
     if (useLogEnergy) {
       energies[i] = energy > 1e-10 ? 10 * Math.log10(energy) : -100;
     } else {
       energies[i] = energy;
     }
-    
+
     times[i] = (start + frameSizeSamples / 2) / sampleRate;
   }
 
@@ -116,7 +116,7 @@ function calculateFrameZCRs(
   normalize: boolean = true
 ): Float32Array {
   const dataLength = channelData.length;
-  
+
   if (dataLength < frameSizeSamples) {
     return new Float32Array(0);
   }
@@ -127,10 +127,10 @@ function calculateFrameZCRs(
   for (let i = 0; i < frameCount; i++) {
     const start = i * hopSizeSamples;
     const end = Math.min(start + frameSizeSamples, dataLength);
-    
+
     let crossings = 0;
     let prevSign = Math.sign(ensureValidSample(channelData[start]));
-    
+
     for (let j = start + 1; j < end; j++) {
       const sample = ensureValidSample(channelData[j]);
       const currentSign = Math.sign(sample);
@@ -139,10 +139,8 @@ function calculateFrameZCRs(
       }
       prevSign = currentSign;
     }
-    
-    zcrs[i] = normalize 
-      ? crossings / Math.max(1, end - start - 1)
-      : crossings;
+
+    zcrs[i] = normalize ? crossings / Math.max(1, end - start - 1) : crossings;
   }
 
   return zcrs;
@@ -158,11 +156,11 @@ function calculateAdaptiveThreshold(
   initialFrames: number = 10
 ): Float32Array {
   const thresholds = new Float32Array(values.length);
-  
+
   // 初期ノイズレベルの推定（最初のフレームから）
   let noiseLevel = 0;
   const noiseFrames = Math.min(initialFrames, values.length);
-  
+
   for (let i = 0; i < noiseFrames; i++) {
     const value = values[i];
     if (value !== undefined) {
@@ -175,7 +173,8 @@ function calculateAdaptiveThreshold(
   for (let i = 0; i < values.length; i++) {
     const value = values[i];
     if (value === undefined) {
-      thresholds[i] = i > 0 ? (thresholds[i - 1] ?? noiseLevel * noiseFactor) : noiseLevel * noiseFactor;
+      thresholds[i] =
+        i > 0 ? (thresholds[i - 1] ?? noiseLevel * noiseFactor) : noiseLevel * noiseFactor;
       continue;
     }
 
@@ -197,17 +196,14 @@ function calculateAdaptiveThreshold(
 /**
  * 判定結果の平滑化（メディアンフィルタ）
  */
-function smoothDecisions(
-  decisions: Float32Array,
-  windowSize: number = 5
-): Float32Array {
+function smoothDecisions(decisions: Float32Array, windowSize: number = 5): Float32Array {
   const smoothed = new Float32Array(decisions.length);
   const halfWindow = Math.floor(windowSize / 2);
 
   for (let i = 0; i < decisions.length; i++) {
     const start = Math.max(0, i - halfWindow);
     const end = Math.min(decisions.length, i + halfWindow + 1);
-    
+
     // 窓内の値を収集してソート
     const windowValues: number[] = [];
     for (let j = start; j < end; j++) {
@@ -217,7 +213,7 @@ function smoothDecisions(
       }
     }
     windowValues.sort((a, b) => a - b);
-    
+
     // メディアン値を取得
     if (windowValues.length > 0) {
       const medianIdx = Math.floor(windowValues.length / 2);
@@ -258,8 +254,10 @@ function createSegmentsFromContinuous(
         type: isSpeech ? 'speech' : 'silence',
         confidence: Math.abs(decision - 0.5) * 2
       };
-    } else if ((isSpeech && currentSegment.type === 'speech') || 
-               (!isSpeech && currentSegment.type === 'silence')) {
+    } else if (
+      (isSpeech && currentSegment.type === 'speech') ||
+      (!isSpeech && currentSegment.type === 'silence')
+    ) {
       // 同じタイプのセグメントを延長
       currentSegment.end = time;
       const conf = Math.abs(decision - 0.5) * 2;
@@ -306,8 +304,10 @@ function filterShortSegments(
 
     const duration = current.end - current.start;
 
-    if ((current.type === 'speech' && duration >= minSpeechSec) ||
-        (current.type === 'silence' && duration >= minSilenceSec)) {
+    if (
+      (current.type === 'speech' && duration >= minSpeechSec) ||
+      (current.type === 'silence' && duration >= minSilenceSec)
+    ) {
       // セグメントを保持
       filtered.push(current);
       i++;
@@ -324,7 +324,7 @@ function filterShortSegments(
           continue;
         }
       }
-      
+
       // 統合できない場合はタイプを変更
       if (filtered.length > 0) {
         const lastFiltered = filtered[filtered.length - 1];
@@ -342,14 +342,11 @@ function filterShortSegments(
 /**
  * VAD（音声区間検出）を実行
  */
-export function getVAD(
-  audio: AudioData,
-  options: VADOptions = {}
-): VADResult {
+export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
   const {
     channel = 0,
-    frameSizeMs = 30,      // 30msフレーム
-    hopSizeMs = 10,        // 10msホップ
+    frameSizeMs = 30, // 30msフレーム
+    hopSizeMs = 10, // 10msホップ
     method = 'combined',
     energyThreshold = 0.02,
     zcrThresholdLow = 0.05,
@@ -363,15 +360,15 @@ export function getVAD(
   } = options;
 
   let channelData = getChannelData(audio, channel);
-  
+
   // プリエンファシス（オプション）
   if (preEmphasis) {
     channelData = applyPreEmphasis(channelData);
   }
 
   const sr = audio.sampleRate;
-  const frameSizeSamples = Math.floor(frameSizeMs / 1000 * sr);
-  const hopSizeSamples = Math.floor(hopSizeMs / 1000 * sr);
+  const frameSizeSamples = Math.floor((frameSizeMs / 1000) * sr);
+  const hopSizeSamples = Math.floor((hopSizeMs / 1000) * sr);
 
   if (frameSizeSamples === 0 || hopSizeSamples === 0) {
     return { segments: [], speechRatio: 0 };
@@ -379,19 +376,14 @@ export function getVAD(
 
   // 特徴量の計算
   const { energies, times } = calculateFrameEnergies(
-    channelData, 
-    frameSizeSamples, 
-    hopSizeSamples, 
-    sr, 
+    channelData,
+    frameSizeSamples,
+    hopSizeSamples,
+    sr,
     false
   );
-  
-  const zcrs = calculateFrameZCRs(
-    channelData, 
-    frameSizeSamples, 
-    hopSizeSamples, 
-    true
-  );
+
+  const zcrs = calculateFrameZCRs(channelData, frameSizeSamples, hopSizeSamples, true);
 
   if (energies.length === 0) {
     return { segments: [], speechRatio: 0 };
@@ -408,7 +400,7 @@ export function getVAD(
       }
       break;
     }
-    
+
     case 'zcr': {
       for (let i = 0; i < zcrs.length; i++) {
         const zcr = zcrs[i];
@@ -416,34 +408,33 @@ export function getVAD(
       }
       break;
     }
-    
+
     case 'combined': {
       for (let i = 0; i < energies.length; i++) {
         const energy = energies[i];
         const zcr = zcrs[i];
-        
+
         const energyScore = energy !== undefined && energy > energyThreshold ? 1 : 0;
-        const zcrScore = zcr !== undefined && zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 1 : 0;
+        const zcrScore =
+          zcr !== undefined && zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 1 : 0;
         decisions[i] = (energyScore + zcrScore) / 2;
       }
       break;
     }
-    
+
     case 'adaptive': {
       // 適応的閾値の計算
-      const adaptiveThreshold = calculateAdaptiveThreshold(
-        energies,
-        adaptiveAlpha,
-        noiseFactor
-      );
-      
+      const adaptiveThreshold = calculateAdaptiveThreshold(energies, adaptiveAlpha, noiseFactor);
+
       for (let i = 0; i < energies.length; i++) {
         const energy = energies[i];
         const zcr = zcrs[i];
         const threshold = adaptiveThreshold[i];
-        
-        const energyScore = energy !== undefined && threshold !== undefined && energy > threshold ? 1 : 0;
-        const zcrScore = zcr !== undefined && zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 0.5 : 0;
+
+        const energyScore =
+          energy !== undefined && threshold !== undefined && energy > threshold ? 1 : 0;
+        const zcrScore =
+          zcr !== undefined && zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 0.5 : 0;
         decisions[i] = Math.min(1, energyScore + zcrScore);
       }
       break;
@@ -451,14 +442,12 @@ export function getVAD(
   }
 
   // 平滑化（オプション）
-  const finalDecisions = smoothing 
-    ? smoothDecisions(decisions, 5) 
-    : decisions;
+  const finalDecisions = smoothing ? smoothDecisions(decisions, 5) : decisions;
 
   // セグメント化
   const minSpeechSec = minSpeechDurationMs / 1000;
   const minSilenceSec = minSilenceDurationMs / 1000;
-  
+
   const segments = createSegmentsFromContinuous(
     finalDecisions,
     times,
@@ -474,10 +463,8 @@ export function getVAD(
       totalSpeechDuration += seg.end - seg.start;
     }
   }
-  
-  const speechRatio = audio.duration > 0 
-    ? Math.min(1, totalSpeechDuration / audio.duration) 
-    : 0;
+
+  const speechRatio = audio.duration > 0 ? Math.min(1, totalSpeechDuration / audio.duration) : 0;
 
   return {
     segments,
@@ -489,4 +476,4 @@ export function getVAD(
       times
     }
   };
-} 
+}

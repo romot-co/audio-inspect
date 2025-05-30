@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 import { describe, it, expect, vi } from 'vitest';
 import { analyze } from '../../src/core/analyze.js';
 import { AudioInspectError } from '../../src/types.js';
@@ -62,9 +58,9 @@ describe('analyze', () => {
     it('should reject null or undefined audio', async () => {
       const mockFeature: Feature<number> = vi.fn();
 
-      await expect(analyze(null as any, mockFeature)).rejects.toThrow('AudioDataが無効です');
+      await expect(analyze(null as any, mockFeature)).rejects.toThrow('AudioData is invalid');
 
-      await expect(analyze(undefined as any, mockFeature)).rejects.toThrow('AudioDataが無効です');
+      await expect(analyze(undefined as any, mockFeature)).rejects.toThrow('AudioData is invalid');
     });
 
     it('should reject invalid sampleRate', async () => {
@@ -78,7 +74,7 @@ describe('analyze', () => {
         length: 1000
       };
 
-      await expect(analyze(invalidAudio, mockFeature)).rejects.toThrow('サンプルレートが無効です');
+      await expect(analyze(invalidAudio, mockFeature)).rejects.toThrow('Sample rate is invalid');
 
       const negativeAudio: AudioData = {
         sampleRate: -44100,
@@ -88,7 +84,7 @@ describe('analyze', () => {
         length: 1000
       };
 
-      await expect(analyze(negativeAudio, mockFeature)).rejects.toThrow('サンプルレートが無効です');
+      await expect(analyze(negativeAudio, mockFeature)).rejects.toThrow('Sample rate is invalid');
     });
 
     it('should reject invalid channelData', async () => {
@@ -102,7 +98,7 @@ describe('analyze', () => {
         length: 1000
       };
 
-      await expect(analyze(noChannels, mockFeature)).rejects.toThrow('チャンネルデータが無効です');
+      await expect(analyze(noChannels, mockFeature)).rejects.toThrow('Channel data is invalid');
 
       const nonArrayChannels: AudioData = {
         sampleRate: 44100,
@@ -113,7 +109,7 @@ describe('analyze', () => {
       };
 
       await expect(analyze(nonArrayChannels, mockFeature)).rejects.toThrow(
-        'チャンネルデータが無効です'
+        'Channel data is invalid'
       );
     });
 
@@ -129,7 +125,7 @@ describe('analyze', () => {
       };
 
       await expect(analyze(mismatchedAudio, mockFeature)).rejects.toThrow(
-        'チャンネル数が一致しません'
+        'Number of channels does not match'
       );
     });
 
@@ -144,7 +140,7 @@ describe('analyze', () => {
         length: 0
       };
 
-      await expect(analyze(zeroLength, mockFeature)).rejects.toThrow('データ長が無効です');
+      await expect(analyze(zeroLength, mockFeature)).rejects.toThrow('Data length is invalid');
 
       const negativeLength: AudioData = {
         sampleRate: 44100,
@@ -154,7 +150,7 @@ describe('analyze', () => {
         length: -100
       };
 
-      await expect(analyze(negativeLength, mockFeature)).rejects.toThrow('データ長が無効です');
+      await expect(analyze(negativeLength, mockFeature)).rejects.toThrow('Data length is invalid');
     });
 
     it('should reject invalid duration', async () => {
@@ -168,7 +164,7 @@ describe('analyze', () => {
         length: 1000
       };
 
-      await expect(analyze(zeroDuration, mockFeature)).rejects.toThrow('音声の長さが無効です');
+      await expect(analyze(zeroDuration, mockFeature)).rejects.toThrow('Audio duration is invalid');
 
       const negativeDuration: AudioData = {
         sampleRate: 44100,
@@ -178,7 +174,9 @@ describe('analyze', () => {
         length: 1000
       };
 
-      await expect(analyze(negativeDuration, mockFeature)).rejects.toThrow('音声の長さが無効です');
+      await expect(analyze(negativeDuration, mockFeature)).rejects.toThrow(
+        'Audio duration is invalid'
+      );
     });
 
     it('should reject non-Float32Array channel data', async () => {
@@ -189,7 +187,7 @@ describe('analyze', () => {
       });
 
       await expect(analyze(invalidChannelData, mockFeature)).rejects.toThrow(
-        'チャンネル 0 のデータが Float32Array ではありません'
+        'Channel 0 data is not a Float32Array'
       );
     });
 
@@ -205,7 +203,7 @@ describe('analyze', () => {
       });
 
       await expect(analyze(mismatchedLengths, mockFeature)).rejects.toThrow(
-        'チャンネル 1 のデータ長が一致しません'
+        'Channel 1 data length does not match'
       );
     });
   });
@@ -223,7 +221,7 @@ describe('analyze', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(AudioInspectError);
         expect((error as AudioInspectError).code).toBe('PROCESSING_ERROR');
-        expect((error as AudioInspectError).message).toContain('特徴量の抽出に失敗しました');
+        expect((error as AudioInspectError).message).toContain('Feature extraction failed');
         expect((error as AudioInspectError).cause).toBe(originalError);
       }
     });

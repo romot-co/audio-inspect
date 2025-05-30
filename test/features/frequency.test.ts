@@ -253,10 +253,12 @@ describe('getSpectrum', () => {
       if (result.spectrogram) {
         // フィルタリングされた周波数範囲内にあることを確認
         expect(result.spectrogram.frequencies[0]).toBeGreaterThanOrEqual(800);
-        expect(result.spectrogram.frequencies[result.spectrogram.frequencies.length - 1]).toBeLessThanOrEqual(1200);
-        
+        expect(
+          result.spectrogram.frequencies[result.spectrogram.frequencies.length - 1]
+        ).toBeLessThanOrEqual(1200);
+
         // すべてのフレームで適切な周波数範囲がフィルタリングされていることを確認
-        result.spectrogram.intensities.forEach(intensity => {
+        result.spectrogram.intensities.forEach((intensity) => {
           expect(intensity.length).toBe(result.spectrogram?.frequencies.length);
         });
       }
@@ -316,7 +318,7 @@ describe('error handling', () => {
     const audio = createTestAudioData(sineWave);
 
     await expect(
-      getFFT(audio, { channel: 5, provider: 'native' }) // 存在しないチャンネル
-    ).rejects.toThrow('無効なチャンネル番号');
+      getFFT(audio, { channel: 5 })
+    ).rejects.toThrow('Invalid channel number');
   });
 });

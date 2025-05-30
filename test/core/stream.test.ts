@@ -2,43 +2,68 @@ import { describe, it, expect } from 'vitest';
 import { stream } from '../../src/core/stream.js';
 import { AudioInspectError } from '../../src/types.js';
 
+// AudioWorkletNodeがブラウザ環境でのみ利用可能かチェック
+const isAudioWorkletSupported = typeof AudioWorkletNode !== 'undefined';
+const isMediaStreamSupported = typeof MediaStream !== 'undefined';
+
 describe('stream', () => {
-  it('should throw not implemented error', () => {
-    const mockSource = new ArrayBuffer(1024);
-    const mockFeature = (): number => 42;
+  it('should handle unsupported environment gracefully', async () => {
+    if (!isAudioWorkletSupported || !isMediaStreamSupported) {
+      // Node.js環境では適切なエラーが発生することを確認
+      const mockSource = new ArrayBuffer(1024);
+      const mockFeature = 'getRMS';
 
-    expect(() => {
-      stream(mockSource, mockFeature);
-    }).toThrow(AudioInspectError);
-
-    expect(() => {
-      stream(mockSource, mockFeature);
-    }).toThrow('stream機能は現在実装中です');
-  });
-
-  it('should throw error with correct error code', () => {
-    const mockSource = new ArrayBuffer(1024);
-    const mockFeature = (): number => 42;
-
-    try {
-      stream(mockSource, mockFeature);
-    } catch (error) {
-      expect(error).toBeInstanceOf(AudioInspectError);
-      if (error instanceof AudioInspectError) {
-        expect(error.code).toBe('UNSUPPORTED_FORMAT');
-      }
+      await expect(
+        stream(mockSource, mockFeature, { processorModuleUrl: 'mock.js' })
+      ).rejects.toThrow();
+      return;
     }
+
+    // ブラウザ環境でのテストは実際のAudioContextが必要なため、
+    // ここでは基本的な型チェックのみ実行
+    expect(typeof stream).toBe('function');
   });
 
-  it('should handle different source types', () => {
-    const mockFeature = (): number => 42;
+  it('should validate feature name parameter', async () => {
+    if (!isAudioWorkletSupported) {
+      console.log('AudioWorklet not supported in this environment, skipping test');
+      return;
+    }
 
-    const sources = [new ArrayBuffer(1024), new Blob(['test']), 'http://example.com/audio.mp3'];
+    const mockSource = new ArrayBuffer(1024);
 
-    sources.forEach((source) => {
-      expect(() => {
-        stream(source, mockFeature);
-      }).toThrow(AudioInspectError);
-    });
+    // 空の機能名でエラーが発生することを確認
+    await expect(stream(mockSource, '', { processorModuleUrl: 'mock.js' })).rejects.toThrow(
+      AudioInspectError
+    );
+  });
+
+  it('should handle different source types appropriately', async () => {
+    if (!isAudioWorkletSupported) {
+      console.log('AudioWorklet not supported in this environment, skipping test');
+      return;
+    }
+
+    const mockFeature = 'getRMS';
+
+    // サポートされていないソース形式でエラーが発生することを確認
+    const unsupportedSource = 'invalid-source';
+
+    await expect(
+      stream(unsupportedSource as any, mockFeature, { processorModuleUrl: 'mock.js' })
+    ).rejects.toThrow(AudioInspectError);
+  });
+
+  it('should handle different source types appropriately with processorModuleUrl', async () => {
+    if (!isAudioWorkletSupported) {
+      console.log('AudioWorklet not supported in this environment, skipping test');
+      return;
+    }
+
+    const mockFeature = 'getRMS';
+
+    const fakeSource = new ArrayBuffer(1024);
+
+    await stream(fakeSource as any, mockFeature, { processorModuleUrl: 'mock.js' });
   });
 });

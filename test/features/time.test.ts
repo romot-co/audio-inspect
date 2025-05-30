@@ -244,11 +244,11 @@ describe('getPeaks', () => {
 
       expect(() => {
         getPeaks(audio, { channel: 1 }); // Only has channel 0
-      }).toThrow('無効なチャンネル番号: 1');
+      }).toThrow('Invalid channel number: 1');
 
       expect(() => {
         getPeaks(audio, { channel: -2 });
-      }).toThrow('無効なチャンネル番号: -2');
+      }).toThrow('Invalid channel number: -2');
     });
   });
 
@@ -597,9 +597,9 @@ describe('getWaveform', () => {
       const audio = createTestAudioData(signal);
 
       // 極端に高いフレームレート（サンプル数より多い）
-      const result = getWaveform(audio, { 
-        framesPerSecond: 100000, // 10万fps 
-        method: 'rms' 
+      const result = getWaveform(audio, {
+        framesPerSecond: 100000, // 10万fps
+        method: 'rms'
       });
 
       // samplesPerFrameが0になることなく、適切に制限されることを確認
@@ -607,9 +607,9 @@ describe('getWaveform', () => {
       expect(result.frameCount).toBeGreaterThan(0);
       expect(result.frameCount).toBeLessThanOrEqual(audio.length);
       expect(result.waveform.length).toBe(result.frameCount);
-      
+
       // 各フレームが有効な値を持つことを確認
-      result.waveform.forEach(point => {
+      result.waveform.forEach((point) => {
         expect(point.time).toBeGreaterThanOrEqual(0);
         expect(point.amplitude).toBeGreaterThanOrEqual(0);
         expect(point.amplitude).toBeLessThanOrEqual(1);
@@ -620,9 +620,9 @@ describe('getWaveform', () => {
       const signal = createSineWave(440, 2.0, 44100, 0.5); // 2秒のサイン波
       const audio = createTestAudioData(signal);
 
-      const result = getWaveform(audio, { 
+      const result = getWaveform(audio, {
         framesPerSecond: 60,
-        method: 'peak' 
+        method: 'peak'
       });
 
       // 通常のフレームレートでの正常動作を確認
@@ -656,7 +656,7 @@ describe('getWaveform', () => {
       // 低いフレームレートと高いフレームレートの両方で適切に動作
       expect(lowFps.samplesPerFrame).toBeGreaterThan(0);
       expect(highFps.samplesPerFrame).toBeGreaterThan(0);
-      
+
       // フレーム数の妥当性
       expect(lowFps.frameCount).toBeLessThan(highFps.frameCount);
       expect(lowFps.frameCount).toBeLessThanOrEqual(audio.length);

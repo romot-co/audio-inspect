@@ -122,10 +122,7 @@ var NativeFFTProvider = class {
     this.size = size;
     this.sampleRate = sampleRate;
     if (!this.isPowerOfTwo(size)) {
-      throw new AudioInspectError(
-        "INVALID_INPUT",
-        "FFT\u30B5\u30A4\u30BA\u306F2\u306E\u51AA\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059"
-      );
+      throw new AudioInspectError("INVALID_INPUT", "FFT\u30B5\u30A4\u30BA\u306F2\u306E\u51AA\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
     }
     this.precomputeTables();
   }
@@ -295,12 +292,12 @@ function getChannelData(audio, channel) {
     }
     return averageData;
   }
-  if (channel < 0 || channel >= audio.numberOfChannels) {
-    throw new AudioInspectError("INVALID_INPUT", `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`);
+  if (channel < -1 || channel >= audio.numberOfChannels) {
+    throw new AudioInspectError("INVALID_INPUT", `Invalid channel number: ${channel}`);
   }
   const channelData = audio.channelData[channel];
   if (!channelData) {
-    throw new AudioInspectError("INVALID_INPUT", `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`);
+    throw new AudioInspectError("INVALID_INPUT", `Channel ${channel} data does not exist`);
   }
   return channelData;
 }
@@ -429,10 +426,7 @@ function calculateFrequencyWidth(leftMag, rightMag, leftPhase, rightPhase) {
 }
 async function getStereoAnalysis(audio, options = {}) {
   if (audio.numberOfChannels < 2) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      "\u30B9\u30C6\u30EC\u30AA\u89E3\u6790\u306B\u306F2\u30C1\u30E3\u30F3\u30CD\u30EB\u4EE5\u4E0A\u306E\u97F3\u58F0\u304C\u5FC5\u8981\u3067\u3059"
-    );
+    throw new AudioInspectError("INVALID_INPUT", "\u30B9\u30C6\u30EC\u30AA\u89E3\u6790\u306B\u306F2\u30C1\u30E3\u30F3\u30CD\u30EB\u4EE5\u4E0A\u306E\u97F3\u58F0\u304C\u5FC5\u8981\u3067\u3059");
   }
   const {
     frameSize = audio.length,
@@ -443,10 +437,7 @@ async function getStereoAnalysis(audio, options = {}) {
   const left = audio.channelData[0];
   const right = audio.channelData[1];
   if (!left || !right) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      "L/R\u30C1\u30E3\u30F3\u30CD\u30EB\u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093"
-    );
+    throw new AudioInspectError("INVALID_INPUT", "L/R\u30C1\u30E3\u30F3\u30CD\u30EB\u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093");
   }
   const len = Math.min(left.length, right.length);
   if (len === 0) {
@@ -564,9 +555,11 @@ async function getStereoAnalysis(audio, options = {}) {
   return result;
 }
 function getTimeVaryingStereoAnalysis(_audio, _options = {}) {
-  return Promise.reject(new AudioInspectError(
-    "UNSUPPORTED_FORMAT",
-    "\u6642\u7CFB\u5217\u30B9\u30C6\u30EC\u30AA\u89E3\u6790\u306F\u5C06\u6765\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3067\u5B9F\u88C5\u4E88\u5B9A\u3067\u3059"
-  ));
+  return Promise.reject(
+    new AudioInspectError(
+      "UNSUPPORTED_FORMAT",
+      "\u6642\u7CFB\u5217\u30B9\u30C6\u30EC\u30AA\u89E3\u6790\u306F\u5C06\u6765\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3067\u5B9F\u88C5\u4E88\u5B9A\u3067\u3059"
+    )
+  );
 }
 //# sourceMappingURL=stereo.cjs.map

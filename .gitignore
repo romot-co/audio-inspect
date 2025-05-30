@@ -102,3 +102,5 @@ public
 coverage-vitest/ # If you use a specific output like coverage/vitest
 
 spec.md
+
+test-results/

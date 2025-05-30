@@ -188,7 +188,7 @@ describe('getEnergy', () => {
   describe('different amplitude ranges', () => {
     it('should handle various amplitude levels', () => {
       const amplitudes = [0.1, 0.5, 1.0, 2.0];
-      
+
       for (const amplitude of amplitudes) {
         const sineWave = createSineWave(440, 0.1, 44100, amplitude);
         const audio = createTestAudioData(sineWave);
@@ -289,4 +289,4 @@ describe('getEnergy', () => {
       expect(result.statistics.std).toBeCloseTo(0, 3);
     });
   });
-}); 
+});

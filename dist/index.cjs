@@ -1,4 +1,4 @@
-// audio-inspect - 軽量かつ高機能なオーディオ解析ライブラリ
+// audio-inspect - Lightweight yet powerful audio analysis library
 "use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -32,9 +32,11 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var index_exports = {};
 __export(index_exports, {
   AudioInspectError: () => AudioInspectError,
+  AudioInspectNode: () => AudioInspectNode,
   FFTProviderFactory: () => FFTProviderFactory,
   amplitudeToDecibels: () => amplitudeToDecibels,
   analyze: () => analyze,
+  createAudioInspectNode: () => createAudioInspectNode,
   decibelsToAmplitude: () => decibelsToAmplitude,
   getChannelData: () => getChannelData,
   getCrestFactor: () => getCrestFactor,
@@ -78,12 +80,12 @@ function isAudioInspectError(error) {
 async function load(source, options = {}) {
   try {
     if (isAudioData(source)) {
-      return processAudioData(source, options);
+      return await processAudioData(source, options);
     }
     const audioContext = getAudioContext();
     const audioBuffer = await decodeAudioSource(source, audioContext);
     const audioData = audioBufferToAudioData(audioBuffer);
-    return processAudioData(audioData, options);
+    return await processAudioData(audioData, options);
   } catch (error) {
     throw new AudioInspectError(
       "DECODE_ERROR",
@@ -145,7 +147,7 @@ function audioBufferToAudioData(buffer) {
     length: buffer.length
   };
 }
-function processAudioData(audioData, options) {
+async function processAudioData(audioData, options) {
   let result = audioData;
   if (options.channels === "mono" || options.channels === 1) {
     result = convertToMono(result);
@@ -154,9 +156,50 @@ function processAudioData(audioData, options) {
     result = normalize(result);
   }
   if (options.sampleRate && options.sampleRate !== result.sampleRate) {
-    console.warn("\u30B5\u30F3\u30D7\u30EB\u30EC\u30FC\u30C8\u5909\u63DB\u306F\u73FE\u5728\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+    try {
+      result = await resampleAudioData(result, options.sampleRate);
+    } catch (error) {
+      console.warn("\u30B5\u30F3\u30D7\u30EB\u30EC\u30FC\u30C8\u5909\u63DB\u306B\u5931\u6557\u3057\u307E\u3057\u305F:", error);
+      throw new AudioInspectError(
+        "PROCESSING_ERROR",
+        `\u30B5\u30F3\u30D7\u30EB\u30EC\u30FC\u30C8\u5909\u63DB\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    }
   }
   return result;
+}
+async function resampleAudioData(audioData, targetSampleRate) {
+  if (typeof OfflineAudioContext === "undefined") {
+    throw new AudioInspectError(
+      "UNSUPPORTED_FORMAT",
+      "\u3053\u306E\u74B0\u5883\u3067\u306F\u30B5\u30F3\u30D7\u30EB\u30EC\u30FC\u30C8\u5909\u63DB\u304C\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u307E\u305B\u3093"
+    );
+  }
+  const originalSampleRate = audioData.sampleRate;
+  const originalLength = audioData.length;
+  const targetLength = Math.floor(originalLength * targetSampleRate / originalSampleRate);
+  const offlineContext = new OfflineAudioContext(
+    audioData.numberOfChannels,
+    targetLength,
+    targetSampleRate
+  );
+  const originalBuffer = offlineContext.createBuffer(
+    audioData.numberOfChannels,
+    originalLength,
+    originalSampleRate
+  );
+  for (let channel = 0; channel < audioData.numberOfChannels; channel++) {
+    const channelData = audioData.channelData[channel];
+    if (channelData) {
+      originalBuffer.copyToChannel(channelData, channel);
+    }
+  }
+  const source = offlineContext.createBufferSource();
+  source.buffer = originalBuffer;
+  source.connect(offlineContext.destination);
+  source.start(0);
+  const resampledBuffer = await offlineContext.startRendering();
+  return audioBufferToAudioData(resampledBuffer);
 }
 function convertToMono(audioData) {
   if (audioData.numberOfChannels === 1) {
@@ -217,57 +260,380 @@ async function analyze(audio, feature) {
       throw error;
     }
     const message = error instanceof Error ? error.message : "Unknown error";
-    throw new AudioInspectError(
-      "PROCESSING_ERROR",
-      `\u7279\u5FB4\u91CF\u306E\u62BD\u51FA\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${message}`,
-      error
-    );
+    throw new AudioInspectError("PROCESSING_ERROR", `Feature extraction failed: ${message}`, error);
   }
 }
 function validateAudioData(audio) {
   if (!audio || typeof audio !== "object") {
-    throw new AudioInspectError("INVALID_INPUT", "AudioData\u304C\u7121\u52B9\u3067\u3059");
+    throw new AudioInspectError("INVALID_INPUT", "AudioData is invalid");
   }
   if (typeof audio.sampleRate !== "number" || audio.sampleRate <= 0) {
-    throw new AudioInspectError("INVALID_INPUT", "\u30B5\u30F3\u30D7\u30EB\u30EC\u30FC\u30C8\u304C\u7121\u52B9\u3067\u3059");
+    throw new AudioInspectError("INVALID_INPUT", "Sample rate is invalid");
   }
   if (!Array.isArray(audio.channelData) || audio.channelData.length === 0) {
-    throw new AudioInspectError("INVALID_INPUT", "\u30C1\u30E3\u30F3\u30CD\u30EB\u30C7\u30FC\u30BF\u304C\u7121\u52B9\u3067\u3059");
+    throw new AudioInspectError("INVALID_INPUT", "Channel data is invalid");
   }
   if (typeof audio.numberOfChannels !== "number" || audio.numberOfChannels !== audio.channelData.length) {
-    throw new AudioInspectError("INVALID_INPUT", "\u30C1\u30E3\u30F3\u30CD\u30EB\u6570\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093");
+    throw new AudioInspectError("INVALID_INPUT", "Number of channels does not match");
   }
   if (typeof audio.length !== "number" || audio.length <= 0) {
-    throw new AudioInspectError("INVALID_INPUT", "\u30C7\u30FC\u30BF\u9577\u304C\u7121\u52B9\u3067\u3059");
+    throw new AudioInspectError("INVALID_INPUT", "Data length is invalid");
   }
   if (typeof audio.duration !== "number" || audio.duration <= 0) {
-    throw new AudioInspectError("INVALID_INPUT", "\u97F3\u58F0\u306E\u9577\u3055\u304C\u7121\u52B9\u3067\u3059");
+    throw new AudioInspectError("INVALID_INPUT", "Audio duration is invalid");
   }
   const firstChannelData = audio.channelData[0];
   if (!firstChannelData) {
-    throw new AudioInspectError("INVALID_INPUT", "\u30C1\u30E3\u30F3\u30CD\u30EB0\u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093");
+    throw new AudioInspectError("INVALID_INPUT", "Channel 0 data does not exist");
   }
   const expectedLength = firstChannelData.length;
   for (let i = 0; i < audio.channelData.length; i++) {
     const channelData = audio.channelData[i];
     if (!(channelData instanceof Float32Array)) {
-      throw new AudioInspectError(
-        "INVALID_INPUT",
-        `\u30C1\u30E3\u30F3\u30CD\u30EB ${i} \u306E\u30C7\u30FC\u30BF\u304C Float32Array \u3067\u306F\u3042\u308A\u307E\u305B\u3093`
-      );
+      throw new AudioInspectError("INVALID_INPUT", `Channel ${i} data is not a Float32Array`);
     }
     if (channelData.length !== expectedLength) {
-      throw new AudioInspectError("INVALID_INPUT", `\u30C1\u30E3\u30F3\u30CD\u30EB ${i} \u306E\u30C7\u30FC\u30BF\u9577\u304C\u4E00\u81F4\u3057\u307E\u305B\u3093`);
+      throw new AudioInspectError("INVALID_INPUT", `Channel ${i} data length does not match`);
     }
   }
 }
 
+// src/core/AudioInspectNode.ts
+var isAudioWorkletSupported = typeof AudioWorkletNode !== "undefined";
+var MockAudioWorkletNode = class {
+  numberOfInputs = 1;
+  numberOfOutputs = 0;
+  channelCount = 2;
+  channelCountMode = "max";
+  channelInterpretation = "speakers";
+  context = null;
+  port = {
+    postMessage: () => {
+    },
+    close: () => {
+    },
+    onmessage: null
+  };
+  constructor() {
+  }
+  connect() {
+    return this;
+  }
+  disconnect() {
+    return this;
+  }
+  dispatchEvent() {
+    return true;
+  }
+  addEventListener() {
+  }
+  removeEventListener() {
+  }
+};
+var AudioInspectNode = class extends (isAudioWorkletSupported ? AudioWorkletNode : MockAudioWorkletNode) {
+  onresult;
+  onerror;
+  // Cache current settings (last values sent to processor)
+  _featureName = "getRMS";
+  _featureOptions;
+  _bufferSize = 1024;
+  _hopSize = 512;
+  _provider;
+  // FFT provider
+  constructor(context, nodeOptions) {
+    if (!isAudioWorkletSupported) {
+      super();
+      this._initializeMockMode(nodeOptions);
+      return;
+    }
+    if (!context) {
+      throw new AudioInspectError(
+        "INITIALIZATION_FAILED",
+        "AudioContext is required in browser environment"
+      );
+    }
+    const options = {
+      featureName: "getRMS",
+      bufferSize: 1024,
+      hopSize: 512,
+      inputChannelCount: 1,
+      provider: "native",
+      ...nodeOptions
+    };
+    const processorOptions = {
+      featureName: options.featureName,
+      featureOptions: options.featureOptions,
+      bufferSize: options.bufferSize,
+      hopSize: options.hopSize,
+      inputChannelCount: options.inputChannelCount,
+      provider: options.provider
+    };
+    super(context, "audio-inspect-processor", {
+      processorOptions,
+      numberOfInputs: 1,
+      numberOfOutputs: 0,
+      channelCount: options.inputChannelCount,
+      channelCountMode: "explicit",
+      channelInterpretation: "speakers"
+    });
+    this._featureName = options.featureName;
+    this._featureOptions = options.featureOptions;
+    this._bufferSize = options.bufferSize;
+    this._hopSize = options.hopSize;
+    this._provider = options.provider;
+    this.setupMessageHandler();
+  }
+  _initializeMockMode(nodeOptions) {
+    const options = {
+      featureName: "getRMS",
+      bufferSize: 1024,
+      hopSize: 512,
+      provider: "native",
+      ...nodeOptions
+    };
+    this._featureName = options.featureName;
+    this._featureOptions = options.featureOptions;
+    this._bufferSize = options.bufferSize;
+    this._hopSize = options.hopSize;
+    this._provider = options.provider;
+  }
+  getPort() {
+    return this.port;
+  }
+  setupMessageHandler() {
+    const port = this.getPort();
+    if (port) {
+      port.onmessage = this.handleMessage.bind(this);
+    }
+  }
+  /**
+   * Get current analysis feature name (last set value)
+   */
+  get featureName() {
+    return this._featureName;
+  }
+  /**
+   * Get current analysis options (last set value)
+   */
+  get featureOptions() {
+    return this._featureOptions;
+  }
+  /**
+   * Get current buffer size (last set value)
+   */
+  get bufferSize() {
+    return this._bufferSize;
+  }
+  /**
+   * Get current hop size (last set value)
+   */
+  get hopSize() {
+    return this._hopSize;
+  }
+  /**
+   * Get current FFT provider (last set value)
+   */
+  get provider() {
+    return this._provider;
+  }
+  /**
+   * Update analysis options (supports partial updates)
+   */
+  updateOptions(options) {
+    const payload = {};
+    if (options.featureName !== void 0 && options.featureName !== this._featureName) {
+      this._featureName = options.featureName;
+      payload.featureName = options.featureName;
+    }
+    if (options.featureOptions !== void 0) {
+      this._featureOptions = options.featureOptions;
+      payload.featureOptions = options.featureOptions;
+    }
+    if (options.bufferSize !== void 0 && options.bufferSize !== this._bufferSize) {
+      this._bufferSize = options.bufferSize;
+      payload.bufferSize = options.bufferSize;
+    }
+    if (options.hopSize !== void 0 && options.hopSize !== this._hopSize) {
+      this._hopSize = options.hopSize;
+      payload.hopSize = options.hopSize;
+    }
+    if (options.inputChannelCount !== void 0) {
+      payload.inputChannelCount = options.inputChannelCount;
+    }
+    if (options.provider !== void 0 && options.provider !== this._provider) {
+      this._provider = options.provider;
+      payload.provider = options.provider;
+    }
+    if (Object.keys(payload).length > 0) {
+      const message = {
+        type: "updateOptions",
+        payload
+      };
+      const port = this.getPort();
+      if (port && "postMessage" in port) {
+        port.postMessage(message);
+      }
+    }
+  }
+  /**
+   * Reset internal state
+   */
+  reset() {
+    const port = this.getPort();
+    if (port && "postMessage" in port) {
+      port.postMessage({ type: "reset" });
+    }
+  }
+  /**
+   * Release resources
+   */
+  dispose() {
+    this.disconnect();
+    const port = this.getPort();
+    if (port && "close" in port) {
+      port.close();
+    }
+  }
+  /**
+   * Handle messages from processor
+   */
+  handleMessage(event) {
+    const message = event.data;
+    switch (message.type) {
+      case "analysisResult":
+        this.handleAnalysisResult(message);
+        break;
+      case "error":
+        this.handleError(message);
+        break;
+      default:
+        console.warn("Unknown message type:", message.type);
+    }
+  }
+  /**
+   * Handle analysis results
+   */
+  handleAnalysisResult(message) {
+    const event = {
+      data: message.data,
+      timestamp: message.timestamp
+    };
+    if (this.onresult) {
+      this.onresult(event);
+    }
+    if ("dispatchEvent" in this) {
+      this.dispatchEvent(new CustomEvent("result", { detail: event }));
+    }
+  }
+  /**
+   * Handle errors
+   */
+  handleError(message) {
+    const event = {
+      message: message.message,
+      detail: message.detail
+    };
+    if (this.onerror) {
+      this.onerror(event);
+    }
+    if ("dispatchEvent" in this) {
+      this.dispatchEvent(new CustomEvent("error", { detail: event }));
+    }
+  }
+};
+
 // src/core/stream.ts
-function stream(_source, _feature, _options) {
-  throw new AudioInspectError(
-    "UNSUPPORTED_FORMAT",
-    "stream\u6A5F\u80FD\u306F\u73FE\u5728\u5B9F\u88C5\u4E2D\u3067\u3059\u3002\u6B21\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3067\u5229\u7528\u53EF\u80FD\u306B\u306A\u308A\u307E\u3059\u3002"
-  );
+var registeredContexts = /* @__PURE__ */ new WeakSet();
+function markModuleAsRegistered(context) {
+  registeredContexts.add(context);
+}
+async function addProcessorModule(context, processorUrl) {
+  try {
+    await context.audioWorklet.addModule(processorUrl);
+    markModuleAsRegistered(context);
+  } catch (error) {
+    throw new AudioInspectError(
+      "INITIALIZATION_FAILED",
+      `AudioInspectProcessor\u30E2\u30B8\u30E5\u30FC\u30EB\u306E\u8FFD\u52A0\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+var StreamControllerImpl = class {
+  _paused = false;
+  inspectNode;
+  sourceNode;
+  constructor(_context, sourceNode, inspectNode, resultHandler, errorHandler) {
+    this.sourceNode = sourceNode;
+    this.inspectNode = inspectNode;
+    if (resultHandler) {
+      this.inspectNode.onresult = (event) => resultHandler(event.data);
+    }
+    if (errorHandler) {
+      this.inspectNode.onerror = errorHandler;
+    }
+    this.sourceNode.connect(this.inspectNode);
+  }
+  pause() {
+    if (!this._paused) {
+      this.sourceNode.disconnect(this.inspectNode);
+      this._paused = true;
+    }
+  }
+  resume() {
+    if (this._paused) {
+      this.sourceNode.connect(this.inspectNode);
+      this._paused = false;
+    }
+  }
+  stop() {
+    this.sourceNode.disconnect(this.inspectNode);
+    this.inspectNode.dispose();
+    this._paused = true;
+  }
+  get paused() {
+    return this._paused;
+  }
+};
+async function stream(source, feature, options, resultHandler, errorHandler) {
+  const featureName = typeof feature === "string" ? feature : feature.name;
+  if (!featureName) {
+    throw new AudioInspectError("INVALID_INPUT", "\u89E3\u6790\u6A5F\u80FD\u540D\u304C\u6307\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+  }
+  let context;
+  let sourceNode;
+  if (source instanceof MediaStream) {
+    context = new AudioContext();
+    sourceNode = context.createMediaStreamSource(source);
+  } else if (source instanceof AudioNode) {
+    context = source.context;
+    sourceNode = source;
+  } else if (source instanceof AudioBuffer) {
+    context = new AudioContext();
+    sourceNode = context.createBufferSource();
+    sourceNode.buffer = source;
+    sourceNode.start();
+  } else {
+    throw new AudioInspectError("UNSUPPORTED_FORMAT", "\u30B5\u30DD\u30FC\u30C8\u3055\u308C\u3066\u3044\u306A\u3044\u97F3\u58F0\u30BD\u30FC\u30B9\u5F62\u5F0F\u3067\u3059");
+  }
+  try {
+    await addProcessorModule(context, options.processorModuleUrl);
+    const nodeOptions = {
+      featureName,
+      bufferSize: options?.bufferSize || 1024,
+      hopSize: options?.hopSize || 512,
+      inputChannelCount: 1
+    };
+    const inspectNode = new AudioInspectNode(context, nodeOptions);
+    return new StreamControllerImpl(context, sourceNode, inspectNode, resultHandler, errorHandler);
+  } catch (error) {
+    throw new AudioInspectError(
+      "INITIALIZATION_FAILED",
+      `\u30B9\u30C8\u30EA\u30FC\u30DF\u30F3\u30B0\u89E3\u6790\u306E\u521D\u671F\u5316\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+function createAudioInspectNode(context, options) {
+  return new AudioInspectNode(context, options);
 }
 
 // src/core/utils.ts
@@ -279,10 +645,7 @@ function getChannelData(audio, channel) {
       for (let ch = 0; ch < audio.numberOfChannels; ch++) {
         const channelData2 = audio.channelData[ch];
         if (!channelData2) {
-          throw new AudioInspectError(
-            "INVALID_INPUT",
-            `\u30C1\u30E3\u30F3\u30CD\u30EB ${ch} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-          );
+          throw new AudioInspectError("INVALID_INPUT", `Channel ${ch} data does not exist`);
         }
         if (i < channelData2.length) {
           const sample = channelData2[i];
@@ -298,15 +661,12 @@ function getChannelData(audio, channel) {
   if (channel < 0 || channel >= audio.numberOfChannels) {
     throw new AudioInspectError(
       "INVALID_INPUT",
-      `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}\u3002\u6709\u52B9\u7BC4\u56F2\u306F 0-${audio.numberOfChannels - 1} \u307E\u305F\u306F -1\uFF08\u5E73\u5747\uFF09\u3067\u3059`
+      `Invalid channel number: ${channel}. Valid range is 0-${audio.numberOfChannels - 1} or -1 (average)`
     );
   }
   const channelData = audio.channelData[channel];
   if (!channelData) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `Channel ${channel} data does not exist`);
   }
   return channelData;
 }
@@ -314,7 +674,7 @@ function isPowerOfTwo(n) {
   return n > 0 && Number.isInteger(n) && (n & n - 1) === 0;
 }
 function nextPowerOfTwo(n) {
-  if (n <= 0) return 1;
+  if (!isValidSample(n) || n <= 0) return 1;
   if (isPowerOfTwo(n)) return n;
   return Math.pow(2, Math.ceil(Math.log2(n)));
 }
@@ -421,10 +781,7 @@ var NativeFFTProvider = class {
     this.size = size;
     this.sampleRate = sampleRate;
     if (!this.isPowerOfTwo(size)) {
-      throw new AudioInspectError(
-        "INVALID_INPUT",
-        "FFT\u30B5\u30A4\u30BA\u306F2\u306E\u51AA\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059"
-      );
+      throw new AudioInspectError("INVALID_INPUT", "FFT\u30B5\u30A4\u30BA\u306F2\u306E\u51AA\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
     }
     this.precomputeTables();
   }
@@ -714,8 +1071,10 @@ function getZeroCrossing(audio, channel = 0) {
 function getWaveform(audio, options = {}) {
   const { framesPerSecond = 60, channel = 0, method = "rms" } = options;
   const channelData = getChannelData(audio, channel);
-  const frameCount = Math.ceil(audio.duration * framesPerSecond);
-  const samplesPerFrame = Math.floor(audio.length / frameCount);
+  const desiredFrameCount = Math.ceil(audio.duration * framesPerSecond);
+  const maxPossibleFrameCount = audio.length > 0 ? audio.length : desiredFrameCount > 0 ? 1 : 0;
+  const frameCount = Math.min(desiredFrameCount, maxPossibleFrameCount);
+  const samplesPerFrame = frameCount > 0 ? Math.max(1, Math.floor(audio.length / frameCount)) : 0;
   const waveform = [];
   let maxAmplitude = 0;
   let totalAmplitude = 0;
@@ -824,12 +1183,12 @@ function getChannelData2(audio, channel) {
     }
     return averageData;
   }
-  if (channel < 0 || channel >= audio.numberOfChannels) {
-    throw new AudioInspectError("INVALID_INPUT", `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`);
+  if (channel < -1 || channel >= audio.numberOfChannels) {
+    throw new AudioInspectError("INVALID_INPUT", `Invalid channel number: ${channel}`);
   }
   const channelData = audio.channelData[channel];
   if (!channelData) {
-    throw new AudioInspectError("INVALID_INPUT", `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`);
+    throw new AudioInspectError("INVALID_INPUT", `Channel ${channel} data does not exist`);
   }
   return channelData;
 }
@@ -929,10 +1288,21 @@ function magnitudeToDecibels(magnitude) {
 }
 async function computeSpectrogram(data, sampleRate, fftSize, timeFrames, overlap, options) {
   const hopSize = Math.floor(fftSize * (1 - overlap));
-  const actualFrames = Math.min(timeFrames, Math.floor((data.length - fftSize) / hopSize) + 1);
+  let numPossibleFrames;
+  if (data.length === 0) {
+    numPossibleFrames = 0;
+  } else if (data.length < fftSize) {
+    numPossibleFrames = 1;
+  } else {
+    numPossibleFrames = Math.floor((data.length - fftSize) / hopSize) + 1;
+  }
+  const actualFrames = Math.min(timeFrames, numPossibleFrames);
   const times = new Float32Array(actualFrames);
   const intensities = [];
   let frequencies = new Float32Array();
+  let filteredFrequencies = new Float32Array();
+  let frequencyStartIndex = 0;
+  let frequencyEndIndex = 0;
   const fftProvider = await FFTProviderFactory.createProvider({
     type: options.provider || "webfft",
     fftSize,
@@ -943,16 +1313,24 @@ async function computeSpectrogram(data, sampleRate, fftSize, timeFrames, overlap
     for (let frame = 0; frame < actualFrames; frame++) {
       const startSample = frame * hopSize;
       const frameData = new Float32Array(fftSize);
-      for (let i = 0; i < fftSize && startSample + i < data.length; i++) {
-        frameData[i] = data[startSample + i] || 0;
+      for (let i = 0; i < fftSize; i++) {
+        frameData[i] = startSample + i < data.length ? data[startSample + i] || 0 : 0;
       }
       const windowedData = applyWindow(frameData, options.windowFunction || "hann");
       const fftResult = fftProvider.fft(windowedData);
       if (frame === 0) {
         frequencies = fftResult.frequencies;
+        const minFreq = options.minFrequency || 0;
+        const maxFreq = options.maxFrequency || sampleRate / 2;
+        frequencyStartIndex = frequencies.findIndex((f) => f >= minFreq);
+        if (frequencyStartIndex === -1) frequencyStartIndex = 0;
+        const tempEndIndex = frequencies.findIndex((f) => f > maxFreq);
+        frequencyEndIndex = tempEndIndex === -1 ? frequencies.length : tempEndIndex;
+        filteredFrequencies = frequencies.slice(frequencyStartIndex, frequencyEndIndex);
       }
       const magnitude = fftResult.magnitude;
-      const frameIntensity = options.decibels ? magnitudeToDecibels(magnitude) : magnitude;
+      const filteredMagnitude = magnitude.slice(frequencyStartIndex, frequencyEndIndex);
+      const frameIntensity = options.decibels ? magnitudeToDecibels(filteredMagnitude) : filteredMagnitude;
       intensities.push(frameIntensity);
       times[frame] = (startSample + fftSize / 2) / sampleRate;
     }
@@ -961,10 +1339,11 @@ async function computeSpectrogram(data, sampleRate, fftSize, timeFrames, overlap
   }
   return {
     times,
-    frequencies,
+    frequencies: filteredFrequencies,
+    // フィルタリングされた周波数軸を返す
     intensities,
     timeFrames: actualFrames,
-    frequencyBins: frequencies.length
+    frequencyBins: filteredFrequencies.length
   };
 }
 
@@ -1073,10 +1452,7 @@ async function getSpectralFeatures(audio, options = {}) {
     rolloffThreshold = 0.85
   } = options;
   if (channel >= audio.numberOfChannels) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`);
   }
   const fftResult = await getFFT(audio, {
     fftSize,
@@ -1108,17 +1484,10 @@ async function getSpectralFeatures(audio, options = {}) {
     minFrequency,
     maxFrequency
   );
-  const spectralFlatness = calculateSpectralFlatness(
-    fftResult.magnitude,
-    minIndex,
-    maxIndex
-  );
+  const spectralFlatness = calculateSpectralFlatness(fftResult.magnitude, minIndex, maxIndex);
   const samples = audio.channelData[channel];
   if (!samples) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`);
   }
   const zeroCrossingRate = calculateZeroCrossingRate(samples);
   return {
@@ -1146,24 +1515,15 @@ async function getTimeVaryingSpectralFeatures(audio, options = {}) {
     numFrames
   } = options;
   if (channel >= audio.numberOfChannels) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `\u7121\u52B9\u306A\u30C1\u30E3\u30F3\u30CD\u30EB\u756A\u53F7: ${channel}`);
   }
   const samples = audio.channelData[channel];
   if (!samples) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`
-    );
+    throw new AudioInspectError("INVALID_INPUT", `\u30C1\u30E3\u30F3\u30CD\u30EB ${channel} \u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093`);
   }
   const totalFrames = numFrames || Math.floor((samples.length - frameSize) / hopSize) + 1;
   if (totalFrames <= 0) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      "\u30D5\u30EC\u30FC\u30E0\u6570\u304C\u4E0D\u6B63\u3067\u3059"
-    );
+    throw new AudioInspectError("INVALID_INPUT", "\u30D5\u30EC\u30FC\u30E0\u6570\u304C\u4E0D\u6B63\u3067\u3059");
   }
   const times = new Float32Array(totalFrames);
   const spectralCentroid = new Float32Array(totalFrames);
@@ -1252,19 +1612,15 @@ function getEnergy(audio, options = {}) {
     windowFunction = "rectangular"
   } = options;
   if (frameSize <= 0 || !Number.isInteger(frameSize)) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      "frameSize\u306F\u6B63\u306E\u6574\u6570\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059"
-    );
+    throw new AudioInspectError("INVALID_INPUT", "frameSize\u306F\u6B63\u306E\u6574\u6570\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
   }
   if (hopSize <= 0 || !Number.isInteger(hopSize)) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      "hopSize\u306F\u6B63\u306E\u6574\u6570\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059"
-    );
+    throw new AudioInspectError("INVALID_INPUT", "hopSize\u306F\u6B63\u306E\u6574\u6570\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
   }
   if (hopSize > frameSize) {
-    console.warn("[audio-inspect] hopSize\u304CframeSize\u3088\u308A\u5927\u304D\u3044\u305F\u3081\u3001\u30D5\u30EC\u30FC\u30E0\u9593\u306B\u30AE\u30E3\u30C3\u30D7\u304C\u751F\u3058\u307E\u3059");
+    console.warn(
+      "[audio-inspect] hopSize\u304CframeSize\u3088\u308A\u5927\u304D\u3044\u305F\u3081\u3001\u30D5\u30EC\u30FC\u30E0\u9593\u306B\u30AE\u30E3\u30C3\u30D7\u304C\u751F\u3058\u307E\u3059"
+    );
   }
   const channelData = getChannelData(audio, channel);
   const dataLength = channelData.length;
@@ -1388,12 +1744,7 @@ function calculateFrameCrestFactor(frameData, method = "simple") {
   return { peak: peakVal, rms: rmsVal, cfDb, cfLinear };
 }
 function getCrestFactor(audio, options = {}) {
-  const {
-    channel = 0,
-    windowSize,
-    hopSize,
-    method = "simple"
-  } = options;
+  const { channel = 0, windowSize, hopSize, method = "simple" } = options;
   const amplitudeOpts = { channel, asDB: false };
   const overallPeak = getPeakAmplitude(audio, amplitudeOpts);
   const overallRms = getRMS(audio, amplitudeOpts);
@@ -1408,15 +1759,14 @@ function getCrestFactor(audio, options = {}) {
       );
     }
     if (hopSize > windowSize) {
-      console.warn("[audio-inspect] hopSize\u304CwindowSize\u3088\u308A\u5927\u304D\u3044\u305F\u3081\u3001\u5206\u6790\u7A93\u9593\u306B\u30AE\u30E3\u30C3\u30D7\u304C\u751F\u3058\u307E\u3059");
+      console.warn(
+        "[audio-inspect] hopSize\u304CwindowSize\u3088\u308A\u5927\u304D\u3044\u305F\u3081\u3001\u5206\u6790\u7A93\u9593\u306B\u30AE\u30E3\u30C3\u30D7\u304C\u751F\u3058\u307E\u3059"
+      );
     }
     const windowSizeSamples = Math.floor(windowSize * audio.sampleRate);
     const hopSizeSamples = Math.floor(hopSize * audio.sampleRate);
     if (windowSizeSamples === 0 || hopSizeSamples === 0) {
-      throw new AudioInspectError(
-        "INVALID_INPUT",
-        "\u30B5\u30F3\u30D7\u30EB\u30EC\u30FC\u30C8\u306B\u5BFE\u3057\u3066\u7A93\u30B5\u30A4\u30BA\u304C\u5C0F\u3055\u3059\u304E\u307E\u3059"
-      );
+      throw new AudioInspectError("INVALID_INPUT", "\u30B5\u30F3\u30D7\u30EB\u30EC\u30FC\u30C8\u306B\u5BFE\u3057\u3066\u7A93\u30B5\u30A4\u30BA\u304C\u5C0F\u3055\u3059\u304E\u307E\u3059");
     }
     const channelData = getChannelData(audio, channel);
     const dataLength = channelData.length;
@@ -1540,10 +1890,7 @@ function calculateFrequencyWidth(leftMag, rightMag, leftPhase, rightPhase) {
 }
 async function getStereoAnalysis(audio, options = {}) {
   if (audio.numberOfChannels < 2) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      "\u30B9\u30C6\u30EC\u30AA\u89E3\u6790\u306B\u306F2\u30C1\u30E3\u30F3\u30CD\u30EB\u4EE5\u4E0A\u306E\u97F3\u58F0\u304C\u5FC5\u8981\u3067\u3059"
-    );
+    throw new AudioInspectError("INVALID_INPUT", "\u30B9\u30C6\u30EC\u30AA\u89E3\u6790\u306B\u306F2\u30C1\u30E3\u30F3\u30CD\u30EB\u4EE5\u4E0A\u306E\u97F3\u58F0\u304C\u5FC5\u8981\u3067\u3059");
   }
   const {
     frameSize = audio.length,
@@ -1554,10 +1901,7 @@ async function getStereoAnalysis(audio, options = {}) {
   const left = audio.channelData[0];
   const right = audio.channelData[1];
   if (!left || !right) {
-    throw new AudioInspectError(
-      "INVALID_INPUT",
-      "L/R\u30C1\u30E3\u30F3\u30CD\u30EB\u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093"
-    );
+    throw new AudioInspectError("INVALID_INPUT", "L/R\u30C1\u30E3\u30F3\u30CD\u30EB\u306E\u30C7\u30FC\u30BF\u304C\u5B58\u5728\u3057\u307E\u305B\u3093");
   }
   const len = Math.min(left.length, right.length);
   if (len === 0) {
@@ -1675,10 +2019,12 @@ async function getStereoAnalysis(audio, options = {}) {
   return result;
 }
 function getTimeVaryingStereoAnalysis(_audio, _options = {}) {
-  return Promise.reject(new AudioInspectError(
-    "UNSUPPORTED_FORMAT",
-    "\u6642\u7CFB\u5217\u30B9\u30C6\u30EC\u30AA\u89E3\u6790\u306F\u5C06\u6765\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3067\u5B9F\u88C5\u4E88\u5B9A\u3067\u3059"
-  ));
+  return Promise.reject(
+    new AudioInspectError(
+      "UNSUPPORTED_FORMAT",
+      "\u6642\u7CFB\u5217\u30B9\u30C6\u30EC\u30AA\u89E3\u6790\u306F\u5C06\u6765\u306E\u30D0\u30FC\u30B8\u30E7\u30F3\u3067\u5B9F\u88C5\u4E88\u5B9A\u3067\u3059"
+    )
+  );
 }
 
 // src/features/vad.ts
@@ -1901,12 +2247,7 @@ function getVAD(audio, options = {}) {
     sr,
     false
   );
-  const zcrs = calculateFrameZCRs(
-    channelData,
-    frameSizeSamples,
-    hopSizeSamples,
-    true
-  );
+  const zcrs = calculateFrameZCRs(channelData, frameSizeSamples, hopSizeSamples, true);
   if (energies.length === 0) {
     return { segments: [], speechRatio: 0 };
   }
@@ -1937,11 +2278,7 @@ function getVAD(audio, options = {}) {
       break;
     }
     case "adaptive": {
-      const adaptiveThreshold = calculateAdaptiveThreshold(
-        energies,
-        adaptiveAlpha,
-        noiseFactor
-      );
+      const adaptiveThreshold = calculateAdaptiveThreshold(energies, adaptiveAlpha, noiseFactor);
       for (let i = 0; i < energies.length; i++) {
         const energy = energies[i];
         const zcr = zcrs[i];
@@ -2084,9 +2421,7 @@ function getLUFS(audio, options = {}) {
   }
   const blockLoudnessValues = [];
   for (let pos = 0; pos + blockSizeSamples <= dataLength; pos += hopSizeSamples) {
-    const blockChannels = kWeightedChannels.map(
-      (ch) => ch.subarray(pos, pos + blockSizeSamples)
-    );
+    const blockChannels = kWeightedChannels.map((ch) => ch.subarray(pos, pos + blockSizeSamples));
     const loudness = calculateBlockLoudness(blockChannels);
     if (isFinite(loudness)) {
       blockLoudnessValues.push(loudness);

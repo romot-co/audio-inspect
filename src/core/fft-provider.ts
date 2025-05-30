@@ -180,10 +180,7 @@ class NativeFFTProvider implements IFFTProvider {
     public readonly sampleRate: number
   ) {
     if (!this.isPowerOfTwo(size)) {
-      throw new AudioInspectError(
-        'INVALID_INPUT',
-        'FFTサイズは2の冪である必要があります'
-      );
+      throw new AudioInspectError('INVALID_INPUT', 'FFTサイズは2の冪である必要があります');
     }
     this.precomputeTables();
   }
@@ -213,7 +210,7 @@ class NativeFFTProvider implements IFFTProvider {
     this.twiddleFactorsReal = new Float32Array(halfSize);
     this.twiddleFactorsImag = new Float32Array(halfSize);
     for (let i = 0; i < halfSize; i++) {
-      const angle = -2 * Math.PI * i / this.size;
+      const angle = (-2 * Math.PI * i) / this.size;
       this.twiddleFactorsReal[i] = Math.cos(angle);
       this.twiddleFactorsImag[i] = Math.sin(angle);
     }
@@ -230,7 +227,7 @@ class NativeFFTProvider implements IFFTProvider {
     // 複素数配列の初期化（ビット反転順）
     const real = new Float32Array(this.size);
     const imag = new Float32Array(this.size);
-    
+
     for (let i = 0; i < this.size; i++) {
       const reversedIndex = this.bitReversalTable[i];
       if (reversedIndex !== undefined) {
@@ -243,24 +240,24 @@ class NativeFFTProvider implements IFFTProvider {
     for (let stage = 1; stage < this.size; stage *= 2) {
       const stageSize = stage * 2;
       const twiddleStep = this.size / stageSize;
-      
+
       for (let k = 0; k < this.size; k += stageSize) {
         for (let j = 0; j < stage; j++) {
           const twiddleIndex = j * twiddleStep;
           const wr = this.twiddleFactorsReal[twiddleIndex] || 0;
           const wi = this.twiddleFactorsImag[twiddleIndex] || 0;
-          
+
           const evenIndex = k + j;
           const oddIndex = k + j + stage;
-          
+
           const evenReal = real[evenIndex] || 0;
           const evenImag = imag[evenIndex] || 0;
           const oddReal = real[oddIndex] || 0;
           const oddImag = imag[oddIndex] || 0;
-          
+
           const tempReal = oddReal * wr - oddImag * wi;
           const tempImag = oddReal * wi + oddImag * wr;
-          
+
           real[evenIndex] = evenReal + tempReal;
           imag[evenIndex] = evenImag + tempImag;
           real[oddIndex] = evenReal - tempReal;
@@ -278,7 +275,7 @@ class NativeFFTProvider implements IFFTProvider {
     for (let i = 0; i < this.size; i++) {
       complex[i * 2] = real[i] || 0;
       complex[i * 2 + 1] = imag[i] || 0;
-      
+
       if (i <= this.size / 2) {
         const realPart = real[i] || 0;
         const imagPart = imag[i] || 0;

@@ -4,23 +4,25 @@ import { getRMS, getPeakAmplitude } from './time.js';
 
 export interface CrestFactorOptions {
   channel?: number;
-  windowSize?: number;  // 窓サイズ（秒）
-  hopSize?: number;     // ホップサイズ（秒）
+  windowSize?: number; // 窓サイズ（秒）
+  hopSize?: number; // ホップサイズ（秒）
   method?: 'simple' | 'weighted'; // 重み付きクレストファクター
 }
 
 export interface CrestFactorResult {
-  crestFactor: number;      // 全体のクレストファクター (dB)
+  crestFactor: number; // 全体のクレストファクター (dB)
   crestFactorLinear: number; // 線形スケールのクレストファクター
-  peak: number;             // ピーク値（線形）
-  rms: number;              // RMS値（線形）
-  timeVarying?: {
-    times: Float32Array;
-    values: Float32Array;         // dB
-    valuesLinear: Float32Array;  // 線形
-    peaks: Float32Array;
-    rmsValues: Float32Array;
-  } | undefined;
+  peak: number; // ピーク値（線形）
+  rms: number; // RMS値（線形）
+  timeVarying?:
+    | {
+        times: Float32Array;
+        values: Float32Array; // dB
+        valuesLinear: Float32Array; // 線形
+        peaks: Float32Array;
+        rmsValues: Float32Array;
+      }
+    | undefined;
 }
 
 function calculateFrameCrestFactor(
@@ -32,7 +34,7 @@ function calculateFrameCrestFactor(
   }
 
   let processedData = frameData;
-  
+
   // 重み付き処理（オプション）
   if (method === 'weighted') {
     // A-weightingの簡易実装
@@ -47,7 +49,7 @@ function calculateFrameCrestFactor(
   for (let i = 0; i < processedData.length; i++) {
     const sample = ensureValidSample(processedData[i]);
     const absSample = Math.abs(sample);
-    
+
     peakVal = Math.max(peakVal, absSample);
     sumOfSquares += sample * sample;
     validSamples++;
@@ -58,7 +60,7 @@ function calculateFrameCrestFactor(
   }
 
   const rmsVal = Math.sqrt(sumOfSquares / validSamples);
-  
+
   if (rmsVal < 1e-10) {
     return { peak: peakVal, rms: rmsVal, cfDb: Infinity, cfLinear: Infinity };
   }
@@ -73,12 +75,7 @@ export function getCrestFactor(
   audio: AudioData,
   options: CrestFactorOptions = {}
 ): CrestFactorResult {
-  const { 
-    channel = 0, 
-    windowSize, 
-    hopSize,
-    method = 'simple'
-  } = options;
+  const { channel = 0, windowSize, hopSize, method = 'simple' } = options;
 
   // 全体のクレストファクター計算
   const amplitudeOpts: AmplitudeOptions = { channel, asDB: false };
@@ -86,9 +83,7 @@ export function getCrestFactor(
   const overallRms = getRMS(audio, amplitudeOpts);
 
   const overallCfLinear = overallRms > 1e-10 ? overallPeak / overallRms : Infinity;
-  const overallCfDb = overallRms > 1e-10 
-    ? 20 * Math.log10(overallCfLinear) 
-    : Infinity;
+  const overallCfDb = overallRms > 1e-10 ? 20 * Math.log10(overallCfLinear) : Infinity;
 
   let timeVaryingResult: CrestFactorResult['timeVarying'] | undefined;
 
@@ -102,22 +97,21 @@ export function getCrestFactor(
     }
 
     if (hopSize > windowSize) {
-      console.warn('[audio-inspect] hopSizeがwindowSizeより大きいため、分析窓間にギャップが生じます');
+      console.warn(
+        '[audio-inspect] hopSizeがwindowSizeより大きいため、分析窓間にギャップが生じます'
+      );
     }
 
     const windowSizeSamples = Math.floor(windowSize * audio.sampleRate);
     const hopSizeSamples = Math.floor(hopSize * audio.sampleRate);
 
     if (windowSizeSamples === 0 || hopSizeSamples === 0) {
-      throw new AudioInspectError(
-        'INVALID_INPUT',
-        'サンプルレートに対して窓サイズが小さすぎます'
-      );
+      throw new AudioInspectError('INVALID_INPUT', 'サンプルレートに対して窓サイズが小さすぎます');
     }
 
     const channelData = getChannelData(audio, channel);
     const dataLength = channelData.length;
-    
+
     if (dataLength < windowSizeSamples) {
       // データが1窓分に満たない場合
       const result = calculateFrameCrestFactor(channelData, method);
@@ -140,9 +134,9 @@ export function getCrestFactor(
         const start = i * hopSizeSamples;
         const end = Math.min(start + windowSizeSamples, dataLength);
         const frameData = channelData.subarray(start, end);
-        
+
         const frameResult = calculateFrameCrestFactor(frameData, method);
-        
+
         times[i] = (start + windowSizeSamples / 2) / audio.sampleRate;
         values[i] = frameResult.cfDb;
         valuesLinear[i] = frameResult.cfLinear;
@@ -161,4 +155,4 @@ export function getCrestFactor(
     rms: overallRms,
     timeVarying: timeVaryingResult
   };
-} 
+}

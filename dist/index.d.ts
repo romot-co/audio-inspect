@@ -1,151 +1,4 @@
 /**
- * 音声ソースの型定義
- */
-type AudioSource = ArrayBuffer | Blob | File | URL | string | MediaStream | AudioBuffer | AudioData;
-/**
- * 音声データの構造
- */
-interface AudioData {
-    /** サンプルレート（Hz） */
-    sampleRate: number;
-    /** チャンネルごとのオーディオデータ */
-    channelData: Float32Array[];
-    /** 音声の長さ（秒） */
-    duration: number;
-    /** チャンネル数 */
-    numberOfChannels: number;
-    /** サンプル数 */
-    length: number;
-}
-/**
- * 特徴抽出関数の型
- */
-type Feature<T> = (audio: AudioData, options?: any) => T | Promise<T>;
-/**
- * ロード時のオプション
- */
-interface LoadOptions {
-    /** リサンプリング対象のサンプルレート */
-    sampleRate?: number;
-    /** チャンネル数の指定 */
-    channels?: number | 'mono';
-    /** 正規化するか */
-    normalize?: boolean;
-    /** 遅延読み込み（大きなファイル用） */
-    lazy?: boolean;
-    /** チャンクサイズ（ストリーミング時） */
-    chunkSize?: number;
-}
-/**
- * ストリーミング制御インターフェース
- */
-interface StreamController {
-    pause(): void;
-    resume(): void;
-    stop(): void;
-    readonly paused: boolean;
-}
-/**
- * ストリーミングオプション
- */
-interface StreamOptions {
-    /** バッファサイズ */
-    bufferSize?: number;
-    /** ホップサイズ */
-    hopSize?: number;
-    /** 更新頻度の制限（ミリ秒） */
-    throttle?: number;
-    /** 窓関数の種類 */
-    windowFunction?: WindowFunction;
-}
-/**
- * 窓関数の種類
- */
-type WindowFunction = 'hann' | 'hamming' | 'blackman' | 'rectangular';
-/**
- * 振幅測定のオプション
- */
-interface AmplitudeOptions {
-    channel?: number;
-    asDB?: boolean;
-    reference?: number;
-}
-/**
- * 共通の解析オプション
- */
-interface CommonAnalysisOptions {
-    channel?: number;
-}
-/**
- * 時間窓パラメータ
- */
-interface TimeWindowOptions {
-    windowSizeMs?: number;
-    hopSizeMs?: number;
-}
-/**
- * 周波数範囲パラメータ
- */
-interface FrequencyRangeOptions {
-    minFrequency?: number;
-    maxFrequency?: number;
-}
-/**
- * エラーコード
- */
-type ErrorCode = 'INVALID_INPUT' | 'UNSUPPORTED_FORMAT' | 'DECODE_ERROR' | 'NETWORK_ERROR' | 'FFT_PROVIDER_ERROR' | 'PROCESSING_ERROR';
-/**
- * audio-inspect固有のエラー
- */
-declare class AudioInspectError extends Error {
-    readonly code: ErrorCode;
-    readonly cause?: unknown | undefined;
-    readonly name = "AudioInspectError";
-    constructor(code: ErrorCode, message: string, cause?: unknown | undefined);
-}
-/**
- * audio-inspect固有のエラーかチェック
- */
-declare function isAudioInspectError(error: unknown): error is AudioInspectError;
-
-/**
- * 音声データを読み込み、解析可能な形式に変換する
- */
-declare function load(source: AudioSource, options?: LoadOptions): Promise<AudioData>;
-
-/**
- * 音声データから特徴量を抽出する
- */
-declare function analyze<T>(audio: AudioData, feature: Feature<T>): Promise<T>;
-
-declare function stream<T>(_source: AudioSource, _feature: Feature<T>, _options?: StreamOptions): StreamController;
-
-/**
- * チャンネルデータを安全に取得する共通関数
- * @param audio - AudioData オブジェクト
- * @param channel - チャンネル番号 (-1 で全チャンネルの平均)
- * @returns 指定されたチャンネルのデータ
- * @throws AudioInspectError チャンネルが無効な場合
- */
-declare function getChannelData(audio: AudioData, channel: number): Float32Array;
-/**
- * 数値が2の冪かどうかを判定
- */
-declare function isPowerOfTwo(n: number): boolean;
-/**
- * 次の2の冪を計算
- */
-declare function nextPowerOfTwo(n: number): number;
-/**
- * 振幅をdBに変換
- */
-declare function amplitudeToDecibels(amplitude: number, reference?: number): number;
-/**
- * dBを振幅に変換
- */
-declare function decibelsToAmplitude(db: number, reference?: number): number;
-
-/**
  * FFTプロバイダーの種類
  */
 type FFTProviderType = 'webfft' | 'native' | 'custom';
@@ -215,6 +68,317 @@ declare class FFTProviderFactory {
      */
     static getAvailableProviders(): FFTProviderType[];
 }
+
+/**
+ * audio-inspect ライブラリの型定義
+ */
+
+/**
+ * 音声ソースの型定義
+ */
+type AudioSource = ArrayBuffer | Blob | File | URL | string | MediaStream | AudioBuffer | AudioData;
+/**
+ * 音声データの構造
+ */
+interface AudioData {
+    /** サンプルレート（Hz） */
+    sampleRate: number;
+    /** チャンネルごとのオーディオデータ */
+    channelData: Float32Array[];
+    /** 音声の長さ（秒） */
+    duration: number;
+    /** チャンネル数 */
+    numberOfChannels: number;
+    /** サンプル数 */
+    length: number;
+}
+/**
+ * 特徴抽出関数の型
+ */
+type Feature<T> = (audio: AudioData, ...args: any[]) => T | Promise<T>;
+/**
+ * ロード時のオプション
+ */
+interface LoadOptions {
+    /** リサンプリング対象のサンプルレート */
+    sampleRate?: number;
+    /** チャンネル数の指定 */
+    channels?: number | 'mono';
+    /** 正規化するか */
+    normalize?: boolean;
+    /** 遅延読み込み（大きなファイル用） */
+    lazy?: boolean;
+    /** チャンクサイズ（ストリーミング時） */
+    chunkSize?: number;
+}
+/**
+ * ストリーミング制御インターフェース
+ */
+interface StreamController {
+    pause(): void;
+    resume(): void;
+    stop(): void;
+    readonly paused: boolean;
+}
+/**
+ * ストリーミングオプション
+ */
+interface StreamOptions {
+    /** バッファサイズ */
+    bufferSize?: number;
+    /** ホップサイズ */
+    hopSize?: number;
+    /** 更新頻度の制限（ミリ秒） */
+    throttle?: number;
+    /** 窓関数の種類 */
+    windowFunction?: WindowFunction;
+    /** AudioInspectProcessorのモジュールURL（フル機能版を使用する場合） */
+    processorModuleUrl?: string;
+}
+/**
+ * 窓関数の種類
+ */
+type WindowFunction = 'hann' | 'hamming' | 'blackman' | 'rectangular';
+/**
+ * 振幅測定のオプション
+ */
+interface AmplitudeOptions {
+    channel?: number;
+    asDB?: boolean;
+    reference?: number;
+}
+/**
+ * 共通の解析オプション
+ */
+interface CommonAnalysisOptions {
+    channel?: number;
+}
+/**
+ * 時間窓パラメータ
+ */
+interface TimeWindowOptions {
+    windowSizeMs?: number;
+    hopSizeMs?: number;
+}
+/**
+ * 周波数範囲パラメータ
+ */
+interface FrequencyRangeOptions {
+    minFrequency?: number;
+    maxFrequency?: number;
+}
+/**
+ * エラーコード
+ */
+type ErrorCode = 'INVALID_INPUT' | 'UNSUPPORTED_FORMAT' | 'DECODE_ERROR' | 'NETWORK_ERROR' | 'FFT_PROVIDER_ERROR' | 'PROCESSING_ERROR' | 'INITIALIZATION_FAILED';
+/**
+ * Audio-inspect specific error
+ */
+declare class AudioInspectError extends Error {
+    readonly code: ErrorCode;
+    readonly cause?: unknown | undefined;
+    readonly name = "AudioInspectError";
+    constructor(code: ErrorCode, message: string, cause?: unknown | undefined);
+}
+/**
+ * audio-inspect固有のエラーかチェック
+ */
+declare function isAudioInspectError(error: unknown): error is AudioInspectError;
+/**
+ * AudioInspectNodeのオプション
+ */
+interface AudioInspectNodeOptions {
+    /** 使用する解析機能名 */
+    featureName: string;
+    /** 解析機能に渡すオプション */
+    featureOptions?: unknown;
+    /** 解析を実行するための内部バッファサイズ（サンプル数） */
+    bufferSize?: number;
+    /** 次の解析を開始するまでのオフセット（サンプル数） */
+    hopSize?: number;
+    /** 入力として期待するチャンネル数 */
+    inputChannelCount?: number;
+    /** 使用するFFTプロバイダー */
+    provider?: FFTProviderType;
+}
+/**
+ * AudioWorkletプロセッサーの初期化オプション
+ */
+interface AudioInspectProcessorOptions {
+    featureName: string;
+    featureOptions?: unknown;
+    bufferSize: number;
+    hopSize: number;
+    inputChannelCount: number;
+    provider?: FFTProviderType;
+}
+/**
+ * AudioInspectNodeのイベントハンドラー
+ */
+interface AudioInspectNodeEventHandlers {
+    onresult?: (event: {
+        data: unknown;
+        timestamp: number;
+    }) => void;
+    onerror?: (event: {
+        message: string;
+        detail?: unknown;
+    }) => void;
+}
+
+/**
+ * 音声データを読み込み、解析可能な形式に変換する
+ */
+declare function load(source: AudioSource, options?: LoadOptions): Promise<AudioData>;
+
+/**
+ * Extract features from audio data
+ */
+declare function analyze<T>(audio: AudioData, feature: Feature<T>): Promise<T>;
+
+interface MockPort {
+    postMessage: (message: unknown) => void;
+    close: () => void;
+    onmessage: ((event: MessageEvent) => void) | null;
+}
+declare class MockAudioWorkletNode {
+    numberOfInputs: number;
+    numberOfOutputs: number;
+    channelCount: number;
+    channelCountMode: ChannelCountMode;
+    channelInterpretation: ChannelInterpretation;
+    context: BaseAudioContext | null;
+    port: MockPort;
+    constructor();
+    connect(): this;
+    disconnect(): this;
+    dispatchEvent(): boolean;
+    addEventListener(): void;
+    removeEventListener(): void;
+}
+declare const AudioInspectNode_base: {
+    new (context: BaseAudioContext, name: string, options?: AudioWorkletNodeOptions): AudioWorkletNode;
+    prototype: AudioWorkletNode;
+} | typeof MockAudioWorkletNode;
+/**
+ * Custom AudioNode: Provides real-time audio analysis
+ * Extends AudioWorkletNode to function as a standard AudioNode
+ */
+declare class AudioInspectNode extends AudioInspectNode_base implements AudioInspectNodeEventHandlers {
+    onresult?: (event: {
+        data: unknown;
+        timestamp: number;
+    }) => void;
+    onerror?: (event: {
+        message: string;
+        detail?: unknown;
+    }) => void;
+    private _featureName;
+    private _featureOptions?;
+    private _bufferSize;
+    private _hopSize;
+    private _provider?;
+    constructor(context?: BaseAudioContext, nodeOptions?: AudioInspectNodeOptions);
+    private _initializeMockMode;
+    private getPort;
+    private setupMessageHandler;
+    /**
+     * Get current analysis feature name (last set value)
+     */
+    get featureName(): string;
+    /**
+     * Get current analysis options (last set value)
+     */
+    get featureOptions(): unknown;
+    /**
+     * Get current buffer size (last set value)
+     */
+    get bufferSize(): number;
+    /**
+     * Get current hop size (last set value)
+     */
+    get hopSize(): number;
+    /**
+     * Get current FFT provider (last set value)
+     */
+    get provider(): FFTProviderType | undefined;
+    /**
+     * Update analysis options (supports partial updates)
+     */
+    updateOptions(options: Partial<AudioInspectNodeOptions>): void;
+    /**
+     * Reset internal state
+     */
+    reset(): void;
+    /**
+     * Release resources
+     */
+    dispose(): void;
+    /**
+     * Handle messages from processor
+     */
+    private handleMessage;
+    /**
+     * Handle analysis results
+     */
+    private handleAnalysisResult;
+    /**
+     * Handle errors
+     */
+    private handleError;
+}
+
+/**
+ * ストリーミング解析を開始
+ *
+ * @param source - 音声ソース（MediaStream、AudioNode、AudioBuffer）
+ * @param feature - 解析機能（関数または関数名の文字列）
+ *                  注意: 関数オブジェクトを渡した場合でも、実際にはその名前（feature.name）が使用されます
+ * @param options - ストリーミングオプション（processorModuleUrlは必須）
+ * @param resultHandler - 結果を受け取るハンドラー
+ * @param errorHandler - エラーを受け取るハンドラー
+ * @returns ストリーミングコントローラー
+ */
+declare function stream<T>(source: AudioSource, feature: Feature<T> | string, options: StreamOptions & {
+    processorModuleUrl: string;
+}, // processorModuleUrlを必須に
+resultHandler?: (result: T) => void, errorHandler?: (error: {
+    message: string;
+    detail?: unknown;
+}) => void): Promise<StreamController>;
+/**
+ * 簡易AudioInspectNodeファクトリー関数（同期版）
+ * E2Eテストや簡単な使用例向け
+ * @param context - BaseAudioContext
+ * @param options - ノードオプション
+ * @returns AudioInspectNode
+ */
+declare function createAudioInspectNode(context: BaseAudioContext, options?: AudioInspectNodeOptions): AudioInspectNode;
+
+/**
+ * Safely get channel data common function
+ * @param audio - AudioData object
+ * @param channel - Channel number (-1 for average of all channels)
+ * @returns Data of the specified channel
+ * @throws AudioInspectError if channel is invalid
+ */
+declare function getChannelData(audio: AudioData, channel: number): Float32Array;
+/**
+ * Check if a number is a power of two
+ */
+declare function isPowerOfTwo(n: number): boolean;
+/**
+ * Calculate the next power of two
+ */
+declare function nextPowerOfTwo(n: number): number;
+/**
+ * Convert amplitude to dB
+ */
+declare function amplitudeToDecibels(amplitude: number, reference?: number): number;
+/**
+ * Convert dB to amplitude
+ */
+declare function decibelsToAmplitude(db: number, reference?: number): number;
 
 /**
  * ピーク検出のオプション
@@ -615,4 +779,4 @@ interface LUFSResult {
 }
 declare function getLUFS(audio: AudioData, options?: LUFSOptions): LUFSResult;
 
-export { type AmplitudeOptions, type AudioData, AudioInspectError, type AudioSource, type CommonAnalysisOptions, type CrestFactorOptions, type CrestFactorResult, type EnergyOptions, type EnergyResult, type ErrorCode, type FFTAnalysisResult, type FFTOptions, type FFTProviderConfig, FFTProviderFactory, type FFTProviderType, type FFTResult, type Feature, type FrequencyRangeOptions, type IFFTProvider, type LUFSOptions, type LUFSResult, type LoadOptions, type Peak, type PeaksOptions, type PeaksResult, type SpectralFeaturesOptions, type SpectralFeaturesResult, type SpectrogramData, type SpectrumAnalysisResult, type SpectrumOptions, type StereoAnalysisOptions, type StereoAnalysisResult, type StreamController, type StreamOptions, type TimeVaryingSpectralOptions, type TimeVaryingSpectralResult, type TimeWindowOptions, type VADOptions, type VADResult, type VADSegment, type WaveformOptions, type WaveformPoint, type WaveformResult, type WindowFunction, amplitudeToDecibels, analyze, decibelsToAmplitude, getChannelData, getCrestFactor, getEnergy, getFFT, getLUFS, getPeakAmplitude as getPeak, getPeakAmplitude, getPeaks, getRMS, getSpectralFeatures, getSpectrum, getStereoAnalysis, getTimeVaryingSpectralFeatures, getTimeVaryingStereoAnalysis, getVAD, getWaveform, getZeroCrossing, isAudioInspectError, isPowerOfTwo, load, nextPowerOfTwo, stream };
+export { type AmplitudeOptions, type AudioData, AudioInspectError, AudioInspectNode, type AudioInspectNodeEventHandlers, type AudioInspectNodeOptions, type AudioInspectProcessorOptions, type AudioSource, type CommonAnalysisOptions, type CrestFactorOptions, type CrestFactorResult, type EnergyOptions, type EnergyResult, type ErrorCode, type FFTAnalysisResult, type FFTOptions, type FFTProviderConfig, FFTProviderFactory, type FFTProviderType, type FFTResult, type Feature, type FrequencyRangeOptions, type IFFTProvider, type LUFSOptions, type LUFSResult, type LoadOptions, type Peak, type PeaksOptions, type PeaksResult, type SpectralFeaturesOptions, type SpectralFeaturesResult, type SpectrogramData, type SpectrumAnalysisResult, type SpectrumOptions, type StereoAnalysisOptions, type StereoAnalysisResult, type StreamController, type StreamOptions, type TimeVaryingSpectralOptions, type TimeVaryingSpectralResult, type TimeWindowOptions, type VADOptions, type VADResult, type VADSegment, type WaveformOptions, type WaveformPoint, type WaveformResult, type WindowFunction, amplitudeToDecibels, analyze, createAudioInspectNode, decibelsToAmplitude, getChannelData, getCrestFactor, getEnergy, getFFT, getLUFS, getPeakAmplitude as getPeak, getPeakAmplitude, getPeaks, getRMS, getSpectralFeatures, getSpectrum, getStereoAnalysis, getTimeVaryingSpectralFeatures, getTimeVaryingStereoAnalysis, getVAD, getWaveform, getZeroCrossing, isAudioInspectError, isPowerOfTwo, load, nextPowerOfTwo, stream };
