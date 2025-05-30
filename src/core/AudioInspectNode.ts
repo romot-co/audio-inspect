@@ -67,6 +67,10 @@ export class AudioInspectNode
   private _hopSize: number = 512;
   private _provider?: FFTProviderType; // FFT provider
 
+  // メモリリーク対策
+  private disposed = false;
+  private cleanupInterval?: number | undefined;
+
   constructor(context?: BaseAudioContext, nodeOptions?: AudioInspectNodeOptions) {
     if (!isAudioWorkletSupported) {
       // In Node.js environment, call mock constructor
@@ -123,6 +127,9 @@ export class AudioInspectNode
 
     // Set up message handler - port should be available from AudioWorkletNode
     this.setupMessageHandler();
+
+    // 定期的なクリーンアップの設定
+    this.setupCleanupInterval();
   }
 
   private _initializeMockMode(nodeOptions?: AudioInspectNodeOptions): void {
@@ -150,6 +157,35 @@ export class AudioInspectNode
     const port = this.getPort();
     if (port) {
       port.onmessage = this.handleMessage.bind(this);
+    }
+  }
+
+  /**
+   * 定期的なクリーンアップの設定
+   */
+  private setupCleanupInterval(): void {
+    // ブラウザ環境でのみクリーンアップインターバルを設定
+    if (typeof window !== 'undefined') {
+      this.cleanupInterval = window.setInterval(() => {
+        if (this.disposed) {
+          if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+          }
+          return;
+        }
+        // メモリ使用量の監視とクリーンアップ
+        this.performCleanup();
+      }, 30000); // 30秒ごと
+    }
+  }
+
+  /**
+   * クリーンアップ処理の実行
+   */
+  private performCleanup(): void {
+    const port = this.getPort();
+    if (port && 'postMessage' in port) {
+      port.postMessage({ type: 'cleanup' });
     }
   }
 
@@ -247,7 +283,20 @@ export class AudioInspectNode
    * Release resources
    */
   dispose(): void {
+    if (this.disposed) return;
+
+    this.disposed = true;
+
+    // クリーンアップインターバルを停止
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = undefined;
+    }
+
+    // AudioNodeの切断
     (this as unknown as AudioNode).disconnect();
+
+    // ポートを閉じる
     const port = this.getPort();
     if (port && 'close' in port) {
       port.close();

@@ -277,6 +277,9 @@ var AudioInspectNode = class extends (isAudioWorkletSupported ? AudioWorkletNode
   _hopSize = 512;
   _provider;
   // FFT provider
+  // メモリリーク対策
+  disposed = false;
+  cleanupInterval;
   constructor(context, nodeOptions) {
     if (!isAudioWorkletSupported) {
       super();
@@ -319,6 +322,7 @@ var AudioInspectNode = class extends (isAudioWorkletSupported ? AudioWorkletNode
     this._hopSize = options.hopSize;
     this._provider = options.provider;
     this.setupMessageHandler();
+    this.setupCleanupInterval();
   }
   _initializeMockMode(nodeOptions) {
     const options = {
@@ -341,6 +345,31 @@ var AudioInspectNode = class extends (isAudioWorkletSupported ? AudioWorkletNode
     const port = this.getPort();
     if (port) {
       port.onmessage = this.handleMessage.bind(this);
+    }
+  }
+  /**
+   * 定期的なクリーンアップの設定
+   */
+  setupCleanupInterval() {
+    if (typeof window !== "undefined") {
+      this.cleanupInterval = window.setInterval(() => {
+        if (this.disposed) {
+          if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+          }
+          return;
+        }
+        this.performCleanup();
+      }, 3e4);
+    }
+  }
+  /**
+   * クリーンアップ処理の実行
+   */
+  performCleanup() {
+    const port = this.getPort();
+    if (port && "postMessage" in port) {
+      port.postMessage({ type: "cleanup" });
     }
   }
   /**
@@ -425,6 +454,12 @@ var AudioInspectNode = class extends (isAudioWorkletSupported ? AudioWorkletNode
    * Release resources
    */
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = void 0;
+    }
     this.disconnect();
     const port = this.getPort();
     if (port && "close" in port) {
@@ -481,17 +516,40 @@ var AudioInspectNode = class extends (isAudioWorkletSupported ? AudioWorkletNode
 
 // src/core/stream.ts
 var registeredContexts = /* @__PURE__ */ new WeakSet();
+function isModuleRegistered(context) {
+  return registeredContexts.has(context);
+}
 function markModuleAsRegistered(context) {
   registeredContexts.add(context);
 }
 async function addProcessorModule(context, processorUrl) {
   try {
-    await context.audioWorklet.addModule(processorUrl);
+    if (context.audioWorklet && "addModule" in context.audioWorklet) {
+      await context.audioWorklet.addModule(processorUrl, {
+        credentials: "omit"
+        // CORS対策
+      });
+    } else {
+      throw new AudioInspectError(
+        "WORKLET_NOT_SUPPORTED",
+        "AudioWorklet is not supported in this environment"
+      );
+    }
     markModuleAsRegistered(context);
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes("Failed to load module script")) {
+        throw new AudioInspectError(
+          "MODULE_LOAD_FAILED",
+          "Failed to load AudioWorklet module. Ensure the processor file is served with correct MIME type (application/javascript)",
+          error
+        );
+      }
+    }
     throw new AudioInspectError(
       "INITIALIZATION_FAILED",
-      `AudioInspectProcessor\u30E2\u30B8\u30E5\u30FC\u30EB\u306E\u8FFD\u52A0\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${error instanceof Error ? error.message : String(error)}`
+      `AudioWorklet module registration failed: ${error instanceof Error ? error.message : String(error)}`,
+      error
     );
   }
 }
@@ -561,7 +619,13 @@ async function stream(source, feature, options, resultHandler, errorHandler) {
       inputChannelCount: 1
     };
     const inspectNode = new AudioInspectNode(context, nodeOptions);
-    return new StreamControllerImpl(context, sourceNode, inspectNode, resultHandler, errorHandler);
+    return new StreamControllerImpl(
+      context,
+      sourceNode,
+      inspectNode,
+      resultHandler,
+      errorHandler
+    );
   } catch (error) {
     throw new AudioInspectError(
       "INITIALIZATION_FAILED",
@@ -571,6 +635,56 @@ async function stream(source, feature, options, resultHandler, errorHandler) {
 }
 function createAudioInspectNode(context, options) {
   return new AudioInspectNode(context, options);
+}
+function getDefaultProcessorUrl() {
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "development") {
+    return "/dist/core/AudioInspectProcessor.js";
+  }
+  return "/node_modules/audio-inspect/dist/core/AudioInspectProcessor.js";
+}
+async function createAudioInspectNodeWithDefaults(context, featureName, options) {
+  const processorUrl = getDefaultProcessorUrl();
+  if (!isModuleRegistered(context)) {
+    await addProcessorModule(context, processorUrl);
+  }
+  const nodeOptions = {
+    featureName,
+    bufferSize: 1024,
+    hopSize: 512,
+    inputChannelCount: 1,
+    ...options
+  };
+  return new AudioInspectNode(context, nodeOptions);
+}
+async function streamWithFallback(source, feature, options, resultHandler, errorHandler) {
+  try {
+    return await stream(
+      source,
+      feature,
+      options,
+      resultHandler,
+      errorHandler
+    );
+  } catch (error) {
+    if (options.enableFallback) {
+      console.warn("Falling back to non-realtime analysis:", error);
+      if (options.fallbackHandler && source instanceof AudioBuffer) {
+        const audioData = {
+          sampleRate: source.sampleRate,
+          channelData: Array.from(
+            { length: source.numberOfChannels },
+            (_, i) => source.getChannelData(i)
+          ),
+          duration: source.duration,
+          numberOfChannels: source.numberOfChannels,
+          length: source.length
+        };
+        options.fallbackHandler(audioData);
+      }
+      return null;
+    }
+    throw error;
+  }
 }
 
 // src/core/utils.ts
@@ -647,10 +761,20 @@ var WebFFTProvider = class {
     this.size = size;
     this.sampleRate = sampleRate;
     this.enableProfiling = enableProfiling;
+    this.initializationPromise = this.initializeWebFFT();
   }
   fftInstance = null;
+  initializationPromise = null;
   get name() {
     return "WebFFT";
+  }
+  /**
+   * 初期化の完了を待つ（外部から呼び出し可能）
+   */
+  async waitForInitialization() {
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
   }
   async initializeWebFFT() {
     try {
@@ -667,9 +791,12 @@ var WebFFTProvider = class {
       );
     }
   }
-  fft(input) {
+  async fft(input) {
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
     if (!this.fftInstance) {
-      throw new AudioInspectError("UNSUPPORTED_FORMAT", "WebFFT\u304C\u521D\u671F\u5316\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      throw new AudioInspectError("UNSUPPORTED_FORMAT", "WebFFT initialization failed");
     }
     if (input.length !== this.size) {
       throw new AudioInspectError(
@@ -701,6 +828,9 @@ var WebFFTProvider = class {
     };
   }
   async profile() {
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
     if (!this.fftInstance || !this.fftInstance.profile) {
       throw new AudioInspectError("UNSUPPORTED_FORMAT", "WebFFT\u304C\u521D\u671F\u5316\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
@@ -821,7 +951,7 @@ var FFTProviderFactory = class {
           config.sampleRate,
           config.enableProfiling
         );
-        await provider.initializeWebFFT();
+        await provider.waitForInitialization();
         return provider;
       }
       case "native":
@@ -1153,7 +1283,7 @@ async function getFFT(audio, options = {}) {
     enableProfiling
   });
   try {
-    const result = fftProvider.fft(windowedData);
+    const result = await fftProvider.fft(windowedData);
     return {
       ...result,
       fftSize,
@@ -1254,7 +1384,7 @@ async function computeSpectrogram(data, sampleRate, fftSize, timeFrames, overlap
         frameData[i] = startSample + i < data.length ? data[startSample + i] || 0 : 0;
       }
       const windowedData = applyWindow(frameData, options.windowFunction || "hann");
-      const fftResult = fftProvider.fft(windowedData);
+      const fftResult = await fftProvider.fft(windowedData);
       if (frame === 0) {
         frequencies = fftResult.frequencies;
         const minFreq = options.minFrequency || 0;
@@ -2448,9 +2578,11 @@ export {
   amplitudeToDecibels,
   analyze,
   createAudioInspectNode,
+  createAudioInspectNodeWithDefaults,
   decibelsToAmplitude,
   getChannelData,
   getCrestFactor,
+  getDefaultProcessorUrl,
   getEnergy,
   getFFT,
   getLUFS,
@@ -2470,6 +2602,7 @@ export {
   isPowerOfTwo,
   load,
   nextPowerOfTwo,
-  stream
+  stream,
+  streamWithFallback
 };
 //# sourceMappingURL=index.js.map

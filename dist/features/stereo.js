@@ -14,10 +14,20 @@ var WebFFTProvider = class {
     this.size = size;
     this.sampleRate = sampleRate;
     this.enableProfiling = enableProfiling;
+    this.initializationPromise = this.initializeWebFFT();
   }
   fftInstance = null;
+  initializationPromise = null;
   get name() {
     return "WebFFT";
+  }
+  /**
+   * 初期化の完了を待つ（外部から呼び出し可能）
+   */
+  async waitForInitialization() {
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
   }
   async initializeWebFFT() {
     try {
@@ -34,9 +44,12 @@ var WebFFTProvider = class {
       );
     }
   }
-  fft(input) {
+  async fft(input) {
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
     if (!this.fftInstance) {
-      throw new AudioInspectError("UNSUPPORTED_FORMAT", "WebFFT\u304C\u521D\u671F\u5316\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
+      throw new AudioInspectError("UNSUPPORTED_FORMAT", "WebFFT initialization failed");
     }
     if (input.length !== this.size) {
       throw new AudioInspectError(
@@ -68,6 +81,9 @@ var WebFFTProvider = class {
     };
   }
   async profile() {
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
     if (!this.fftInstance || !this.fftInstance.profile) {
       throw new AudioInspectError("UNSUPPORTED_FORMAT", "WebFFT\u304C\u521D\u671F\u5316\u3055\u308C\u3066\u3044\u307E\u305B\u3093");
     }
@@ -188,7 +204,7 @@ var FFTProviderFactory = class {
           config.sampleRate,
           config.enableProfiling
         );
-        await provider.initializeWebFFT();
+        await provider.waitForInitialization();
         return provider;
       }
       case "native":
@@ -288,7 +304,7 @@ async function getFFT(audio, options = {}) {
     enableProfiling
   });
   try {
-    const result = fftProvider.fft(windowedData);
+    const result = await fftProvider.fft(windowedData);
     return {
       ...result,
       fftSize,

@@ -6,6 +6,7 @@ export type {
   LoadOptions,
   StreamController,
   StreamOptions,
+  StreamOptionsWithFallback,
   WindowFunction,
   ErrorCode,
   AmplitudeOptions,
@@ -23,7 +24,13 @@ export { AudioInspectError, isAudioInspectError } from './types.js';
 // コア機能
 export { load } from './core/load.js';
 export { analyze } from './core/analyze.js';
-export { stream, createAudioInspectNode } from './core/stream.js';
+export {
+  stream,
+  createAudioInspectNode,
+  getDefaultProcessorUrl,
+  createAudioInspectNodeWithDefaults,
+  streamWithFallback
+} from './core/stream.js';
 
 // AudioWorklet関連
 export { AudioInspectNode } from './core/AudioInspectNode.js';

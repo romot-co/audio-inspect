@@ -186,7 +186,7 @@ export async function getFFT(
 
   try {
     // FFTを実行
-    const result = fftProvider.fft(windowedData);
+    const result = await fftProvider.fft(windowedData);
 
     return {
       ...result,
@@ -356,7 +356,7 @@ async function computeSpectrogram(
       const windowedData = applyWindow(frameData, options.windowFunction || 'hann');
 
       // FFTを実行
-      const fftResult = fftProvider.fft(windowedData);
+      const fftResult = await fftProvider.fft(windowedData);
 
       // 修正2.1: 最初のフレームで周波数範囲フィルタリングを設定
       if (frame === 0) {

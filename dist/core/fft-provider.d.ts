@@ -30,7 +30,7 @@ interface IFFTProvider {
      * @param input - 実数入力データ
      * @returns FFT結果
      */
-    fft(input: Float32Array): FFTResult;
+    fft(input: Float32Array): FFTResult | Promise<FFTResult>;
     /**
      * リソースを解放
      */

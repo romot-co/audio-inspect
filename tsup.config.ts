@@ -19,19 +19,6 @@ export default defineConfig([
       js: '// audio-inspect - Lightweight yet powerful audio analysis library'
     },
     onSuccess: async () => {
-      // AudioInspectProcessor.global.js を core ディレクトリにコピー
-      const srcPath = join('dist', 'AudioInspectProcessor.global.js');
-      const destPath = join('dist', 'core', 'AudioInspectProcessor.js');
-      
-      if (existsSync(srcPath)) {
-        // ディレクトリを確実に作成
-        mkdirSync(dirname(destPath), { recursive: true });
-        copyFileSync(srcPath, destPath);
-        console.log('✓ Copied AudioInspectProcessor.global.js to dist/core/AudioInspectProcessor.js');
-      } else {
-        console.warn('⚠ AudioInspectProcessor.global.js not found for copying');
-      }
-      
       // E2Eテストページをdistにコピー
       const testPageSrc = join('test', 'e2e', 'test-page.html');
       const testPageDest = join('dist', 'test-page.html');
@@ -51,21 +38,38 @@ export default defineConfig([
     outDir: 'dist',
     platform: 'browser',
     splitting: false,
-    treeshake: false,
+    treeshake: true,  // 未使用コードを削除
     dts: false,
     sourcemap: true,
-    minify: false,
+    minify: true,      // 本番用に圧縮
     // すべての依存関係をバンドルに含める
     noExternal: [/.*/], // すべてをバンドル
     esbuildOptions(options) {
       options.bundle = true;
       options.format = 'iife';
       options.globalName = 'AudioInspectProcessorBundle';
+      options.footer = {
+        js: '// End of AudioInspectProcessor bundle'
+      };
     },
     banner: { 
       js: `/* AudioInspectProcessor - AudioWorklet専用バンドル */
 // 自己完結型バンドル - すべての依存関係を含む` 
     },
+    onSuccess: async () => {
+      // AudioInspectProcessor.global.js を core ディレクトリにコピー
+      const srcPath = join('dist', 'AudioInspectProcessor.global.js');
+      const destPath = join('dist', 'core', 'AudioInspectProcessor.js');
+      
+      if (existsSync(srcPath)) {
+        // ディレクトリを確実に作成
+        mkdirSync(dirname(destPath), { recursive: true });
+        copyFileSync(srcPath, destPath);
+        console.log('✓ Copied AudioInspectProcessor.global.js to dist/core/AudioInspectProcessor.js');
+      } else {
+        console.warn('⚠ AudioInspectProcessor.global.js not found for copying');
+      }
+    }
   },
 
   // features統合エントリー

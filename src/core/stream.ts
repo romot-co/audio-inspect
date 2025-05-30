@@ -3,6 +3,7 @@ import {
   Feature,
   StreamController,
   StreamOptions,
+  StreamOptionsWithFallback,
   AudioInspectError,
   AudioInspectNodeOptions
 } from '../types.js';
@@ -35,12 +36,33 @@ function markModuleAsRegistered(context: BaseAudioContext): void {
  */
 async function addProcessorModule(context: BaseAudioContext, processorUrl: string): Promise<void> {
   try {
-    await context.audioWorklet.addModule(processorUrl);
+    // モダンブラウザでESモジュールサポートがある場合
+    if (context.audioWorklet && 'addModule' in context.audioWorklet) {
+      await context.audioWorklet.addModule(processorUrl, {
+        credentials: 'omit' // CORS対策
+      });
+    } else {
+      throw new AudioInspectError(
+        'WORKLET_NOT_SUPPORTED',
+        'AudioWorklet is not supported in this environment'
+      );
+    }
     markModuleAsRegistered(context);
   } catch (error) {
+    // より詳細なエラー情報を提供
+    if (error instanceof Error) {
+      if (error.message.includes('Failed to load module script')) {
+        throw new AudioInspectError(
+          'MODULE_LOAD_FAILED',
+          'Failed to load AudioWorklet module. Ensure the processor file is served with correct MIME type (application/javascript)',
+          error
+        );
+      }
+    }
     throw new AudioInspectError(
       'INITIALIZATION_FAILED',
-      `AudioInspectProcessorモジュールの追加に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+      `AudioWorklet module registration failed: ${error instanceof Error ? error.message : String(error)}`,
+      error
     );
   }
 }
@@ -222,5 +244,97 @@ export async function createAudioInspectNodeWithModule(
       'INITIALIZATION_FAILED',
       `AudioInspectNodeの作成に失敗しました: ${error instanceof Error ? error.message : String(error)}`
     );
+  }
+}
+
+/**
+ * デフォルトプロセッサーURLを取得
+ * @returns デフォルトのプロセッサーファイルURL
+ */
+export function getDefaultProcessorUrl(): string {
+  // 開発環境と本番環境で異なるパスを返す
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
+    return '/dist/core/AudioInspectProcessor.js';
+  }
+
+  // 本番環境でのデフォルトパス
+  return '/node_modules/audio-inspect/dist/core/AudioInspectProcessor.js';
+}
+
+/**
+ * デフォルト設定でAudioInspectNodeを作成
+ * @param context - BaseAudioContext
+ * @param featureName - 特徴量名
+ * @param options - 追加オプション
+ * @returns AudioInspectNode
+ */
+export async function createAudioInspectNodeWithDefaults(
+  context: BaseAudioContext,
+  featureName: string,
+  options?: Partial<AudioInspectNodeOptions>
+): Promise<AudioInspectNode> {
+  const processorUrl = getDefaultProcessorUrl();
+
+  if (!isModuleRegistered(context)) {
+    await addProcessorModule(context, processorUrl);
+  }
+
+  const nodeOptions: AudioInspectNodeOptions = {
+    featureName,
+    bufferSize: 1024,
+    hopSize: 512,
+    inputChannelCount: 1,
+    ...options
+  };
+
+  return new AudioInspectNode(context, nodeOptions);
+}
+
+/**
+ * フォールバック機能付きストリーミング解析
+ * @param source - 音声ソース
+ * @param feature - 解析機能
+ * @param options - フォールバック機能付きオプション
+ * @param resultHandler - 結果ハンドラー
+ * @param errorHandler - エラーハンドラー
+ * @returns ストリーミングコントローラー（フォールバック時はnull）
+ */
+export async function streamWithFallback<T>(
+  source: AudioSource,
+  feature: Feature<T> | string,
+  options: StreamOptionsWithFallback & { processorModuleUrl: string },
+  resultHandler?: (result: T) => void,
+  errorHandler?: (error: { message: string; detail?: unknown }) => void
+): Promise<StreamController | null> {
+  try {
+    // 通常のストリーミング処理を試行
+    return await stream(
+      source,
+      feature,
+      options as StreamOptions & { processorModuleUrl: string },
+      resultHandler,
+      errorHandler
+    );
+  } catch (error) {
+    if (options.enableFallback) {
+      console.warn('Falling back to non-realtime analysis:', error);
+
+      // フォールバックハンドラーが指定されている場合は実行
+      if (options.fallbackHandler && source instanceof AudioBuffer) {
+        const audioData = {
+          sampleRate: source.sampleRate,
+          channelData: Array.from({ length: source.numberOfChannels }, (_, i) =>
+            source.getChannelData(i)
+          ),
+          duration: source.duration,
+          numberOfChannels: source.numberOfChannels,
+          length: source.length
+        };
+        options.fallbackHandler(audioData);
+      }
+
+      return null;
+    }
+    throw error;
   }
 }

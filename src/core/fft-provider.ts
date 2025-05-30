@@ -35,7 +35,7 @@ export interface IFFTProvider {
    * @param input - 実数入力データ
    * @returns FFT結果
    */
-  fft(input: Float32Array): FFTResult;
+  fft(input: Float32Array): FFTResult | Promise<FFTResult>;
 
   /**
    * リソースを解放
@@ -76,15 +76,28 @@ interface WebFFTInstance {
  */
 class WebFFTProvider implements IFFTProvider {
   private fftInstance: WebFFTInstance | null = null;
+  private initializationPromise: Promise<void> | null = null;
 
   constructor(
     public readonly size: number,
     public readonly sampleRate: number,
     private enableProfiling: boolean = false
-  ) {}
+  ) {
+    // コンストラクタで初期化を開始
+    this.initializationPromise = this.initializeWebFFT();
+  }
 
   get name(): string {
     return 'WebFFT';
+  }
+
+  /**
+   * 初期化の完了を待つ（外部から呼び出し可能）
+   */
+  async waitForInitialization(): Promise<void> {
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
   }
 
   async initializeWebFFT(): Promise<void> {
@@ -107,9 +120,14 @@ class WebFFTProvider implements IFFTProvider {
     }
   }
 
-  fft(input: Float32Array): FFTResult {
+  async fft(input: Float32Array): Promise<FFTResult> {
+    // 初期化の完了を待つ
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
+
     if (!this.fftInstance) {
-      throw new AudioInspectError('UNSUPPORTED_FORMAT', 'WebFFTが初期化されていません');
+      throw new AudioInspectError('UNSUPPORTED_FORMAT', 'WebFFT initialization failed');
     }
 
     if (input.length !== this.size) {
@@ -152,6 +170,11 @@ class WebFFTProvider implements IFFTProvider {
   }
 
   async profile(): Promise<void> {
+    // 初期化の完了を待つ
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
+
     if (!this.fftInstance || !this.fftInstance.profile) {
       throw new AudioInspectError('UNSUPPORTED_FORMAT', 'WebFFTが初期化されていません');
     }
@@ -308,8 +331,8 @@ export class FFTProviderFactory {
           config.sampleRate,
           config.enableProfiling
         );
-        // 初期化を待つ
-        await provider.initializeWebFFT();
+        // 初期化の完了を待つ
+        await provider.waitForInitialization();
         return provider;
       }
 

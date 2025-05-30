@@ -30,7 +30,7 @@ interface IFFTProvider {
      * @param input - 実数入力データ
      * @returns FFT結果
      */
-    fft(input: Float32Array): FFTResult;
+    fft(input: Float32Array): FFTResult | Promise<FFTResult>;
     /**
      * リソースを解放
      */
@@ -136,6 +136,15 @@ interface StreamOptions {
     processorModuleUrl?: string;
 }
 /**
+ * フォールバック機能付きストリーミングオプション
+ */
+interface StreamOptionsWithFallback extends StreamOptions {
+    /** フォールバック処理を有効にするか */
+    enableFallback?: boolean;
+    /** フォールバック時のハンドラー */
+    fallbackHandler?: (audio: AudioData) => void;
+}
+/**
  * 窓関数の種類
  */
 type WindowFunction = 'hann' | 'hamming' | 'blackman' | 'rectangular';
@@ -170,7 +179,7 @@ interface FrequencyRangeOptions {
 /**
  * エラーコード
  */
-type ErrorCode = 'INVALID_INPUT' | 'UNSUPPORTED_FORMAT' | 'DECODE_ERROR' | 'NETWORK_ERROR' | 'FFT_PROVIDER_ERROR' | 'PROCESSING_ERROR' | 'INITIALIZATION_FAILED';
+type ErrorCode = 'INVALID_INPUT' | 'UNSUPPORTED_FORMAT' | 'DECODE_ERROR' | 'NETWORK_ERROR' | 'FFT_PROVIDER_ERROR' | 'PROCESSING_ERROR' | 'INITIALIZATION_FAILED' | 'WORKLET_NOT_SUPPORTED' | 'MODULE_LOAD_FAILED';
 /**
  * Audio-inspect specific error
  */
@@ -278,10 +287,20 @@ declare class AudioInspectNode extends AudioInspectNode_base implements AudioIns
     private _bufferSize;
     private _hopSize;
     private _provider?;
+    private disposed;
+    private cleanupInterval?;
     constructor(context?: BaseAudioContext, nodeOptions?: AudioInspectNodeOptions);
     private _initializeMockMode;
     private getPort;
     private setupMessageHandler;
+    /**
+     * 定期的なクリーンアップの設定
+     */
+    private setupCleanupInterval;
+    /**
+     * クリーンアップ処理の実行
+     */
+    private performCleanup;
     /**
      * Get current analysis feature name (last set value)
      */
@@ -354,6 +373,34 @@ resultHandler?: (result: T) => void, errorHandler?: (error: {
  * @returns AudioInspectNode
  */
 declare function createAudioInspectNode(context: BaseAudioContext, options?: AudioInspectNodeOptions): AudioInspectNode;
+/**
+ * デフォルトプロセッサーURLを取得
+ * @returns デフォルトのプロセッサーファイルURL
+ */
+declare function getDefaultProcessorUrl(): string;
+/**
+ * デフォルト設定でAudioInspectNodeを作成
+ * @param context - BaseAudioContext
+ * @param featureName - 特徴量名
+ * @param options - 追加オプション
+ * @returns AudioInspectNode
+ */
+declare function createAudioInspectNodeWithDefaults(context: BaseAudioContext, featureName: string, options?: Partial<AudioInspectNodeOptions>): Promise<AudioInspectNode>;
+/**
+ * フォールバック機能付きストリーミング解析
+ * @param source - 音声ソース
+ * @param feature - 解析機能
+ * @param options - フォールバック機能付きオプション
+ * @param resultHandler - 結果ハンドラー
+ * @param errorHandler - エラーハンドラー
+ * @returns ストリーミングコントローラー（フォールバック時はnull）
+ */
+declare function streamWithFallback<T>(source: AudioSource, feature: Feature<T> | string, options: StreamOptionsWithFallback & {
+    processorModuleUrl: string;
+}, resultHandler?: (result: T) => void, errorHandler?: (error: {
+    message: string;
+    detail?: unknown;
+}) => void): Promise<StreamController | null>;
 
 /**
  * Safely get channel data common function
@@ -779,4 +826,4 @@ interface LUFSResult {
 }
 declare function getLUFS(audio: AudioData, options?: LUFSOptions): LUFSResult;
 
-export { type AmplitudeOptions, type AudioData, AudioInspectError, AudioInspectNode, type AudioInspectNodeEventHandlers, type AudioInspectNodeOptions, type AudioInspectProcessorOptions, type AudioSource, type CommonAnalysisOptions, type CrestFactorOptions, type CrestFactorResult, type EnergyOptions, type EnergyResult, type ErrorCode, type FFTAnalysisResult, type FFTOptions, type FFTProviderConfig, FFTProviderFactory, type FFTProviderType, type FFTResult, type Feature, type FrequencyRangeOptions, type IFFTProvider, type LUFSOptions, type LUFSResult, type LoadOptions, type Peak, type PeaksOptions, type PeaksResult, type SpectralFeaturesOptions, type SpectralFeaturesResult, type SpectrogramData, type SpectrumAnalysisResult, type SpectrumOptions, type StereoAnalysisOptions, type StereoAnalysisResult, type StreamController, type StreamOptions, type TimeVaryingSpectralOptions, type TimeVaryingSpectralResult, type TimeWindowOptions, type VADOptions, type VADResult, type VADSegment, type WaveformOptions, type WaveformPoint, type WaveformResult, type WindowFunction, amplitudeToDecibels, analyze, createAudioInspectNode, decibelsToAmplitude, getChannelData, getCrestFactor, getEnergy, getFFT, getLUFS, getPeakAmplitude as getPeak, getPeakAmplitude, getPeaks, getRMS, getSpectralFeatures, getSpectrum, getStereoAnalysis, getTimeVaryingSpectralFeatures, getTimeVaryingStereoAnalysis, getVAD, getWaveform, getZeroCrossing, isAudioInspectError, isPowerOfTwo, load, nextPowerOfTwo, stream };
+export { type AmplitudeOptions, type AudioData, AudioInspectError, AudioInspectNode, type AudioInspectNodeEventHandlers, type AudioInspectNodeOptions, type AudioInspectProcessorOptions, type AudioSource, type CommonAnalysisOptions, type CrestFactorOptions, type CrestFactorResult, type EnergyOptions, type EnergyResult, type ErrorCode, type FFTAnalysisResult, type FFTOptions, type FFTProviderConfig, FFTProviderFactory, type FFTProviderType, type FFTResult, type Feature, type FrequencyRangeOptions, type IFFTProvider, type LUFSOptions, type LUFSResult, type LoadOptions, type Peak, type PeaksOptions, type PeaksResult, type SpectralFeaturesOptions, type SpectralFeaturesResult, type SpectrogramData, type SpectrumAnalysisResult, type SpectrumOptions, type StereoAnalysisOptions, type StereoAnalysisResult, type StreamController, type StreamOptions, type StreamOptionsWithFallback, type TimeVaryingSpectralOptions, type TimeVaryingSpectralResult, type TimeWindowOptions, type VADOptions, type VADResult, type VADSegment, type WaveformOptions, type WaveformPoint, type WaveformResult, type WindowFunction, amplitudeToDecibels, analyze, createAudioInspectNode, createAudioInspectNodeWithDefaults, decibelsToAmplitude, getChannelData, getCrestFactor, getDefaultProcessorUrl, getEnergy, getFFT, getLUFS, getPeakAmplitude as getPeak, getPeakAmplitude, getPeaks, getRMS, getSpectralFeatures, getSpectrum, getStereoAnalysis, getTimeVaryingSpectralFeatures, getTimeVaryingStereoAnalysis, getVAD, getWaveform, getZeroCrossing, isAudioInspectError, isPowerOfTwo, load, nextPowerOfTwo, stream, streamWithFallback };

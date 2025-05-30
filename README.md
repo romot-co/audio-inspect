@@ -88,13 +88,57 @@ inspectNode.reset();
 inspectNode.dispose();
 ```
 
-#### AudioInspectNodeの特徴
+## AudioWorklet Setup
 
-- **標準AudioNode**: `connect()`, `disconnect()`, `context`などの標準プロパティをサポート
-- **リアルタイム解析**: オーディオストリームの低遅延解析
-- **動的設定変更**: 実行中に解析パラメータを変更可能
-- **イベントベース**: `onresult`, `onerror`ハンドラーとCustomEventの両方をサポート
-- **型安全**: TypeScriptで完全に型定義済み
+The library includes a pre-bundled AudioWorklet processor that includes all dependencies:
+
+```javascript
+// Correct usage - use the bundled processor
+const processorUrl = '/node_modules/audio-inspect/dist/core/AudioInspectProcessor.js';
+
+// Or if serving from your own server
+const processorUrl = '/assets/AudioInspectProcessor.js';
+
+// Initialize with the bundled processor
+await audioContext.audioWorklet.addModule(processorUrl);
+const inspectNode = createAudioInspectNode(audioContext, options);
+```
+
+### Important Notes:
+- The processor file must be served with `Content-Type: application/javascript`
+- The bundled processor includes all necessary dependencies
+- No additional module imports are needed in the AudioWorklet context
+
+### Helper Functions for AudioWorklet
+
+```typescript
+import { 
+  getDefaultProcessorUrl, 
+  createAudioInspectNodeWithDefaults,
+  streamWithFallback 
+} from 'audio-inspect';
+
+// Get default processor URL (automatically detects dev/prod environment)
+const processorUrl = getDefaultProcessorUrl();
+
+// Create AudioInspectNode with default settings
+const inspectNode = await createAudioInspectNodeWithDefaults(audioContext, 'getRMS');
+
+// Stream with fallback for better compatibility
+const controller = await streamWithFallback(
+  mediaStream,
+  'getPeaks',
+  {
+    processorModuleUrl: processorUrl,
+    enableFallback: true,
+    fallbackHandler: (audioData) => {
+      console.log('Fallback processing:', audioData);
+    }
+  },
+  (result) => console.log('Peak result:', result),
+  (error) => console.error('Stream error:', error)
+);
+```
 
 ### Time Domain Analysis
 

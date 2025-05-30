@@ -82,6 +82,16 @@ export interface StreamOptions {
 }
 
 /**
+ * フォールバック機能付きストリーミングオプション
+ */
+export interface StreamOptionsWithFallback extends StreamOptions {
+  /** フォールバック処理を有効にするか */
+  enableFallback?: boolean;
+  /** フォールバック時のハンドラー */
+  fallbackHandler?: (audio: AudioData) => void;
+}
+
+/**
  * 窓関数の種類
  */
 export type WindowFunction = 'hann' | 'hamming' | 'blackman' | 'rectangular';
@@ -141,7 +151,9 @@ export type ErrorCode =
   | 'NETWORK_ERROR'
   | 'FFT_PROVIDER_ERROR'
   | 'PROCESSING_ERROR'
-  | 'INITIALIZATION_FAILED';
+  | 'INITIALIZATION_FAILED'
+  | 'WORKLET_NOT_SUPPORTED' // AudioWorkletサポートなし
+  | 'MODULE_LOAD_FAILED'; // モジュール読み込み失敗
 
 /**
  * Audio-inspect specific error
@@ -202,7 +214,8 @@ export type AudioWorkletMessage =
   | AnalysisResultMessage
   | ErrorMessage
   | UpdateOptionsMessage
-  | ResetMessage;
+  | ResetMessage
+  | CleanupMessage;
 
 /**
  * 解析結果メッセージ
@@ -235,6 +248,13 @@ export interface UpdateOptionsMessage {
  */
 export interface ResetMessage {
   type: 'reset';
+}
+
+/**
+ * クリーンアップメッセージ
+ */
+export interface CleanupMessage {
+  type: 'cleanup';
 }
 
 /**
