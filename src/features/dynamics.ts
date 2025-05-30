@@ -1,5 +1,5 @@
 import { AudioData, AudioInspectError, AmplitudeOptions } from '../types.js';
-import { getChannelData, ensureValidSample } from '../core/utils.js';
+import { getChannelData, ensureValidSample, applyAWeighting } from '../core/utils.js';
 import { getRMS, getPeakAmplitude } from './time.js';
 
 export interface CrestFactorOptions {
@@ -27,6 +27,7 @@ export interface CrestFactorResult {
 
 function calculateFrameCrestFactor(
   frameData: Float32Array,
+  sampleRate: number,
   method: 'simple' | 'weighted' = 'simple'
 ): { peak: number; rms: number; cfDb: number; cfLinear: number } {
   if (frameData.length === 0) {
@@ -35,11 +36,10 @@ function calculateFrameCrestFactor(
 
   let processedData = frameData;
 
-  // 重み付き処理（オプション）
+  // A特性重み付き処理
   if (method === 'weighted') {
-    // A-weightingの簡易実装
-    // 実際にはIIRフィルタで実装すべき
-    processedData = frameData; // プレースホルダー
+    // A特性フィルタを適用
+    processedData = applyAWeighting(frameData, sampleRate);
   }
 
   let peakVal = 0;
@@ -78,9 +78,33 @@ export function getCrestFactor(
   const { channel = 0, windowSize, hopSize, method = 'simple' } = options;
 
   // 全体のクレストファクター計算
-  const amplitudeOpts: AmplitudeOptions = { channel, asDB: false };
-  const overallPeak = getPeakAmplitude(audio, amplitudeOpts);
-  const overallRms = getRMS(audio, amplitudeOpts);
+  let overallPeak: number;
+  let overallRms: number;
+
+  if (method === 'weighted') {
+    // A特性フィルタを適用して全体のピークとRMSを計算
+    const channelData = getChannelData(audio, channel);
+    const weightedData = applyAWeighting(channelData, audio.sampleRate);
+
+    // A特性適用データで計算
+    let peakVal = 0;
+    let sumOfSquares = 0;
+
+    for (let i = 0; i < weightedData.length; i++) {
+      const sample = ensureValidSample(weightedData[i] ?? 0);
+      const absSample = Math.abs(sample);
+      peakVal = Math.max(peakVal, absSample);
+      sumOfSquares += sample * sample;
+    }
+
+    overallPeak = peakVal;
+    overallRms = Math.sqrt(sumOfSquares / weightedData.length);
+  } else {
+    // 通常の方法
+    const amplitudeOpts: AmplitudeOptions = { channel, asDB: false };
+    overallPeak = getPeakAmplitude(audio, amplitudeOpts);
+    overallRms = getRMS(audio, amplitudeOpts);
+  }
 
   const overallCfLinear = overallRms > 1e-10 ? overallPeak / overallRms : Infinity;
   const overallCfDb = overallRms > 1e-10 ? 20 * Math.log10(overallCfLinear) : Infinity;
@@ -114,7 +138,7 @@ export function getCrestFactor(
 
     if (dataLength < windowSizeSamples) {
       // データが1窓分に満たない場合
-      const result = calculateFrameCrestFactor(channelData, method);
+      const result = calculateFrameCrestFactor(channelData, audio.sampleRate, method);
       timeVaryingResult = {
         times: new Float32Array([audio.duration / 2]),
         values: new Float32Array([result.cfDb]),
@@ -135,7 +159,7 @@ export function getCrestFactor(
         const end = Math.min(start + windowSizeSamples, dataLength);
         const frameData = channelData.subarray(start, end);
 
-        const frameResult = calculateFrameCrestFactor(frameData, method);
+        const frameResult = calculateFrameCrestFactor(frameData, audio.sampleRate, method);
 
         times[i] = (start + windowSizeSamples / 2) / audio.sampleRate;
         values[i] = frameResult.cfDb;

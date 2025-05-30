@@ -11,15 +11,15 @@ const MOMENTARY_WINDOW_MS = 400;
 
 // K-weighting filter coefficients (ITU-R BS.1770-4)
 const K_WEIGHTING_STAGE1 = {
-  // High-pass filter (Butterworth)
+  // Pre-filter (高周波シェルビング)
   b: [1.53512485958697, -2.69169618940638, 1.19839281085285],
   a: [1.0, -1.69065929318241, 0.73248077421585]
 };
 
 const K_WEIGHTING_STAGE2 = {
-  // High-frequency shelf
-  b: [1.53660026327012, -2.68908427791073, 1.16158667615261],
-  a: [1.0, -1.68859431835989, 0.72909998803284]
+  // RLB-weighting (高域通過フィルタ)
+  b: [1.0, -2.0, 1.0],
+  a: [1.0, -1.99004745483398, 0.99007225036621]
 };
 
 // Biquadフィルタの状態

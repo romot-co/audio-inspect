@@ -12,7 +12,8 @@ import {
   ensureValidSample,
   isValidSample,
   amplitudeToDecibels,
-  safeArrayAccess
+  safeArrayAccess,
+  getTruePeak
 } from '../core/utils.js';
 
 /**
@@ -208,14 +209,23 @@ const SILENCE_DB = -Infinity;
  * RMS（Root Mean Square）を計算
  */
 export function getRMS(audio: AudioData, optionsOrChannel: AmplitudeOptions | number = {}): number {
-  const options: Required<AmplitudeOptions> =
+  const options =
     typeof optionsOrChannel === 'number'
-      ? { channel: optionsOrChannel, asDB: false, reference: 1.0 }
-      : {
-          channel: 0,
+      ? {
+          channel: optionsOrChannel,
           asDB: false,
           reference: 1.0,
-          ...optionsOrChannel
+          truePeak: false,
+          oversamplingFactor: 4,
+          interpolation: 'cubic' as const
+        }
+      : {
+          channel: optionsOrChannel.channel ?? 0,
+          asDB: optionsOrChannel.asDB ?? false,
+          reference: optionsOrChannel.reference ?? 1.0,
+          truePeak: optionsOrChannel.truePeak ?? false,
+          oversamplingFactor: optionsOrChannel.oversamplingFactor ?? 4,
+          interpolation: optionsOrChannel.interpolation ?? ('cubic' as const)
         };
 
   const channelData = getChannelData(audio, options.channel);
@@ -249,11 +259,13 @@ export function getRMS(audio: AudioData, optionsOrChannel: AmplitudeOptions | nu
  * ピーク振幅を計算
  */
 export function getPeakAmplitude(audio: AudioData, options: AmplitudeOptions = {}): number {
-  const resolvedOptions: Required<AmplitudeOptions> = {
-    channel: 0,
-    asDB: false,
-    reference: 1.0,
-    ...options
+  const resolvedOptions = {
+    channel: options.channel ?? 0,
+    asDB: options.asDB ?? false,
+    reference: options.reference ?? 1.0,
+    truePeak: options.truePeak ?? false,
+    oversamplingFactor: options.oversamplingFactor ?? 4,
+    interpolation: options.interpolation ?? ('cubic' as const)
   };
 
   const channelData = getChannelData(audio, resolvedOptions.channel);
@@ -262,11 +274,22 @@ export function getPeakAmplitude(audio: AudioData, options: AmplitudeOptions = {
     return resolvedOptions.asDB ? SILENCE_DB : 0;
   }
 
-  let peak = 0;
-  for (let i = 0; i < channelData.length; i++) {
-    const sample = channelData[i] ?? 0;
-    if (isValidSample(sample)) {
-      peak = Math.max(peak, Math.abs(sample));
+  let peak: number;
+
+  if (resolvedOptions.truePeak) {
+    // True Peak検出
+    peak = getTruePeak(channelData, {
+      factor: resolvedOptions.oversamplingFactor,
+      interpolation: resolvedOptions.interpolation
+    });
+  } else {
+    // 通常のピーク検出
+    peak = 0;
+    for (let i = 0; i < channelData.length; i++) {
+      const sample = channelData[i] ?? 0;
+      if (isValidSample(sample)) {
+        peak = Math.max(peak, Math.abs(sample));
+      }
     }
   }
 

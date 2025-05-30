@@ -37,12 +37,27 @@ export type {
 } from './frequency.js';
 
 // スペクトル特徴量
-export { getSpectralFeatures, getTimeVaryingSpectralFeatures } from './spectral.js';
+export {
+  getSpectralFeatures,
+  getTimeVaryingSpectralFeatures,
+  getSpectralEntropy,
+  getSpectralCrest,
+  getMFCC,
+  getMFCCWithDelta
+} from './spectral.js';
 export type {
   SpectralFeaturesOptions,
   SpectralFeaturesResult,
   TimeVaryingSpectralOptions,
-  TimeVaryingSpectralResult
+  TimeVaryingSpectralResult,
+  SpectralEntropyOptions,
+  SpectralEntropyResult,
+  SpectralCrestOptions,
+  SpectralCrestResult,
+  MFCCOptions,
+  MFCCResult,
+  MFCCDeltaOptions,
+  MFCCDeltaResult
 } from './spectral.js';
 
 // エネルギー解析

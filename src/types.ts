@@ -103,6 +103,9 @@ export interface AmplitudeOptions {
   channel?: number;
   asDB?: boolean;
   reference?: number; // dB計算の基準値（デフォルト: 1.0 = 0 dBFS）
+  truePeak?: boolean; // True Peak検出を使用するか
+  oversamplingFactor?: number; // オーバーサンプリング倍率（デフォルト: 4）
+  interpolation?: 'linear' | 'cubic' | 'sinc'; // 補間方法（デフォルト: 'cubic'）
 }
 
 /**

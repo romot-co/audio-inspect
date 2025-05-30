@@ -183,9 +183,17 @@ class WebFFTProvider implements IFFTProvider {
   }
 
   dispose(): void {
-    if (this.fftInstance && this.fftInstance.dispose) {
-      this.fftInstance.dispose();
-      this.fftInstance = null;
+    if (this.fftInstance) {
+      try {
+        if (this.fftInstance.dispose) {
+          this.fftInstance.dispose();
+        }
+      } catch (error) {
+        console.warn('FFT instance disposal failed:', error);
+      } finally {
+        this.fftInstance = null;
+        this.initializationPromise = null;
+      }
     }
   }
 }

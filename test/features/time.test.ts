@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { getPeaks, getRMS, getZeroCrossing, getWaveform } from '../../src/features/time.js';
+import {
+  getPeaks,
+  getRMS,
+  getZeroCrossing,
+  getWaveform,
+  getPeakAmplitude
+} from '../../src/features/time.js';
 import type { AudioData } from '../../src/types.js';
 
 // テスト用のAudioDataを作成するヘルパー
@@ -661,6 +667,206 @@ describe('getWaveform', () => {
       expect(lowFps.frameCount).toBeLessThan(highFps.frameCount);
       expect(lowFps.frameCount).toBeLessThanOrEqual(audio.length);
       expect(highFps.frameCount).toBeLessThanOrEqual(audio.length);
+    });
+  });
+});
+
+describe('True Peak Detection', () => {
+  describe('getPeakAmplitude with True Peak', () => {
+    it('should calculate True Peak for sine wave', () => {
+      const signal = createSineWave(440, 0.1, 44100, 1.0);
+      const audio = createTestAudioData(signal);
+
+      const regularPeak = getPeakAmplitude(audio, { truePeak: false });
+      const truePeak = getPeakAmplitude(audio, { truePeak: true });
+
+      expect(regularPeak).toBeCloseTo(1.0, 2);
+      expect(truePeak).toBeGreaterThanOrEqual(regularPeak);
+      expect(truePeak).toBeGreaterThan(0.9); // サイン波なので1.0に近い値
+    });
+
+    it('should handle different oversampling factors', () => {
+      const signal = createSineWave(1000, 0.1, 44100, 1.0);
+      const audio = createTestAudioData(signal);
+
+      const truePeak2x = getPeakAmplitude(audio, {
+        truePeak: true,
+        oversamplingFactor: 2
+      });
+      const truePeak4x = getPeakAmplitude(audio, {
+        truePeak: true,
+        oversamplingFactor: 4
+      });
+      const truePeak8x = getPeakAmplitude(audio, {
+        truePeak: true,
+        oversamplingFactor: 8
+      });
+
+      // より高いオーバーサンプリング倍率でより正確な結果が得られる
+      expect(truePeak2x).toBeGreaterThan(0.9);
+      expect(truePeak4x).toBeGreaterThan(0.9);
+      expect(truePeak8x).toBeGreaterThan(0.9);
+
+      // オーバーサンプリング倍率による精度向上を確認
+      expect(truePeak4x).toBeGreaterThanOrEqual(truePeak2x - 0.01); // 許容誤差を考慮
+      expect(truePeak8x).toBeGreaterThanOrEqual(truePeak4x - 0.01);
+    });
+
+    it('should handle different interpolation methods', () => {
+      const signal = createSineWave(2000, 0.1, 44100, 1.0);
+      const audio = createTestAudioData(signal);
+
+      const linearTruePeak = getPeakAmplitude(audio, {
+        truePeak: true,
+        interpolation: 'linear'
+      });
+      const cubicTruePeak = getPeakAmplitude(audio, {
+        truePeak: true,
+        interpolation: 'cubic'
+      });
+      const sincTruePeak = getPeakAmplitude(audio, {
+        truePeak: true,
+        interpolation: 'sinc'
+      });
+
+      // すべての補間方法で有効な結果が得られることを確認
+      expect(linearTruePeak).toBeGreaterThan(0.8);
+      expect(cubicTruePeak).toBeGreaterThan(0.8);
+      expect(sincTruePeak).toBeGreaterThan(0.8);
+
+      // より高精度な補間方法（sinc）で最も正確な結果が得られることを期待
+      expect(sincTruePeak).toBeGreaterThanOrEqual(cubicTruePeak - 0.02);
+      expect(cubicTruePeak).toBeGreaterThanOrEqual(linearTruePeak - 0.02);
+    });
+
+    it('should return True Peak in dB when requested', () => {
+      const signal = createSineWave(440, 0.1, 44100, 0.5);
+      const audio = createTestAudioData(signal);
+
+      const truePeakLinear = getPeakAmplitude(audio, {
+        truePeak: true,
+        asDB: false
+      });
+      const truePeakDB = getPeakAmplitude(audio, {
+        truePeak: true,
+        asDB: true
+      });
+
+      expect(truePeakLinear).toBeGreaterThan(0);
+      expect(truePeakLinear).toBeLessThanOrEqual(1.0);
+      expect(truePeakDB).toBeLessThan(0); // 0.5の振幅なので負のdB値
+
+      // dB変換の妥当性確認
+      const expectedDB = 20 * Math.log10(truePeakLinear);
+      expect(truePeakDB).toBeCloseTo(expectedDB, 1);
+    });
+  });
+
+  describe('getRMS with True Peak detection', () => {
+    it('should support True Peak option in RMS calculation', () => {
+      const signal = createSineWave(1000, 0.1, 44100, 1.0);
+      const audio = createTestAudioData(signal);
+
+      // RMSは通常のRMS計算（True Peakオプションは影響しない）
+      const rmsNormal = getRMS(audio, { truePeak: false });
+      const rmsWithTruePeak = getRMS(audio, { truePeak: true });
+
+      // RMS値は同じになる（True Peakはピーク検出にのみ影響）
+      expect(rmsNormal).toBeCloseTo(rmsWithTruePeak, 3);
+      expect(rmsNormal).toBeCloseTo(1.0 / Math.sqrt(2), 2);
+    });
+  });
+
+  describe('edge cases for True Peak', () => {
+    it('should handle silent audio', () => {
+      const silence = new Float32Array(1000);
+      const audio = createTestAudioData(silence);
+
+      const truePeak = getPeakAmplitude(audio, { truePeak: true });
+
+      expect(truePeak).toBe(0);
+    });
+
+    it('should handle very short audio', () => {
+      const shortSignal = new Float32Array([1.0, -0.8, 0.6]);
+      const audio = createTestAudioData(shortSignal);
+
+      const truePeak = getPeakAmplitude(audio, { truePeak: true });
+
+      expect(truePeak).toBeGreaterThan(0);
+      expect(truePeak).toBeGreaterThanOrEqual(1.0); // 最大振幅1.0以上
+    });
+
+    it('should handle DC signal', () => {
+      const dcSignal = new Float32Array(1000);
+      dcSignal.fill(0.7);
+      const audio = createTestAudioData(dcSignal);
+
+      const truePeak = getPeakAmplitude(audio, { truePeak: true });
+
+      expect(truePeak).toBeCloseTo(0.7, 2);
+    });
+
+    it('should handle multi-channel audio', () => {
+      const channel0 = createSineWave(440, 0.1, 44100, 1.0);
+      const channel1 = createSineWave(880, 0.1, 44100, 0.8);
+
+      const audio: AudioData = {
+        sampleRate: 44100,
+        channelData: [channel0, channel1],
+        duration: 0.1,
+        numberOfChannels: 2,
+        length: channel0.length
+      };
+
+      const truePeak0 = getPeakAmplitude(audio, {
+        channel: 0,
+        truePeak: true
+      });
+      const truePeak1 = getPeakAmplitude(audio, {
+        channel: 1,
+        truePeak: true
+      });
+
+      expect(truePeak0).toBeGreaterThan(0.9);
+      expect(truePeak1).toBeGreaterThan(0.7);
+      expect(truePeak0).toBeGreaterThan(truePeak1);
+    });
+  });
+
+  describe('True Peak performance', () => {
+    it('should handle large audio files efficiently', () => {
+      const longSignal = createSineWave(440, 5.0, 44100, 1.0); // 5秒
+      const audio = createTestAudioData(longSignal);
+
+      const startTime = performance.now();
+      const truePeak = getPeakAmplitude(audio, {
+        truePeak: true,
+        oversamplingFactor: 4,
+        interpolation: 'cubic'
+      });
+      const endTime = performance.now();
+
+      expect(truePeak).toBeGreaterThan(0.9);
+      expect(endTime - startTime).toBeLessThan(1000); // 1秒以内で完了
+    });
+
+    it('should maintain accuracy with different signal frequencies', () => {
+      const frequencies = [100, 440, 1000, 5000, 10000];
+
+      frequencies.forEach((freq) => {
+        const signal = createSineWave(freq, 0.1, 44100, 1.0);
+        const audio = createTestAudioData(signal);
+
+        const truePeak = getPeakAmplitude(audio, {
+          truePeak: true,
+          oversamplingFactor: 4
+        });
+
+        // 全ての周波数で適切なTrue Peak値を取得
+        expect(truePeak).toBeGreaterThan(0.9);
+        expect(truePeak).toBeLessThan(1.1); // 過度に高い値は異常
+      });
     });
   });
 });

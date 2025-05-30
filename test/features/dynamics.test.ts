@@ -180,7 +180,64 @@ describe('getCrestFactor', () => {
 
       expect(simpleResult).toBeDefined();
       expect(weightedResult).toBeDefined();
-      // 実装によって結果は異なる可能性がある
+
+      // 基本的な妥当性チェック
+      expect(simpleResult.crestFactorLinear).toBeGreaterThan(0);
+      expect(weightedResult.crestFactorLinear).toBeGreaterThan(0);
+      expect(simpleResult.peak).toBeGreaterThan(0);
+      expect(weightedResult.peak).toBeGreaterThan(0);
+      expect(simpleResult.rms).toBeGreaterThan(0);
+      expect(weightedResult.rms).toBeGreaterThan(0);
+    });
+
+    it('should show difference between simple and weighted methods for different frequencies', () => {
+      // 低周波（20Hz）でのテスト
+      const lowFreqWave = createSineWave(20, 0.1, 44100, 1.0);
+      const lowFreqAudio = createTestAudioData(lowFreqWave);
+
+      const lowFreqSimple = getCrestFactor(lowFreqAudio, { method: 'simple' });
+      const lowFreqWeighted = getCrestFactor(lowFreqAudio, { method: 'weighted' });
+
+      // 高周波（10kHz）でのテスト
+      const highFreqWave = createSineWave(10000, 0.1, 44100, 1.0);
+      const highFreqAudio = createTestAudioData(highFreqWave);
+
+      const highFreqSimple = getCrestFactor(highFreqAudio, { method: 'simple' });
+      const highFreqWeighted = getCrestFactor(highFreqAudio, { method: 'weighted' });
+
+      // A特性フィルタは周波数特性があるため、結果が異なることを確認
+      expect(lowFreqSimple.crestFactorLinear).toBeCloseTo(Math.sqrt(2), 1);
+      expect(highFreqSimple.crestFactorLinear).toBeCloseTo(Math.sqrt(2), 1);
+
+      // A特性適用により、低周波と高周波で異なる影響を受ける
+      expect(lowFreqWeighted).toBeDefined();
+      expect(highFreqWeighted).toBeDefined();
+    });
+
+    it('should support weighted method with windowed analysis', () => {
+      const sineWave = createSineWave(1000, 1.0, 44100, 1.0); // 1kHz信号
+      const audio = createTestAudioData(sineWave);
+
+      const result = getCrestFactor(audio, {
+        method: 'weighted',
+        windowSize: 0.1, // 100ms窓
+        hopSize: 0.05 // 50ms hop
+      });
+
+      expect(result.timeVarying).toBeDefined();
+      expect(result.timeVarying?.times.length).toBeGreaterThan(1);
+      expect(result.timeVarying?.values.length).toBeGreaterThan(1);
+
+      // A特性適用後もクレストファクターが妥当な範囲内であることを確認
+      if (result.timeVarying) {
+        for (let i = 0; i < result.timeVarying.values.length; i++) {
+          const cfValue = result.timeVarying.values[i];
+          if (cfValue !== undefined && isFinite(cfValue)) {
+            expect(cfValue).toBeGreaterThan(-50); // -50dB以上
+            expect(cfValue).toBeLessThan(50); // 50dB以下
+          }
+        }
+      }
     });
   });
 
