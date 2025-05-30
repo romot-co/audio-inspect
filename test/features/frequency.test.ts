@@ -317,8 +317,6 @@ describe('error handling', () => {
     const sineWave = createSineWave(440, 0.1);
     const audio = createTestAudioData(sineWave);
 
-    await expect(
-      getFFT(audio, { channel: 5 })
-    ).rejects.toThrow('Invalid channel number');
+    await expect(getFFT(audio, { channel: 5 })).rejects.toThrow('Invalid channel number');
   });
 });

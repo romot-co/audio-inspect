@@ -3,15 +3,15 @@ import { test, expect } from '@playwright/test';
 test.describe('AudioInspectNode E2E Tests', () => {
   test.beforeEach(async ({ page }) => {
     // コンソールログをキャプチャ
-    page.on('console', msg => {
+    page.on('console', (msg) => {
       console.log(`[Browser Console ${msg.type().toUpperCase()}]: ${msg.text()}`);
     });
-    
+
     // ページエラーをキャプチャ
-    page.on('pageerror', err => {
+    page.on('pageerror', (err) => {
       console.error(`[Browser Error]: ${err.message}`);
     });
-    
+
     // テストページに移動
     await page.goto('/test-page.html');
   });
