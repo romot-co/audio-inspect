@@ -143,7 +143,7 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
     super();
 
     try {
-      console.log('[AudioInspectProcessor] 初期化開始', {
+      console.log('[AudioInspectProcessor] Initialization started', {
         isAudioWorklet: isAudioWorkletGlobalScope,
         options
       });
@@ -156,29 +156,29 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
         ...((options?.processorOptions as Partial<AudioInspectProcessorOptions>) || {})
       };
 
-      console.log('[AudioInspectProcessor] 設定初期化完了', this.options);
+      console.log('[AudioInspectProcessor] Options initialized', this.options);
 
-      // buffers配列を初期化時に適切な型で作成
+      // Create buffers array with the proper type
       this.buffers = new Array(this.options.inputChannelCount)
         .fill(null)
         .map(() => new Float32Array(this.options.bufferSize * 2 + 256));
 
-      console.log('[AudioInspectProcessor] バッファ初期化完了', {
+      console.log('[AudioInspectProcessor] Buffers initialized', {
         inputChannelCount: this.options.inputChannelCount,
         bufferSize: this.options.bufferSize,
         totalBufferSize: this.options.bufferSize * 2 + 256
       });
 
-      // メッセージハンドラーを設定
+      // Set message handler
       this.port.onmessage = this.handleMessage.bind(this);
 
-      console.log('[AudioInspectProcessor] 初期化完了');
+      console.log('[AudioInspectProcessor] Initialization complete');
     } catch (error) {
-      console.error('[AudioInspectProcessor] 初期化エラー:', error);
-      // エラーをメインスレッドに通知
+      console.error('[AudioInspectProcessor] Initialization error:', error);
+      // Notify the main thread of the error
       this.port.postMessage({
         type: 'error',
-        message: 'プロセッサー初期化失敗',
+        message: 'Processor initialization failed',
         detail: error
       });
     }
@@ -197,7 +197,7 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
 
     const input = inputs[0];
     if (!input || input.length === 0) {
-      console.log('AudioInspectProcessor: 入力データなし、スキップ');
+      console.log('AudioInspectProcessor: No input data, skipping');
       return true;
     }
 
@@ -208,7 +208,7 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
       // Check and perform analysis (non-blocking)
       this.checkAndPerformAnalysis();
     } catch (error) {
-      console.error('AudioInspectProcessor: process関数でエラー:', error);
+      console.error('AudioInspectProcessor: Error in process function:', error);
       this.sendError('Error occurred during processing', error);
     }
 
@@ -288,7 +288,7 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
     const newDataSize = this.bufferWritePosition - this.lastAnalysisPosition;
 
     // Debug log for buffer status
-    console.log('AudioInspectProcessor: バッファ状況チェック', {
+    console.log('AudioInspectProcessor: Buffer status check', {
       newDataSize,
       hopSize: this.options.hopSize,
       bufferWritePosition: this.bufferWritePosition,
@@ -302,9 +302,9 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
       newDataSize >= this.options.hopSize &&
       this.bufferWritePosition >= this.options.bufferSize
     ) {
-      console.log('AudioInspectProcessor: 解析実行条件を満たしました、解析開始');
+      console.log('AudioInspectProcessor: Analysis conditions met, starting analysis');
 
-      // 次の解析開始位置を計算（オーバーラップを考慮）
+      // Calculate next analysis position taking overlap into account
       const nextAnalysisPosition = this.lastAnalysisPosition + this.options.hopSize;
       this.lastAnalysisPosition = nextAnalysisPosition;
 
@@ -324,7 +324,7 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
       // Extract analysis data
       const analysisData = this.extractAnalysisData();
 
-      // 一時的なAudioDataオブジェクトを作成
+      // Create a temporary AudioData object
       const audioData: AudioData = {
         sampleRate: sampleRate,
         channelData: analysisData,
@@ -342,7 +342,7 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
   }
 
   /**
-   * 解析データを現在のバッファから抽出
+   * Extract analysis data from the current buffer
    */
   private extractAnalysisData(): Float32Array[] {
     const startPos = this.bufferWritePosition - this.options.bufferSize;
@@ -368,7 +368,7 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
    * Execute analysis function asynchronously and handle results or errors
    */
   private executeFeatureFunctionAsync(audioData: AudioData): void {
-    console.log('AudioInspectProcessor: 解析関数実行開始', {
+    console.log('AudioInspectProcessor: Starting analysis function', {
       featureName: this.options.featureName,
       audioDataLength: audioData.length,
       numberOfChannels: audioData.numberOfChannels
@@ -377,7 +377,7 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
     const featureFunction = featureMap[this.options.featureName];
 
     if (!featureFunction || typeof featureFunction !== 'function') {
-      console.error('AudioInspectProcessor: 解析関数が見つかりません:', this.options.featureName);
+      console.error('AudioInspectProcessor: Analysis function not found:', this.options.featureName);
       this.isAnalyzing = false;
       this.sendError(`Unknown analysis function: ${this.options.featureName}`);
       return;
@@ -399,26 +399,26 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
 
       if (isPromiseLike(resultOrPromise)) {
         // Async result
-        console.log('AudioInspectProcessor: 非同期解析関数実行中...');
+        console.log('AudioInspectProcessor: Running asynchronous analysis...');
         resultOrPromise
           .then((result) => {
-            console.log('AudioInspectProcessor: 非同期解析完了、結果:', result);
+            console.log('AudioInspectProcessor: Asynchronous analysis done, result:', result);
             this.sendResult(result);
             this.isAnalyzing = false;
           })
           .catch((error) => {
-            console.error('AudioInspectProcessor: 非同期解析エラー:', error);
+            console.error('AudioInspectProcessor: Asynchronous analysis error:', error);
             this.sendError('Error occurred during analysis execution', error);
             this.isAnalyzing = false;
           });
       } else {
         // Sync result
-        console.log('AudioInspectProcessor: 同期解析完了、結果:', resultOrPromise);
+        console.log('AudioInspectProcessor: Synchronous analysis done, result:', resultOrPromise);
         this.sendResult(resultOrPromise);
         this.isAnalyzing = false;
       }
     } catch (error) {
-      console.error('AudioInspectProcessor: 解析関数実行エラー:', error);
+      console.error('AudioInspectProcessor: Error executing analysis function:', error);
       this.isAnalyzing = false;
       this.sendError('Error occurred during analysis execution', error);
     }
@@ -429,7 +429,7 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
    */
   private sendResult(data: unknown): void {
     // Debug log for message sending
-    console.log('AudioInspectProcessor: 解析結果を送信:', {
+    console.log('AudioInspectProcessor: Sending analysis result:', {
       type: 'analysisResult',
       data,
       timestamp: Date.now()
@@ -449,7 +449,7 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
    */
   private sendError(message: string, detail?: unknown): void {
     // Debug log for error sending
-    console.log('AudioInspectProcessor: エラーを送信:', {
+    console.log('AudioInspectProcessor: Sending error:', {
       type: 'error',
       message,
       detail
@@ -475,19 +475,19 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
         this.handleReset();
         break;
       default:
-        // exhaustive switchチェック（型安全な未知メッセージ処理）
+        // exhaustive switch check (type-safe handling of unknown messages)
         console.warn('Unknown message type:', message.type);
-        void message; // 未使用変数警告を回避
+        void message; // avoid unused variable warning
     }
   }
 
   /**
-   * オプション更新（部分更新をサポート）
+   * Update options (supports partial updates)
    */
   private handleUpdateOptions(message: UpdateOptionsMessage): void {
     const newOptions = { ...this.options, ...message.payload };
 
-    // バッファサイズが変更された場合はバッファを再初期化
+    // Reinitialize buffers when buffer size changes
     if (
       newOptions.bufferSize !== this.options.bufferSize ||
       newOptions.inputChannelCount !== this.options.inputChannelCount
@@ -502,9 +502,9 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
   private handleReset(): void {
     this.bufferWritePosition = 0;
     this.lastAnalysisPosition = 0;
-    this.isAnalyzing = false; // 解析中フラグもリセット
+    this.isAnalyzing = false; // reset analyzing flag
 
-    // バッファをクリア
+    // Clear buffers
     for (const buffer of this.buffers) {
       buffer.fill(0);
     }
@@ -521,5 +521,5 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
   }
 }
 
-// AudioWorkletプロセッサーを登録
+// Register the AudioWorklet processor
 registerProcessor('audio-inspect-processor', AudioInspectProcessor);
