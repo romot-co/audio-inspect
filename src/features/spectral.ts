@@ -1,5 +1,5 @@
-import { AudioData, AudioInspectError } from '../types';
-import { ensureValidSample } from '../core/utils';
+import { AudioData, AudioInspectError, WindowFunction } from '../types';
+import { ensureValidSample, nextPowerOfTwo } from '../core/utils';
 import { getFFT } from './frequency';
 
 /**
@@ -719,17 +719,67 @@ export async function getSpectralCrest(
 }
 
 /**
- * MFCCのオプション
+ * 窓関数を適用（統一版）
+ * @param frame フレームデータ
+ * @param windowType 窓関数タイプ
+ * @returns 窓適用済みフレーム
+ */
+function getWindow(name: WindowFunction, N: number): Float32Array {
+  const window = new Float32Array(N);
+
+  for (let i = 0; i < N; i++) {
+    switch (name) {
+      case 'hann':
+        window[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N - 1));
+        break;
+      case 'hamming':
+        window[i] = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (N - 1));
+        break;
+      case 'blackman':
+        window[i] =
+          0.42 -
+          0.5 * Math.cos((2 * Math.PI * i) / (N - 1)) +
+          0.08 * Math.cos((4 * Math.PI * i) / (N - 1));
+        break;
+      case 'rectangular':
+      default:
+        window[i] = 1.0;
+        break;
+    }
+  }
+
+  return window;
+}
+
+/**
+ * 窓関数を適用
+ * @param frame フレームデータ
+ * @param windowType 窓関数タイプ
+ * @returns 窓適用済みフレーム
+ */
+function applyWindow(frame: Float32Array, windowType: WindowFunction): Float32Array {
+  const window = getWindow(windowType, frame.length);
+  const windowed = new Float32Array(frame.length);
+
+  for (let i = 0; i < frame.length; i++) {
+    windowed[i] = ensureValidSample(frame[i] ?? 0) * (window[i] ?? 0);
+  }
+
+  return windowed;
+}
+
+/**
+ * MFCCのオプション（拡張版）
  */
 export interface MFCCOptions {
   /** フレームサイズ（ミリ秒、デフォルト: 25） */
   frameSizeMs?: number;
   /** ホップサイズ（ミリ秒、デフォルト: 10） */
   hopSizeMs?: number;
-  /** FFTサイズ */
+  /** FFTサイズ（未指定時は自動計算） */
   fftSize?: number;
-  /** 窓関数 */
-  windowFunction?: 'hann' | 'hamming' | 'blackman' | 'none';
+  /** 窓関数（'hann', 'hamming', 'blackman', 'rectangular'） */
+  windowFunction?: WindowFunction;
   /** 解析するチャンネル */
   channel?: number;
   /** Melフィルタバンクの数（デフォルト: 40） */
@@ -914,23 +964,6 @@ function applyLiftering(mfcc: number[], lifterCoeff: number): number[] {
 }
 
 /**
- * ハミング窓を適用
- * @param frame フレームデータ
- * @returns 窓適用済みフレーム
- */
-function applyHammingWindow(frame: Float32Array): Float32Array {
-  const windowed = new Float32Array(frame.length);
-  const N = frame.length;
-
-  for (let i = 0; i < N; i++) {
-    const window = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (N - 1));
-    windowed[i] = ensureValidSample(frame[i] ?? 0) * window;
-  }
-
-  return windowed;
-}
-
-/**
  * MFCC（Mel-Frequency Cepstral Coefficients）を計算
  * @param audio 音声データ
  * @param options オプション
@@ -940,7 +973,6 @@ export async function getMFCC(audio: AudioData, options: MFCCOptions = {}): Prom
   const {
     frameSizeMs = 25,
     hopSizeMs = 10,
-    fftSize = 512,
     windowFunction = 'hamming',
     channel = 0,
     numMelFilters = 40,
@@ -955,13 +987,16 @@ export async function getMFCC(audio: AudioData, options: MFCCOptions = {}): Prom
     throw new AudioInspectError('INVALID_INPUT', `無効なチャンネル番号: ${channel}`);
   }
 
-  // フレームサイズとホップサイズをサンプル数に変換
-  const frameSizeSamples = Math.floor((frameSizeMs / 1000) * audio.sampleRate);
-  const hopSizeSamples = Math.floor((hopSizeMs / 1000) * audio.sampleRate);
+  // フレームサイズとホップサイズをサンプル数に変換（Math.roundで量子化誤差低減）
+  const frameSizeSamples = Math.round((frameSizeMs / 1000) * audio.sampleRate);
+  const hopSizeSamples = Math.round((hopSizeMs / 1000) * audio.sampleRate);
 
   if (frameSizeSamples <= 0 || hopSizeSamples <= 0) {
     throw new AudioInspectError('INVALID_INPUT', 'フレームサイズまたはホップサイズが小さすぎます');
   }
+
+  // FFTサイズの自動計算（最小1024、フレーム長以上の2の冪乗）
+  const fftSize = options.fftSize ?? Math.max(1024, nextPowerOfTwo(frameSizeSamples));
 
   const samples = audio.channelData[channel];
   if (!samples) {
@@ -998,16 +1033,18 @@ export async function getMFCC(audio: AudioData, options: MFCCOptions = {}): Prom
     // フレームデータの抽出
     const frameData = emphasizedSamples.subarray(startSample, startSample + frameSizeSamples);
 
-    // ゼロパディング（フレームサイズがFFTサイズより小さい場合）
-    const paddedFrame = new Float32Array(fftSize);
-    const copyLength = Math.min(frameData.length, fftSize);
-    if (copyLength > 0) {
-      paddedFrame.set(frameData.subarray(0, copyLength));
+    // フレーム長がFFTサイズを超える場合は切り詰める
+    let processedFrame: Float32Array;
+    if (frameData.length > fftSize) {
+      processedFrame = frameData.subarray(0, fftSize);
+    } else {
+      // ゼロパディング（フレームサイズがFFTサイズより小さい場合）
+      processedFrame = new Float32Array(fftSize);
+      processedFrame.set(frameData);
     }
 
-    // 窓関数適用
-    const windowedFrame =
-      windowFunction === 'hamming' ? applyHammingWindow(paddedFrame) : paddedFrame;
+    // 窓関数適用（統一された実装）
+    const windowedFrame = applyWindow(processedFrame, windowFunction);
 
     // フレーム用の音声データを作成してFFT解析
     const frameAudio: AudioData = {

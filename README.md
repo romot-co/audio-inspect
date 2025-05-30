@@ -88,7 +88,7 @@ inspectNode.updateOptions({
 
 ## Enhanced Audio Analysis Features
 
-### 1. Weighted Crest Factor (A特性重み付きクレストファクター)
+### 1. Weighted Crest Factor (A-Weighted Crest Factor)
 ITU-R BS.1770 compliant A-weighting filter for perceptual loudness measurement.
 
 ```typescript
@@ -106,7 +106,7 @@ console.log(`Crest Factor: ${simpleCF.crestFactor} dB`);
 console.log(`A-weighted CF: ${weightedCF.crestFactor} dB`);
 ```
 
-### 2. True Peak Detection (サンプル間ピーク検出)
+### 2. True Peak Detection (Inter-Sample Peak Detection)
 Oversampling-based inter-sample peak detection to prevent digital clipping.
 
 ```typescript

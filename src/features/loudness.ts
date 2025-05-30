@@ -1,4 +1,4 @@
-import { AudioData, AudioInspectError } from '../types.js';
+import { AudioData, AudioInspectError, BiquadCoeffs } from '../types.js';
 import { ensureValidSample } from '../core/utils.js';
 
 // ITU-R BS.1770-4準拠の定数
@@ -9,19 +9,6 @@ const BLOCK_OVERLAP = 0.75; // 75%オーバーラップ
 const SHORT_TERM_WINDOW_MS = 3000;
 const MOMENTARY_WINDOW_MS = 400;
 
-// K-weighting filter coefficients (ITU-R BS.1770-4)
-const K_WEIGHTING_STAGE1 = {
-  // Pre-filter (高周波シェルビング)
-  b: [1.53512485958697, -2.69169618940638, 1.19839281085285],
-  a: [1.0, -1.69065929318241, 0.73248077421585]
-};
-
-const K_WEIGHTING_STAGE2 = {
-  // RLB-weighting (高域通過フィルタ)
-  b: [1.0, -2.0, 1.0],
-  a: [1.0, -1.99004745483398, 0.99007225036621]
-};
-
 // Biquadフィルタの状態
 interface BiquadState {
   x1: number;
@@ -30,11 +17,92 @@ interface BiquadState {
   y2: number;
 }
 
+// K-weighting係数のキャッシュ
+const kWeightingCache = new Map<number, BiquadCoeffs[]>();
+
+/**
+ * K特性フィルタ係数を設計（ITU-R BS.1770-4準拠）
+ * @param sampleRate サンプルレート
+ * @returns 2段のバイカッドフィルタ係数
+ */
+function designKWeighting(sampleRate: number): BiquadCoeffs[] {
+  // キャッシュを確認
+  const cached = kWeightingCache.get(sampleRate);
+  if (cached) {
+    return cached;
+  }
+
+  // ITU-R BS.1770-4 アナログ設計パラメータ
+  // プリフィルタ: 高域シェルビング ~1680 Hz, +4 dB
+  const fc1 = 1681.4; // Hz
+  const gain1_db = 4.0; // dB
+  const Q1 = 0.7071; // sqrt(2)/2
+
+  // RLB フィルタ: 2nd order high-pass ~78 Hz
+  const fc2 = 78.0; // Hz
+  const Q2 = 0.5;
+
+  // バイリニア変換
+  const T = 1.0 / sampleRate;
+
+  // Stage 1: High-frequency shelving (プリフィルタ)
+  const A1 = Math.pow(10, gain1_db / 40); // ゲイン変換
+  const w1 = 2 * Math.PI * fc1;
+  const cosw1T = Math.cos(w1 * T);
+  const sinw1T = Math.sin(w1 * T);
+  const beta1 = Math.sqrt(A1) / Q1;
+
+  const stage1_a0 = A1 * (A1 + 1 + (A1 - 1) * cosw1T + beta1 * sinw1T);
+  const stage1_a1 = -2 * A1 * (A1 - 1 + (A1 + 1) * cosw1T);
+  const stage1_a2 = A1 * (A1 + 1 + (A1 - 1) * cosw1T - beta1 * sinw1T);
+  const stage1_b0 = A1 * (A1 + 1 - (A1 - 1) * cosw1T + beta1 * sinw1T);
+  const stage1_b1 = 2 * A1 * (A1 - 1 - (A1 + 1) * cosw1T);
+  const stage1_b2 = A1 * (A1 + 1 - (A1 - 1) * cosw1T - beta1 * sinw1T);
+
+  // 正規化
+  const stage1: BiquadCoeffs = {
+    b0: stage1_b0 / stage1_a0,
+    b1: stage1_b1 / stage1_a0,
+    b2: stage1_b2 / stage1_a0,
+    a0: 1.0,
+    a1: stage1_a1 / stage1_a0,
+    a2: stage1_a2 / stage1_a0
+  };
+
+  // Stage 2: RLB high-pass filter
+  const w2 = 2 * Math.PI * fc2;
+  const cosw2T = Math.cos(w2 * T);
+  const sinw2T = Math.sin(w2 * T);
+  const alpha2 = sinw2T / (2 * Q2);
+
+  const stage2_a0 = 1 + alpha2;
+  const stage2_a1 = -2 * cosw2T;
+  const stage2_a2 = 1 - alpha2;
+  const stage2_b0 = (1 + cosw2T) / 2;
+  const stage2_b1 = -(1 + cosw2T);
+  const stage2_b2 = (1 + cosw2T) / 2;
+
+  const stage2: BiquadCoeffs = {
+    b0: stage2_b0 / stage2_a0,
+    b1: stage2_b1 / stage2_a0,
+    b2: stage2_b2 / stage2_a0,
+    a0: 1.0,
+    a1: stage2_a1 / stage2_a0,
+    a2: stage2_a2 / stage2_a0
+  };
+
+  const coeffs = [stage1, stage2];
+
+  // キャッシュに保存
+  kWeightingCache.set(sampleRate, coeffs);
+
+  return coeffs;
+}
+
 // Biquadフィルタの適用
 function applyBiquad(
   input: Float32Array,
-  b: number[],
-  a: number[],
+  coeffs: BiquadCoeffs,
   state: BiquadState = { x1: 0, x2: 0, y1: 0, y2: 0 }
 ): Float32Array {
   const output = new Float32Array(input.length);
@@ -42,13 +110,8 @@ function applyBiquad(
 
   for (let i = 0; i < input.length; i++) {
     const x0 = ensureValidSample(input[i] ?? 0);
-    const b0 = b[0] ?? 0;
-    const b1 = b[1] ?? 0;
-    const b2 = b[2] ?? 0;
-    const a1 = a[1] ?? 0;
-    const a2 = a[2] ?? 0;
 
-    const y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+    const y0 = coeffs.b0 * x0 + coeffs.b1 * x1 + coeffs.b2 * x2 - coeffs.a1 * y1 - coeffs.a2 * y2;
 
     output[i] = y0;
 
@@ -68,12 +131,14 @@ function applyBiquad(
 }
 
 // K-weightingフィルタの適用
-function applyKWeighting(channelData: Float32Array): Float32Array {
-  // ステージ1: ハイパスフィルタ
-  let filtered = applyBiquad(channelData, K_WEIGHTING_STAGE1.b, K_WEIGHTING_STAGE1.a);
+function applyKWeighting(channelData: Float32Array, sampleRate: number): Float32Array {
+  const coeffs = designKWeighting(sampleRate);
 
-  // ステージ2: 高周波シェルフ
-  filtered = applyBiquad(filtered, K_WEIGHTING_STAGE2.b, K_WEIGHTING_STAGE2.a);
+  // Stage 1: プリフィルタ（高域シェルビング）
+  let filtered = applyBiquad(channelData, coeffs[0]!);
+
+  // Stage 2: RLB フィルタ（高域通過）
+  filtered = applyBiquad(filtered, coeffs[1]!);
 
   return filtered;
 }
@@ -164,8 +229,8 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
     throw new AudioInspectError('INVALID_INPUT', '処理可能なチャンネルがありません');
   }
 
-  // K-weightingの適用
-  const kWeightedChannels = channelsToProcess.map((ch) => applyKWeighting(ch));
+  // K-weightingの適用（サンプルレート依存）
+  const kWeightedChannels = channelsToProcess.map((ch) => applyKWeighting(ch, audio.sampleRate));
 
   // ブロック処理のパラメータ
   const sampleRate = audio.sampleRate;

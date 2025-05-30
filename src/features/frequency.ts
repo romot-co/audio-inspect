@@ -1,4 +1,4 @@
-import { AudioData, AudioInspectError } from '../types.js';
+import { AudioData, AudioInspectError, WindowFunction } from '../types.js';
 import { FFTProviderFactory, type FFTProviderType, type FFTResult } from '../core/fft-provider.js';
 
 /**
@@ -8,7 +8,7 @@ export interface FFTOptions {
   /** FFTサイズ（デフォルト: 2048、2の累乗である必要があります） */
   fftSize?: number;
   /** ウィンドウ関数（デフォルト: 'hann'） */
-  windowFunction?: 'hann' | 'hamming' | 'blackman' | 'none';
+  windowFunction?: WindowFunction;
   /** オーバーラップ率（デフォルト: 0.5） */
   overlap?: number;
   /** 解析するチャンネル（デフォルト: 0、-1で全チャンネルの平均） */
@@ -76,9 +76,9 @@ export interface SpectrumAnalysisResult {
 }
 
 /**
- * ウィンドウ関数を適用
+ * ウィンドウ関数を適用（統一版）
  */
-function applyWindow(data: Float32Array, windowType: string): Float32Array {
+function applyWindow(data: Float32Array, windowType: WindowFunction): Float32Array {
   const windowed = new Float32Array(data.length);
   const N = data.length;
 
@@ -98,7 +98,7 @@ function applyWindow(data: Float32Array, windowType: string): Float32Array {
           0.5 * Math.cos((2 * Math.PI * i) / (N - 1)) +
           0.08 * Math.cos((4 * Math.PI * i) / (N - 1));
         break;
-      case 'none':
+      case 'rectangular':
       default:
         windowValue = 1;
         break;
@@ -295,7 +295,7 @@ function magnitudeToDecibels(magnitude: Float32Array): Float32Array {
 interface SpectrogramOptions {
   provider?: FFTProviderType;
   enableProfiling?: boolean;
-  windowFunction?: string;
+  windowFunction?: WindowFunction;
   minFrequency?: number;
   maxFrequency?: number;
   decibels?: boolean;

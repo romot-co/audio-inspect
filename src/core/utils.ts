@@ -1,4 +1,4 @@
-import { AudioData, AudioInspectError } from '../types.js';
+import { AudioInspectError, type AudioData, type BiquadCoeffs } from '../types.js';
 
 /**
  * Safely get channel data common function
@@ -238,108 +238,221 @@ interface BiquadState {
   y2: number;
 }
 
+// A特性フィルタ係数のキャッシュ
+const aWeightingCache = new Map<number, BiquadCoeffs[]>();
+
 /**
- * 2次IIRフィルタ係数
+ * A特性フィルタ係数を設計（IEC 61672準拠）
+ * @param sampleRate サンプルレート
+ * @returns 4段のバイカッドフィルタ係数
  */
-interface BiquadCoefficients {
-  b0: number;
-  b1: number;
-  b2: number;
-  a1: number;
-  a2: number;
+function designAWeighting(sampleRate: number): BiquadCoeffs[] {
+  // キャッシュを確認
+  const cached = aWeightingCache.get(sampleRate);
+  if (cached) {
+    return cached;
+  }
+
+  // IEC 61672 A特性フィルタのアナログ設計パラメータ
+  // 4つのポール周波数
+  const f1 = 20.5989; // Hz
+  const f2 = 107.652; // Hz
+  const f3 = 737.862; // Hz
+  const f4 = 12194.217; // Hz
+
+  // バイリニア変換
+  const T = 1.0 / sampleRate;
+  const coeffs: BiquadCoeffs[] = [];
+
+  // ポール1,2: 複素共役ペア (20.6 Hz, Q = 0.5)
+  const w1 = 2 * Math.PI * f1;
+  const Q1 = 0.7071; // sqrt(2)/2
+  const cosw1T = Math.cos(w1 * T);
+  const sinw1T = Math.sin(w1 * T);
+  const alpha1 = sinw1T / (2 * Q1);
+
+  const stage1_a0 = 1 + alpha1;
+  const stage1_a1 = -2 * cosw1T;
+  const stage1_a2 = 1 - alpha1;
+  const stage1_b0 = (1 + cosw1T) / 2; // ハイパス
+  const stage1_b1 = -(1 + cosw1T);
+  const stage1_b2 = (1 + cosw1T) / 2;
+
+  coeffs.push({
+    b0: stage1_b0 / stage1_a0,
+    b1: stage1_b1 / stage1_a0,
+    b2: stage1_b2 / stage1_a0,
+    a0: 1.0,
+    a1: stage1_a1 / stage1_a0,
+    a2: stage1_a2 / stage1_a0
+  });
+
+  // ポール3: 実ポール (107.7 Hz)
+  const w2 = 2 * Math.PI * f2;
+  const cosw2T = Math.cos(w2 * T);
+  const sinw2T = Math.sin(w2 * T);
+  const alpha2 = sinw2T / (2 * 0.7071);
+
+  const stage2_a0 = 1 + alpha2;
+  const stage2_a1 = -2 * cosw2T;
+  const stage2_a2 = 1 - alpha2;
+  const stage2_b0 = (1 + cosw2T) / 2;
+  const stage2_b1 = -(1 + cosw2T);
+  const stage2_b2 = (1 + cosw2T) / 2;
+
+  coeffs.push({
+    b0: stage2_b0 / stage2_a0,
+    b1: stage2_b1 / stage2_a0,
+    b2: stage2_b2 / stage2_a0,
+    a0: 1.0,
+    a1: stage2_a1 / stage2_a0,
+    a2: stage2_a2 / stage2_a0
+  });
+
+  // ポール4: 実ポール (737.9 Hz)
+  const w3 = 2 * Math.PI * f3;
+  const cosw3T = Math.cos(w3 * T);
+  const sinw3T = Math.sin(w3 * T);
+  const alpha3 = sinw3T / (2 * 0.7071);
+
+  const stage3_a0 = 1 + alpha3;
+  const stage3_a1 = -2 * cosw3T;
+  const stage3_a2 = 1 - alpha3;
+  const stage3_b0 = (1 + cosw3T) / 2;
+  const stage3_b1 = -(1 + cosw3T);
+  const stage3_b2 = (1 + cosw3T) / 2;
+
+  coeffs.push({
+    b0: stage3_b0 / stage3_a0,
+    b1: stage3_b1 / stage3_a0,
+    b2: stage3_b2 / stage3_a0,
+    a0: 1.0,
+    a1: stage3_a1 / stage3_a0,
+    a2: stage3_a2 / stage3_a0
+  });
+
+  // ポール5,6: 複素共役ペア (12.2 kHz, Q = 0.5)
+  const w4 = 2 * Math.PI * f4;
+  const Q4 = 0.7071;
+  const cosw4T = Math.cos(w4 * T);
+  const sinw4T = Math.sin(w4 * T);
+  const alpha4 = sinw4T / (2 * Q4);
+
+  const stage4_a0 = 1 + alpha4;
+  const stage4_a1 = -2 * cosw4T;
+  const stage4_a2 = 1 - alpha4;
+  const stage4_b0 = 1; // ローパス
+  const stage4_b1 = 2;
+  const stage4_b2 = 1;
+
+  coeffs.push({
+    b0: stage4_b0 / stage4_a0,
+    b1: stage4_b1 / stage4_a0,
+    b2: stage4_b2 / stage4_a0,
+    a0: 1.0,
+    a1: stage4_a1 / stage4_a0,
+    a2: stage4_a2 / stage4_a0
+  });
+
+  // 1kHzでの正規化ゲインを計算
+  const testFreq = 1000; // Hz
+  const omega = (2 * Math.PI * testFreq) / sampleRate;
+  const z_real = Math.cos(omega);
+  const z_imag = Math.sin(omega);
+
+  let H_real = 1.0;
+  let H_imag = 0.0;
+
+  for (const coeff of coeffs) {
+    // H(z) = (b0 + b1*z^-1 + b2*z^-2) / (a0 + a1*z^-1 + a2*z^-2)
+    const num_real = coeff.b0 + coeff.b1 * z_real + coeff.b2 * (z_real * z_real - z_imag * z_imag);
+    const num_imag = coeff.b1 * z_imag + coeff.b2 * 2 * z_real * z_imag;
+
+    const den_real = coeff.a0 + coeff.a1 * z_real + coeff.a2 * (z_real * z_real - z_imag * z_imag);
+    const den_imag = coeff.a1 * z_imag + coeff.a2 * 2 * z_real * z_imag;
+
+    // 複素除算
+    const den_mag_sq = den_real * den_real + den_imag * den_imag;
+    const h_real = (num_real * den_real + num_imag * den_imag) / den_mag_sq;
+    const h_imag = (num_imag * den_real - num_real * den_imag) / den_mag_sq;
+
+    // 積算
+    const new_H_real = H_real * h_real - H_imag * h_imag;
+    const new_H_imag = H_real * h_imag + H_imag * h_real;
+    H_real = new_H_real;
+    H_imag = new_H_imag;
+  }
+
+  const magnitude = Math.sqrt(H_real * H_real + H_imag * H_imag);
+  const normalizationGain = 1.0 / magnitude; // 1kHzで0dBになるよう正規化
+
+  // 正規化ゲインを最初の段に適用
+  coeffs[0]!.b0 *= normalizationGain;
+  coeffs[0]!.b1 *= normalizationGain;
+  coeffs[0]!.b2 *= normalizationGain;
+
+  // キャッシュに保存
+  aWeightingCache.set(sampleRate, coeffs);
+
+  return coeffs;
 }
 
 /**
- * A特性フィルタを適用
- * ITU-R BS.1770準拠のA特性フィルタ実装
- * @param samples 入力サンプル
- * @param sampleRate サンプルレート
- * @returns A特性フィルタを適用したサンプル
+ * バイカッドフィルタの適用（新式）
  */
-export function applyAWeighting(samples: Float32Array, sampleRate: number): Float32Array {
-  // A特性フィルタは2つの2次フィルタの直列接続で実装
-  // 48kHzに正規化された係数を使用し、サンプルレートに応じて調整
+function applyBiquadNew(
+  input: Float32Array,
+  coeffs: BiquadCoeffs,
+  state: BiquadState = { x1: 0, x2: 0, y1: 0, y2: 0 }
+): Float32Array {
+  const output = new Float32Array(input.length);
+  let { x1, x2, y1, y2 } = state;
 
-  // A特性フィルタの設計パラメータ
-  const f1 = 20.598997; // ローパス周波数
-  const f2 = 12194.217; // ハイパス周波数
+  for (let i = 0; i < input.length; i++) {
+    const x0 = ensureValidSample(input[i] ?? 0);
 
-  // 第一段（ハイパス）の係数計算
-  const wc1 = (2 * Math.PI * f1) / sampleRate;
-  const k1 = Math.tan(wc1 / 2);
-  const norm1 = 1 / (1 + Math.sqrt(2) * k1 + k1 * k1);
+    const y0 = coeffs.b0 * x0 + coeffs.b1 * x1 + coeffs.b2 * x2 - coeffs.a1 * y1 - coeffs.a2 * y2;
 
-  const highpass: BiquadCoefficients = {
-    b0: norm1,
-    b1: -2 * norm1,
-    b2: norm1,
-    a1: 2 * (k1 * k1 - 1) * norm1,
-    a2: (1 - Math.sqrt(2) * k1 + k1 * k1) * norm1
-  };
+    output[i] = y0;
 
-  // 第二段（ローパス）の係数計算
-  const wc2 = (2 * Math.PI * f2) / sampleRate;
-  const k2 = Math.tan(wc2 / 2);
-  const norm2 = 1 / (1 + Math.sqrt(2) * k2 + k2 * k2);
-
-  const lowpass: BiquadCoefficients = {
-    b0: k2 * k2 * norm2,
-    b1: 2 * k2 * k2 * norm2,
-    b2: k2 * k2 * norm2,
-    a1: 2 * (k2 * k2 - 1) * norm2,
-    a2: (1 - Math.sqrt(2) * k2 + k2 * k2) * norm2
-  };
-
-  // フィルタ状態の初期化
-  const state1: BiquadState = { x1: 0, x2: 0, y1: 0, y2: 0 };
-  const state2: BiquadState = { x1: 0, x2: 0, y1: 0, y2: 0 };
-
-  const output = new Float32Array(samples.length);
-
-  // A特性ゲイン調整（1kHzで0dB）
-  const gain = 1.584893192; // A特性の正規化ゲイン
-
-  // フィルタ処理
-  for (let i = 0; i < samples.length; i++) {
-    const input = ensureValidSample(samples[i] ?? 0);
-
-    // 第一段フィルタ（ハイパス）
-    const output1 =
-      highpass.b0 * input +
-      highpass.b1 * state1.x1 +
-      highpass.b2 * state1.x2 -
-      highpass.a1 * state1.y1 -
-      highpass.a2 * state1.y2;
-
-    // 状態更新
-    state1.x2 = state1.x1;
-    state1.x1 = input;
-    state1.y2 = state1.y1;
-    state1.y1 = ensureValidSample(output1);
-
-    // 第二段フィルタ（ローパス）
-    const output2 =
-      lowpass.b0 * output1 +
-      lowpass.b1 * state2.x1 +
-      lowpass.b2 * state2.x2 -
-      lowpass.a1 * state2.y1 -
-      lowpass.a2 * state2.y2;
-
-    // 状態更新
-    state2.x2 = state2.x1;
-    state2.x1 = ensureValidSample(output1);
-    state2.y2 = state2.y1;
-    state2.y1 = ensureValidSample(output2);
-
-    // ゲイン適用
-    output[i] = ensureValidSample(output2 * gain);
+    x2 = x1;
+    x1 = x0;
+    y2 = y1;
+    y1 = y0;
   }
+
+  // 状態を更新
+  state.x1 = x1;
+  state.x2 = x2;
+  state.y1 = y1;
+  state.y2 = y2;
 
   return output;
 }
 
 /**
+ * A特性フィルタを適用（新規格準拠版）
+ * IEC 61672準拠のA特性フィルタ実装
+ * @param samples 入力サンプル
+ * @param sampleRate サンプルレート
+ * @returns A特性フィルタを適用したサンプル
+ */
+export function applyAWeighting(samples: Float32Array, sampleRate: number): Float32Array {
+  const coeffs = designAWeighting(sampleRate);
+
+  let filtered = samples;
+
+  // 4段のバイカッドフィルタを直列接続
+  for (const coeff of coeffs) {
+    filtered = applyBiquadNew(filtered, coeff);
+  }
+
+  return filtered;
+}
+
+/**
  * シンプルなバターワースフィルタ（A特性の簡易版）
+ * 注意: これは近似版であり、正確なA特性ではありません
  * @param samples 入力サンプル
  * @param sampleRate サンプルレート
  * @returns フィルタ適用済みサンプル

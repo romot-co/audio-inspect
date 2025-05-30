@@ -92,9 +92,21 @@ export interface StreamOptionsWithFallback extends StreamOptions {
 }
 
 /**
- * 窓関数の種類
+ * 窓関数の種類（拡張版）
  */
-export type WindowFunction = 'hann' | 'hamming' | 'blackman' | 'rectangular';
+export type WindowFunction = 'hann' | 'hamming' | 'blackman' | 'rectangular' | 'none';
+
+/**
+ * バイカッドフィルタ係数の型定義
+ */
+export interface BiquadCoeffs {
+  b0: number;
+  b1: number;
+  b2: number;
+  a0: number;
+  a1: number;
+  a2: number;
+}
 
 /**
  * 振幅測定のオプション
