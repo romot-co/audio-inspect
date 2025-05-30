@@ -47,7 +47,7 @@ function calculateFrameCrestFactor(
   let validSamples = 0;
 
   for (let i = 0; i < processedData.length; i++) {
-    const sample = ensureValidSample(processedData[i]);
+    const sample = ensureValidSample(processedData[i] ?? 0);
     const absSample = Math.abs(sample);
 
     peakVal = Math.max(peakVal, absSample);

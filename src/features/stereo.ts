@@ -47,8 +47,8 @@ function estimateDelay(
       const rightIdx = i + delay;
 
       if (rightIdx >= 0 && rightIdx < len) {
-        const leftSample = ensureValidSample(left[leftIdx]);
-        const rightSample = ensureValidSample(right[rightIdx]);
+        const leftSample = ensureValidSample(left[leftIdx] ?? 0);
+        const rightSample = ensureValidSample(right[rightIdx] ?? 0);
         correlation += leftSample * rightSample;
         count++;
       }
@@ -189,8 +189,8 @@ export async function getStereoAnalysis(
     energyR = 0;
 
   for (let i = 0; i < len; i++) {
-    const l = ensureValidSample(left[i]);
-    const r = ensureValidSample(right[i]);
+    const l = ensureValidSample(left[i] ?? 0);
+    const r = ensureValidSample(right[i] ?? 0);
 
     sumL += l;
     sumR += r;
@@ -217,8 +217,8 @@ export async function getStereoAnalysis(
     energySide = 0;
 
   for (let i = 0; i < len; i++) {
-    const l = ensureValidSample(left[i]);
-    const r = ensureValidSample(right[i]);
+    const l = ensureValidSample(left[i] ?? 0);
+    const r = ensureValidSample(right[i] ?? 0);
 
     mid[i] = (l + r) * 0.5;
     side[i] = (l - r) * 0.5;

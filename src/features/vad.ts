@@ -51,8 +51,8 @@ function applyPreEmphasis(data: Float32Array, alpha: number = 0.97): Float32Arra
   filtered[0] = data[0] || 0;
 
   for (let i = 1; i < data.length; i++) {
-    const current = ensureValidSample(data[i]);
-    const previous = ensureValidSample(data[i - 1]);
+    const current = ensureValidSample(data[i] ?? 0);
+    const previous = ensureValidSample(data[i - 1] ?? 0);
     filtered[i] = current - alpha * previous;
   }
 
@@ -87,7 +87,7 @@ function calculateFrameEnergies(
     let validSamples = 0;
 
     for (let j = start; j < end; j++) {
-      const sample = ensureValidSample(channelData[j]);
+      const sample = ensureValidSample(channelData[j] ?? 0);
       energy += sample * sample;
       validSamples++;
     }
@@ -129,10 +129,10 @@ function calculateFrameZCRs(
     const end = Math.min(start + frameSizeSamples, dataLength);
 
     let crossings = 0;
-    let prevSign = Math.sign(ensureValidSample(channelData[start]));
+    let prevSign = Math.sign(ensureValidSample(channelData[start] ?? 0));
 
     for (let j = start + 1; j < end; j++) {
-      const sample = ensureValidSample(channelData[j]);
+      const sample = ensureValidSample(channelData[j] ?? 0);
       const currentSign = Math.sign(sample);
       if (prevSign !== currentSign && prevSign !== 0 && currentSign !== 0) {
         crossings++;
@@ -162,7 +162,7 @@ function calculateAdaptiveThreshold(
   const noiseFrames = Math.min(initialFrames, values.length);
 
   for (let i = 0; i < noiseFrames; i++) {
-    const value = values[i];
+    const value = values[i] ?? 0;
     if (value !== undefined) {
       noiseLevel += value;
     }
@@ -171,7 +171,7 @@ function calculateAdaptiveThreshold(
 
   // 適応的閾値の計算
   for (let i = 0; i < values.length; i++) {
-    const value = values[i];
+    const value = values[i] ?? 0;
     if (value === undefined) {
       thresholds[i] =
         i > 0 ? (thresholds[i - 1] ?? noiseLevel * noiseFactor) : noiseLevel * noiseFactor;
@@ -207,7 +207,7 @@ function smoothDecisions(decisions: Float32Array, windowSize: number = 5): Float
     // 窓内の値を収集してソート
     const windowValues: number[] = [];
     for (let j = start; j < end; j++) {
-      const value = decisions[j];
+      const value = decisions[j] ?? 0;
       if (value !== undefined) {
         windowValues.push(value);
       }
@@ -241,8 +241,8 @@ function createSegmentsFromContinuous(
   let currentSegment: VADSegment | null = null;
 
   for (let i = 0; i < decisions.length; i++) {
-    const decision = decisions[i];
-    const time = times[i];
+    const decision = decisions[i] ?? 0;
+    const time = times[i] ?? 0;
     if (decision === undefined || time === undefined) continue;
 
     const isSpeech = decision >= threshold;
@@ -395,28 +395,28 @@ export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
   switch (method) {
     case 'energy': {
       for (let i = 0; i < energies.length; i++) {
-        const energy = energies[i];
-        decisions[i] = energy !== undefined && energy > energyThreshold ? 1 : 0;
+        const energy = energies[i] ?? 0;
+        decisions[i] = energy > energyThreshold ? 1 : 0;
       }
       break;
     }
 
     case 'zcr': {
       for (let i = 0; i < zcrs.length; i++) {
-        const zcr = zcrs[i];
-        decisions[i] = zcr !== undefined && zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 1 : 0;
+        const zcr = zcrs[i] ?? 0;
+        decisions[i] = zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 1 : 0;
       }
       break;
     }
 
     case 'combined': {
       for (let i = 0; i < energies.length; i++) {
-        const energy = energies[i];
-        const zcr = zcrs[i];
+        const energy = energies[i] ?? 0;
+        const zcr = zcrs[i] ?? 0;
 
-        const energyScore = energy !== undefined && energy > energyThreshold ? 1 : 0;
+        const energyScore = energy > energyThreshold ? 1 : 0;
         const zcrScore =
-          zcr !== undefined && zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 1 : 0;
+          zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 1 : 0;
         decisions[i] = (energyScore + zcrScore) / 2;
       }
       break;
@@ -427,14 +427,14 @@ export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
       const adaptiveThreshold = calculateAdaptiveThreshold(energies, adaptiveAlpha, noiseFactor);
 
       for (let i = 0; i < energies.length; i++) {
-        const energy = energies[i];
-        const zcr = zcrs[i];
-        const threshold = adaptiveThreshold[i];
+        const energy = energies[i] ?? 0;
+        const zcr = zcrs[i] ?? 0;
+        const threshold = adaptiveThreshold[i] ?? 0;
 
         const energyScore =
-          energy !== undefined && threshold !== undefined && energy > threshold ? 1 : 0;
+          energy > threshold ? 1 : 0;
         const zcrScore =
-          zcr !== undefined && zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 0.5 : 0;
+          zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 0.5 : 0;
         decisions[i] = Math.min(1, energyScore + zcrScore);
       }
       break;

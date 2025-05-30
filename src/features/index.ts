@@ -5,7 +5,12 @@ export {
   getZeroCrossing,
   getWaveform,
   getPeak,
-  getPeakAmplitude
+  getPeakAmplitude,
+  
+  // 新しい解析機能（Float32Array対応）
+  getWaveformAnalysis,
+  getPeaksAnalysis,
+  getRMSAnalysis
 } from './time.js';
 export type {
   PeaksOptions,
@@ -13,7 +18,12 @@ export type {
   PeaksResult,
   WaveformOptions,
   WaveformPoint,
-  WaveformResult
+  WaveformResult,
+  
+  // 新しい型定義
+  WaveformAnalysisOptions,
+  PeaksAnalysisOptions,
+  RMSAnalysisOptions
 } from './time.js';
 
 // 周波数領域の特徴量

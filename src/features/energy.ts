@@ -45,7 +45,7 @@ function applyEnergyWindow(
         windowValue = 1.0;
     }
 
-    const sample = ensureValidSample(data[startIdx + i]);
+    const sample = ensureValidSample(data[startIdx + i] ?? 0);
     windowed[i] = sample * windowValue;
   }
 

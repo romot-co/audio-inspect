@@ -41,7 +41,7 @@ function applyBiquad(
   let { x1, x2, y1, y2 } = state;
 
   for (let i = 0; i < input.length; i++) {
-    const x0 = ensureValidSample(input[i]);
+    const x0 = ensureValidSample(input[i] ?? 0);
     const b0 = b[0] ?? 0;
     const b1 = b[1] ?? 0;
     const b2 = b[2] ?? 0;
@@ -93,7 +93,7 @@ function calculateBlockLoudness(channels: Float32Array[]): number {
     let validSamples = 0;
 
     for (let i = 0; i < channelData.length; i++) {
-      const sample = ensureValidSample(channelData[i]);
+      const sample = ensureValidSample(channelData[i] ?? 0);
       channelSum += sample * sample;
       validSamples++;
     }
@@ -289,7 +289,7 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
     result.truePeak = channelsToProcess.map((ch) => {
       let peak = 0;
       for (const sample of ch) {
-        const sampleValue = ensureValidSample(sample);
+        const sampleValue = ensureValidSample(sample ?? 0);
         peak = Math.max(peak, Math.abs(sampleValue));
       }
       return peak > 0 ? 20 * Math.log10(peak) : -Infinity;

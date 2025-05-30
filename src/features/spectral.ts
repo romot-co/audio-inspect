@@ -226,8 +226,8 @@ function calculateZeroCrossingRate(samples: Float32Array): number {
 
   let crossings = 0;
   for (let i = 1; i < samples.length; i++) {
-    const prev = ensureValidSample(samples[i - 1]);
-    const curr = ensureValidSample(samples[i]);
+    const prev = ensureValidSample(samples[i - 1] ?? 0);
+    const curr = ensureValidSample(samples[i] ?? 0);
 
     if ((prev >= 0 && curr < 0) || (prev < 0 && curr >= 0)) {
       crossings++;

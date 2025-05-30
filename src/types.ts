@@ -129,6 +129,137 @@ export interface FrequencyRangeOptions {
 }
 
 /**
+ * プログレス通知オプション
+ */
+export interface ProgressOptions {
+  onProgress?: (percent: number, message?: string) => void;
+}
+
+// ==============================================
+// 新しい結果型インターフェース（Float32Array対応）
+// ==============================================
+
+/**
+ * 基本的な解析結果インターフェース
+ */
+export interface BaseAnalysisResult {
+  /** メタデータ */
+  sampleRate: number;
+  duration: number;
+  
+  /** 処理情報 */
+  processingTime?: number; // ミリ秒
+}
+
+/**
+ * 新しいWaveform解析結果（Float32Array対応）
+ */
+export interface WaveformAnalysisResult extends BaseAnalysisResult {
+  /** 振幅データ（直接使用可能） */
+  amplitudes: Float32Array;
+  /** タイムスタンプ（オプショナル） */
+  timestamps?: Float32Array;
+  
+  /** メタデータ */
+  frameCount: number;
+  samplesPerFrame: number;
+  framesPerSecond: number;
+  
+  /** 統計情報 */
+  maxAmplitude: number;
+  averageAmplitude: number;
+}
+
+/**
+ * 新しいPeaks解析結果（Float32Array対応）
+ */
+export interface PeaksAnalysisResult extends BaseAnalysisResult {
+  /** サンプル位置 */
+  positions: Float32Array;
+  /** ピーク振幅 */
+  amplitudes: Float32Array;
+  /** 時間（秒） */
+  times: Float32Array;
+  
+  /** 統計情報 */
+  maxAmplitude: number;
+  averageAmplitude: number;
+  count: number;
+}
+
+/**
+ * 新しいSpectrum解析結果（Float32Array対応）
+ */
+export interface SpectrumAnalysisResult extends BaseAnalysisResult {
+  /** 周波数ビン */
+  frequencies: Float32Array;
+  /** マグニチュード */
+  magnitudes: Float32Array;
+  /** 位相（オプショナル） */
+  phases?: Float32Array;
+  
+  /** FFT設定 */
+  fftSize: number;
+  windowFunction: string;
+}
+
+/**
+ * 新しいEnergy解析結果（Float32Array対応）
+ */
+export interface EnergyAnalysisResult extends BaseAnalysisResult {
+  /** エネルギー値 */
+  energies: Float32Array;
+  /** タイムスタンプ */
+  times: Float32Array;
+  
+  /** 統計情報 */
+  totalEnergy: number;
+  meanEnergy: number;
+  maxEnergy: number;
+  minEnergy: number;
+}
+
+/**
+ * 新しいRMS解析結果（統一されたインターフェース）
+ */
+export interface RMSAnalysisResult extends BaseAnalysisResult {
+  /** RMS値 */
+  value: number;
+  /** デシベル値（オプショナル） */
+  valueDB?: number;
+  /** 処理したチャンネル */
+  channel: number;
+}
+
+// ==============================================
+// バッチ処理API用の型定義
+// ==============================================
+
+/**
+ * バッチ解析のオプション
+ */
+export interface BatchAnalysisOptions {
+  waveform?: { framesPerSecond?: number; channel?: number; method?: 'rms' | 'peak' | 'average' };
+  peaks?: { count?: number; threshold?: number; channel?: number; minDistance?: number };
+  rms?: { channel?: number; asDB?: boolean; reference?: number };
+  spectrum?: { fftSize?: number; windowFunction?: WindowFunction; channel?: number };
+  energy?: { windowSizeMs?: number; hopSizeMs?: number; channel?: number };
+  onProgress?: (percent: number, feature: string) => void;
+}
+
+/**
+ * バッチ解析の結果
+ */
+export interface BatchAnalysisResult {
+  waveform?: WaveformAnalysisResult;
+  peaks?: PeaksAnalysisResult;
+  rms?: RMSAnalysisResult;
+  spectrum?: SpectrumAnalysisResult;
+  energy?: EnergyAnalysisResult;
+  processingTime: number;
+}
+
+/**
  * Nullable型の明示的な定義
  */
 export type NullableNumber = number | null;
@@ -153,21 +284,56 @@ export type ErrorCode =
   | 'PROCESSING_ERROR'
   | 'INITIALIZATION_FAILED'
   | 'WORKLET_NOT_SUPPORTED' // AudioWorkletサポートなし
-  | 'MODULE_LOAD_FAILED'; // モジュール読み込み失敗
+  | 'MODULE_LOAD_FAILED' // モジュール読み込み失敗
+  | 'INSUFFICIENT_DATA' // データ不足
+  | 'MEMORY_ERROR' // メモリエラー
+  | 'CANCELLED'; // 処理キャンセル
 
 /**
- * Audio-inspect specific error
+ * Audio-inspect specific error（拡張版）
  */
 export class AudioInspectError extends Error {
   public override readonly name = 'AudioInspectError';
+  public readonly timestamp = new Date();
+  public override readonly cause?: unknown;
 
   constructor(
     public readonly code: ErrorCode,
     message: string,
-    public override readonly cause?: unknown
+    cause?: unknown,
+    public readonly details?: unknown
   ) {
-    super(message);
+    super(message, { cause });
+    this.cause = cause;
+    
+    // スタックトレースを保持
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, AudioInspectError);
+    }
   }
+  
+  toJSON() {
+    return {
+      name: this.name,
+      code: this.code,
+      message: this.message,
+      details: this.details,
+      timestamp: this.timestamp,
+      stack: this.stack,
+      cause: this.cause
+    };
+  }
+}
+
+/**
+ * エラー作成ヘルパー関数
+ */
+export function createError(
+  code: ErrorCode,
+  message: string,
+  details?: unknown
+): AudioInspectError {
+  return new AudioInspectError(code, message, undefined, details);
 }
 
 /**

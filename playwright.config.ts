@@ -9,7 +9,7 @@ export default defineConfig({
   reporter: 'line',
   timeout: 30000,
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://localhost:8080',
     headless: true,
   },
 
@@ -24,8 +24,8 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npx http-server dist -p 3000 -c-1',
-    port: 3000,
+    command: 'npx http-server dist -p 8080 -c-1',
+    port: 8080,
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
   },
