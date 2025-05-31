@@ -307,23 +307,60 @@ function calculateZeroCrossingRate(samples: Float32Array): number {
  */
 function calculateSpectralFlux(
   currentMagnitude: Float32Array,
-  previousMagnitude?: Float32Array
+  previousMagnitude?: Float32Array,
+  options: { normalize?: boolean } = { normalize: true }
 ): number {
-  if (!previousMagnitude) return 0;
+  if (!previousMagnitude || previousMagnitude.length === 0) {
+    return 0;
+  }
 
-  let flux = 0;
   const length = Math.min(currentMagnitude.length, previousMagnitude.length);
 
-  for (let i = 0; i < length; i++) {
-    const current = currentMagnitude[i];
-    const previous = previousMagnitude[i];
-    if (current !== undefined && previous !== undefined) {
-      const diff = current - previous;
-      flux += diff * diff;
+  if (length === 0) {
+    return 0;
+  }
+
+  let currentMag = currentMagnitude;
+  let previousMag = previousMagnitude;
+
+  // 正規化処理
+  if (options.normalize !== false) {
+    // 各スペクトラムのL2ノルムを計算
+    let currentNormSq = 0;
+    let previousNormSq = 0;
+
+    for (let i = 0; i < length; i++) {
+      const curr = currentMagnitude[i] ?? 0;
+      const prev = previousMagnitude[i] ?? 0;
+      currentNormSq += curr * curr;
+      previousNormSq += prev * prev;
+    }
+
+    const currentNorm = Math.sqrt(currentNormSq);
+    const previousNorm = Math.sqrt(previousNormSq);
+
+    // 正規化が可能な場合のみ実行
+    if (currentNorm > 1e-10 && previousNorm > 1e-10) {
+      // 新しい配列を作成して正規化
+      currentMag = new Float32Array(length);
+      previousMag = new Float32Array(length);
+
+      for (let i = 0; i < length; i++) {
+        currentMag[i] = (currentMagnitude[i] ?? 0) / currentNorm;
+        previousMag[i] = (previousMagnitude[i] ?? 0) / previousNorm;
+      }
     }
   }
 
-  return Math.sqrt(flux / length);
+  // スペクトラルフラックス計算（L2ノルム）
+  let flux = 0;
+
+  for (let i = 0; i < length; i++) {
+    const diff = (currentMag[i] ?? 0) - (previousMag[i] ?? 0);
+    flux += diff * diff;
+  }
+
+  return Math.sqrt(flux);
 }
 
 /**

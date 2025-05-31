@@ -1,4 +1,10 @@
 import { AudioInspectError, type AudioData, type BiquadCoeffs } from '../types.js';
+// 専用フィルタファイルからインポート
+import {
+  getAWeightingCoeffs as getAWeightingCoeffsImpl,
+  calculateFrequencyResponse as calculateFrequencyResponseImpl,
+  designAWeighting
+} from './a-weighting-filter.js';
 
 /**
  * Safely get channel data common function
@@ -238,163 +244,36 @@ interface BiquadState {
   y2: number;
 }
 
-// A特性フィルタ係数のキャッシュ
-const aWeightingCache = new Map<number, BiquadCoeffs[]>();
+/**
+ * 周波数応答の結果
+ */
+interface FrequencyResponse {
+  magnitude: number;
+  phase: number;
+}
 
 /**
- * A特性フィルタ係数を設計（IEC 61672準拠）
+ * フィルタ係数の周波数応答を計算
+ * @param coeffs フィルタ係数配列
+ * @param frequency 周波数（Hz）
  * @param sampleRate サンプルレート
- * @returns 4段のバイカッドフィルタ係数
+ * @returns 周波数応答
  */
-function designAWeighting(sampleRate: number): BiquadCoeffs[] {
-  // キャッシュを確認
-  const cached = aWeightingCache.get(sampleRate);
-  if (cached) {
-    return cached;
-  }
+export function calculateFrequencyResponse(
+  coeffs: BiquadCoeffs[],
+  frequency: number,
+  sampleRate: number
+): FrequencyResponse {
+  return calculateFrequencyResponseImpl(coeffs, frequency, sampleRate);
+}
 
-  // IEC 61672 A特性フィルタのアナログ設計パラメータ
-  // 4つのポール周波数
-  const f1 = 20.5989; // Hz
-  const f2 = 107.652; // Hz
-  const f3 = 737.862; // Hz
-  const f4 = 12194.217; // Hz
-
-  // バイリニア変換
-  const T = 1.0 / sampleRate;
-  const coeffs: BiquadCoeffs[] = [];
-
-  // ポール1,2: 複素共役ペア (20.6 Hz, Q = 0.5)
-  const w1 = 2 * Math.PI * f1;
-  const Q1 = 0.7071; // sqrt(2)/2
-  const cosw1T = Math.cos(w1 * T);
-  const sinw1T = Math.sin(w1 * T);
-  const alpha1 = sinw1T / (2 * Q1);
-
-  const stage1_a0 = 1 + alpha1;
-  const stage1_a1 = -2 * cosw1T;
-  const stage1_a2 = 1 - alpha1;
-  const stage1_b0 = (1 + cosw1T) / 2; // ハイパス
-  const stage1_b1 = -(1 + cosw1T);
-  const stage1_b2 = (1 + cosw1T) / 2;
-
-  coeffs.push({
-    b0: stage1_b0 / stage1_a0,
-    b1: stage1_b1 / stage1_a0,
-    b2: stage1_b2 / stage1_a0,
-    a0: 1.0,
-    a1: stage1_a1 / stage1_a0,
-    a2: stage1_a2 / stage1_a0
-  });
-
-  // ポール3: 実ポール (107.7 Hz)
-  const w2 = 2 * Math.PI * f2;
-  const cosw2T = Math.cos(w2 * T);
-  const sinw2T = Math.sin(w2 * T);
-  const alpha2 = sinw2T / (2 * 0.7071);
-
-  const stage2_a0 = 1 + alpha2;
-  const stage2_a1 = -2 * cosw2T;
-  const stage2_a2 = 1 - alpha2;
-  const stage2_b0 = (1 + cosw2T) / 2;
-  const stage2_b1 = -(1 + cosw2T);
-  const stage2_b2 = (1 + cosw2T) / 2;
-
-  coeffs.push({
-    b0: stage2_b0 / stage2_a0,
-    b1: stage2_b1 / stage2_a0,
-    b2: stage2_b2 / stage2_a0,
-    a0: 1.0,
-    a1: stage2_a1 / stage2_a0,
-    a2: stage2_a2 / stage2_a0
-  });
-
-  // ポール4: 実ポール (737.9 Hz)
-  const w3 = 2 * Math.PI * f3;
-  const cosw3T = Math.cos(w3 * T);
-  const sinw3T = Math.sin(w3 * T);
-  const alpha3 = sinw3T / (2 * 0.7071);
-
-  const stage3_a0 = 1 + alpha3;
-  const stage3_a1 = -2 * cosw3T;
-  const stage3_a2 = 1 - alpha3;
-  const stage3_b0 = (1 + cosw3T) / 2;
-  const stage3_b1 = -(1 + cosw3T);
-  const stage3_b2 = (1 + cosw3T) / 2;
-
-  coeffs.push({
-    b0: stage3_b0 / stage3_a0,
-    b1: stage3_b1 / stage3_a0,
-    b2: stage3_b2 / stage3_a0,
-    a0: 1.0,
-    a1: stage3_a1 / stage3_a0,
-    a2: stage3_a2 / stage3_a0
-  });
-
-  // ポール5,6: 複素共役ペア (12.2 kHz, Q = 0.5)
-  const w4 = 2 * Math.PI * f4;
-  const Q4 = 0.7071;
-  const cosw4T = Math.cos(w4 * T);
-  const sinw4T = Math.sin(w4 * T);
-  const alpha4 = sinw4T / (2 * Q4);
-
-  const stage4_a0 = 1 + alpha4;
-  const stage4_a1 = -2 * cosw4T;
-  const stage4_a2 = 1 - alpha4;
-  const stage4_b0 = 1; // ローパス
-  const stage4_b1 = 2;
-  const stage4_b2 = 1;
-
-  coeffs.push({
-    b0: stage4_b0 / stage4_a0,
-    b1: stage4_b1 / stage4_a0,
-    b2: stage4_b2 / stage4_a0,
-    a0: 1.0,
-    a1: stage4_a1 / stage4_a0,
-    a2: stage4_a2 / stage4_a0
-  });
-
-  // 1kHzでの正規化ゲインを計算
-  const testFreq = 1000; // Hz
-  const omega = (2 * Math.PI * testFreq) / sampleRate;
-  const z_real = Math.cos(omega);
-  const z_imag = Math.sin(omega);
-
-  let H_real = 1.0;
-  let H_imag = 0.0;
-
-  for (const coeff of coeffs) {
-    // H(z) = (b0 + b1*z^-1 + b2*z^-2) / (a0 + a1*z^-1 + a2*z^-2)
-    const num_real = coeff.b0 + coeff.b1 * z_real + coeff.b2 * (z_real * z_real - z_imag * z_imag);
-    const num_imag = coeff.b1 * z_imag + coeff.b2 * 2 * z_real * z_imag;
-
-    const den_real = coeff.a0 + coeff.a1 * z_real + coeff.a2 * (z_real * z_real - z_imag * z_imag);
-    const den_imag = coeff.a1 * z_imag + coeff.a2 * 2 * z_real * z_imag;
-
-    // 複素除算
-    const den_mag_sq = den_real * den_real + den_imag * den_imag;
-    const h_real = (num_real * den_real + num_imag * den_imag) / den_mag_sq;
-    const h_imag = (num_imag * den_real - num_real * den_imag) / den_mag_sq;
-
-    // 積算
-    const new_H_real = H_real * h_real - H_imag * h_imag;
-    const new_H_imag = H_real * h_imag + H_imag * h_real;
-    H_real = new_H_real;
-    H_imag = new_H_imag;
-  }
-
-  const magnitude = Math.sqrt(H_real * H_real + H_imag * H_imag);
-  const normalizationGain = 1.0 / magnitude; // 1kHzで0dBになるよう正規化
-
-  // 正規化ゲインを最初の段に適用
-  coeffs[0]!.b0 *= normalizationGain;
-  coeffs[0]!.b1 *= normalizationGain;
-  coeffs[0]!.b2 *= normalizationGain;
-
-  // キャッシュに保存
-  aWeightingCache.set(sampleRate, coeffs);
-
-  return coeffs;
+/**
+ * テスト用：A-weightingフィルタ係数を取得
+ * @param sampleRate サンプルレート
+ * @returns A-weightingフィルタ係数
+ */
+export function getAWeightingCoeffs(sampleRate: number): BiquadCoeffs[] {
+  return getAWeightingCoeffsImpl(sampleRate);
 }
 
 /**
@@ -448,50 +327,6 @@ export function applyAWeighting(samples: Float32Array, sampleRate: number): Floa
   }
 
   return filtered;
-}
-
-/**
- * シンプルなバターワースフィルタ（A特性の簡易版）
- * 注意: これは近似版であり、正確なA特性ではありません
- * @param samples 入力サンプル
- * @param sampleRate サンプルレート
- * @returns フィルタ適用済みサンプル
- */
-export function applySimpleAWeighting(samples: Float32Array, sampleRate: number): Float32Array {
-  // より簡単なA特性の近似実装
-  // 実用的な範囲での近似
-
-  const output = new Float32Array(samples.length);
-
-  // 1次ハイパスフィルタ（20Hz）とローパスフィルタ（20kHz）の組み合わせ
-  const fc_high = 20.0 / (sampleRate / 2);
-  const fc_low = 20000.0 / (sampleRate / 2);
-
-  const alpha_high = Math.exp(-2.0 * Math.PI * fc_high);
-  const alpha_low = Math.exp(-2.0 * Math.PI * fc_low);
-
-  let prev_input = 0;
-  let prev_output_high = 0;
-  let prev_output_low = 0;
-
-  for (let i = 0; i < samples.length; i++) {
-    const input = ensureValidSample(samples[i] ?? 0);
-
-    // ハイパスフィルタ
-    const highpass_output = alpha_high * (prev_output_high + input - prev_input);
-    prev_input = input;
-    prev_output_high = highpass_output;
-
-    // ローパスフィルタ
-    const lowpass_output = (1 - alpha_low) * highpass_output + alpha_low * prev_output_low;
-    prev_output_low = lowpass_output;
-
-    // A特性の周波数特性を近似するゲイン調整
-    // 1kHz周辺でピークを持つ特性
-    output[i] = ensureValidSample(lowpass_output * 1.5);
-  }
-
-  return output;
 }
 
 /**

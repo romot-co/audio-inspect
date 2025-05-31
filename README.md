@@ -89,14 +89,14 @@ inspectNode.updateOptions({
 ## Enhanced Audio Analysis Features
 
 ### 1. Weighted Crest Factor (A-Weighted Crest Factor)
-ITU-R BS.1770 compliant A-weighting filter for perceptual loudness measurement.
+IEC 61672-1:2013 compliant A-weighting filter for perceptual crest factor measurement.
 
 ```typescript
 import { getCrestFactor } from 'audio-inspect/features/dynamics';
 
 const audio = await load('audio.mp3');
 
-// Traditional crest factor
+// Traditional crest factor (unweighted)
 const simpleCF = getCrestFactor(audio, { method: 'simple' });
 
 // A-weighted crest factor for perceptual analysis
@@ -104,6 +104,33 @@ const weightedCF = getCrestFactor(audio, { method: 'weighted' });
 
 console.log(`Crest Factor: ${simpleCF.crestFactor} dB`);
 console.log(`A-weighted CF: ${weightedCF.crestFactor} dB`);
+console.log(`Peak: ${simpleCF.peak}, RMS: ${simpleCF.rms}`);
+
+// Time-varying crest factor analysis
+const timeVaryingCF = getCrestFactor(audio, {
+  method: 'weighted',
+  windowSize: 0.1,  // 100ms analysis window
+  hopSize: 0.05     // 50ms hop size
+});
+
+if (timeVaryingCF.timeVarying) {
+  console.log(`Time-varying analysis: ${timeVaryingCF.timeVarying.values.length} frames`);
+  console.log(`Max CF: ${Math.max(...timeVaryingCF.timeVarying.values)} dB`);
+}
+
+// Real-time crest factor monitoring
+import { createAudioInspectNode } from 'audio-inspect';
+const audioContext = new AudioContext();
+const crestNode = createAudioInspectNode(audioContext, {
+  featureName: 'getCrestFactor',
+  featureOptions: { method: 'weighted' },
+  bufferSize: 2048,
+  hopSize: 1024
+});
+
+crestNode.onresult = (event) => {
+  console.log(`Real-time Crest Factor: ${event.data.crestFactor} dB`);
+};
 ```
 
 ### 2. True Peak Detection (Inter-Sample Peak Detection)
@@ -227,22 +254,58 @@ const spectrum = await getSpectrum(audio, {
 ```
 
 ### Audio Features
+
+#### LUFS Loudness Measurement (ITU-R BS.1770-5 Compliant)
 ```typescript
-// LUFS loudness measurement
+import { getLUFS } from 'audio-inspect/features/loudness';
+
+const audio = await load('audio.mp3');
+
+// Basic integrated loudness
+const basicLoudness = getLUFS(audio);
+console.log(`Integrated Loudness: ${basicLoudness.integrated} LUFS`);
+
+// Comprehensive loudness analysis
 const loudness = getLUFS(audio, {
-  gated: true,
-  shortTerm: true,
-  momentary: true
+  channelMode: 'stereo',        // 'mono' | 'stereo'
+  gated: true,                  // ITU-R BS.1770 gating
+  calculateShortTerm: true,     // 3-second short-term loudness
+  calculateMomentary: true,     // 400ms momentary loudness
+  calculateLoudnessRange: true, // LRA calculation
+  calculateTruePeak: true       // True peak per channel (dBTP)
 });
 
-// Voice Activity Detection
+console.log(`Integrated: ${loudness.integrated} LUFS`);
+console.log(`Loudness Range: ${loudness.loudnessRange} LU`);
+console.log(`True Peak: ${loudness.truePeak?.map(tp => `${tp.toFixed(1)} dBTP`).join(', ')}`);
+
+// Real-time loudness monitoring
+import { createAudioInspectNode } from 'audio-inspect';
+const audioContext = new AudioContext();
+const loudnessNode = createAudioInspectNode(audioContext, {
+  featureName: 'getLUFS',
+  featureOptions: { gated: true, calculateMomentary: true },
+  bufferSize: 1024,
+  hopSize: 512
+});
+
+loudnessNode.onresult = (event) => {
+  const result = event.data;
+  console.log(`Real-time LUFS: ${result.integrated}`);
+};
+```
+
+#### Voice Activity Detection
+```typescript
 const vad = getVAD(audio, {
   method: 'adaptive',
   energyThreshold: 0.01,
   frameSizeMs: 25
 });
+```
 
-// Spectral features
+#### Spectral Features
+```typescript
 const spectral = getSpectralFeatures(audio, {
   fftSize: 2048,
   features: ['centroid', 'bandwidth', 'rolloff', 'flatness']

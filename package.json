@@ -1,6 +1,6 @@
 {
   "name": "audio-inspect",
-  "version": "0.0.1-beta.3",
+  "version": "0.0.1-beta.4",
   "description": "Lightweight yet powerful audio analysis library",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -33,10 +33,11 @@
   "scripts": {
     "build": "NODE_ENV=production tsup",
     "build:dev": "NODE_ENV=development tsup",
+    "build:e2e": "E2E_TEST=true NODE_ENV=development tsup",
     "dev": "tsup --watch",
     "test": "vitest --run --coverage",
     "test:watch": "vitest --coverage",
-    "test:e2e": "npm run build && playwright test",
+    "test:e2e": "npm run build:e2e && playwright test",
     "lint": "eslint src test --ext .ts",
     "lint:fix": "eslint src test --ext .ts --fix",
     "type-check": "tsc --noEmit",

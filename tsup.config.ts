@@ -4,6 +4,8 @@ import { join, dirname } from 'path';
 
 // 開発時のみソースマップを有効化
 const isDev = process.env.NODE_ENV === 'development';
+// E2Eテスト用フラグ
+const isE2ETest = process.env.E2E_TEST === 'true';
 
 // 重複する.d.ctsファイルを削除するヘルパー関数
 const cleanupDuplicateTypes = () => {
@@ -27,6 +29,19 @@ const cleanupDuplicateTypes = () => {
   cleanup('');
 };
 
+// E2Eテストページをコピーするヘルパー関数
+const copyE2ETestPage = () => {
+  const testPageSrc = join('test', 'e2e', 'test-page.html');
+  const testPageDest = join('dist', 'test-page.html');
+  
+  if (existsSync(testPageSrc)) {
+    copyFileSync(testPageSrc, testPageDest);
+    console.log('✓ Copied test-page.html to dist/ for E2E testing');
+  } else {
+    console.warn('⚠ test-page.html not found at', testPageSrc);
+  }
+};
+
 export default defineConfig([
   // メインエントリーポイント
   {
@@ -40,7 +55,7 @@ export default defineConfig([
     platform: 'neutral',
     splitting: false,
     clean: true,
-    minify: true, // コードを圧縮
+    minify: !isDev, // 開発時は圧縮しない
     banner: {
       js: '// audio-inspect - Lightweight yet powerful audio analysis library'
     },
@@ -48,15 +63,9 @@ export default defineConfig([
       // 重複する型定義ファイルを削除
       cleanupDuplicateTypes();
       
-      // E2Eテストページは開発時のみコピー
-      if (isDev) {
-        const testPageSrc = join('test', 'e2e', 'test-page.html');
-        const testPageDest = join('dist', 'test-page.html');
-        
-        if (existsSync(testPageSrc)) {
-          copyFileSync(testPageSrc, testPageDest);
-          console.log('✓ Copied test-page.html to dist/');
-        }
+      // E2Eテスト時またはdevelopment時にtest-page.htmlをコピー
+      if (isE2ETest || isDev) {
+        copyE2ETestPage();
       }
     }
   },
@@ -72,7 +81,7 @@ export default defineConfig([
     treeshake: true,  // 未使用コードを削除
     dts: false,
     sourcemap: false, // AudioWorkletは本番用なのでソースマップ不要
-    minify: true,      // 本番用に圧縮
+    minify: !isDev,      // 開発時は圧縮しない
     // すべての依存関係をバンドルに含める
     noExternal: [/.*/], // すべてをバンドル
     esbuildOptions(options) {
@@ -114,7 +123,7 @@ export default defineConfig([
     target: 'es2022',
     platform: 'neutral',
     splitting: false,
-    minify: true,
+    minify: !isDev,
   },
 
   // 時間領域解析
@@ -127,7 +136,7 @@ export default defineConfig([
     target: 'es2022',
     platform: 'neutral',
     splitting: false,
-    minify: true,
+    minify: !isDev,
   },
 
   // 周波数領域解析
@@ -141,7 +150,7 @@ export default defineConfig([
     target: 'es2022',
     platform: 'neutral',
     splitting: false,
-    minify: true,
+    minify: !isDev,
   },
 
   // ラウドネス解析
@@ -155,7 +164,7 @@ export default defineConfig([
     target: 'es2022',
     platform: 'neutral',
     splitting: false,
-    minify: true,
+    minify: !isDev,
   },
 
   // スペクトル解析
@@ -169,7 +178,7 @@ export default defineConfig([
     target: 'es2022',
     platform: 'neutral',
     splitting: false,
-    minify: true,
+    minify: !isDev,
   },
 
   // 音声活動検出
@@ -182,7 +191,7 @@ export default defineConfig([
     target: 'es2022',
     platform: 'neutral',
     splitting: false,
-    minify: true,
+    minify: !isDev,
   },
 
   // エネルギー解析
@@ -195,7 +204,7 @@ export default defineConfig([
     target: 'es2022',
     platform: 'neutral',
     splitting: false,
-    minify: true,
+    minify: !isDev,
   },
 
   // ダイナミクス解析
@@ -208,7 +217,7 @@ export default defineConfig([
     target: 'es2022',
     platform: 'neutral',
     splitting: false,
-    minify: true,
+    minify: !isDev,
   },
 
   // ステレオ解析
@@ -221,7 +230,7 @@ export default defineConfig([
     target: 'es2022',
     platform: 'neutral',
     splitting: false,
-    minify: true,
+    minify: !isDev,
   },
 
   // FFTプロバイダー
@@ -235,6 +244,6 @@ export default defineConfig([
     target: 'es2022',
     platform: 'neutral',
     splitting: false,
-    minify: true,
+    minify: !isDev,
   },
 ]); 

@@ -77,30 +77,35 @@ export function getCrestFactor(
 ): CrestFactorResult {
   const { channel = 0, windowSize, hopSize, method = 'simple' } = options;
 
-  // 全体のクレストファクター計算
   let overallPeak: number;
   let overallRms: number;
 
   if (method === 'weighted') {
-    // A特性フィルタを適用して全体のピークとRMSを計算
+    // A-weightingを適用
     const channelData = getChannelData(audio, channel);
     const weightedData = applyAWeighting(channelData, audio.sampleRate);
 
-    // A特性適用データで計算
+    // 重み付けされたデータからピーク値とRMS値を計算
     let peakVal = 0;
     let sumOfSquares = 0;
+    let validSamples = 0;
 
     for (let i = 0; i < weightedData.length; i++) {
       const sample = ensureValidSample(weightedData[i] ?? 0);
       const absSample = Math.abs(sample);
+
+      // ピーク値を更新
       peakVal = Math.max(peakVal, absSample);
+
+      // RMS計算用の二乗和
       sumOfSquares += sample * sample;
+      validSamples++;
     }
 
     overallPeak = peakVal;
-    overallRms = Math.sqrt(sumOfSquares / weightedData.length);
+    overallRms = validSamples > 0 ? Math.sqrt(sumOfSquares / validSamples) : 0;
   } else {
-    // 通常の方法
+    // simpleモード（既存の実装）
     const amplitudeOpts: AmplitudeOptions = { channel, asDB: false };
     overallPeak = getPeakAmplitude(audio, amplitudeOpts);
     overallRms = getRMS(audio, amplitudeOpts);
