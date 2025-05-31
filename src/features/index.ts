@@ -77,5 +77,5 @@ export { getVAD } from './vad.js';
 export type { VADOptions, VADSegment, VADResult } from './vad.js';
 
 // LUFS（ラウドネス測定）
-export { getLUFS } from './loudness.js';
-export type { LUFSOptions, LUFSResult } from './loudness.js';
+export { getLUFS, getLUFSRealtime } from './loudness.js';
+export type { LUFSOptions, LUFSResult, RealtimeLUFSOptions } from './loudness.js';

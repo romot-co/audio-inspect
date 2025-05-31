@@ -1,5 +1,5 @@
 import { defineConfig } from 'tsup';
-import { copyFileSync, existsSync, mkdirSync, unlinkSync, readdirSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, unlinkSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 
 // 開発時のみソースマップを有効化
@@ -35,7 +35,18 @@ const copyE2ETestPage = () => {
   const testPageDest = join('dist', 'test-page.html');
   
   if (existsSync(testPageSrc)) {
-    copyFileSync(testPageSrc, testPageDest);
+    let content = readFileSync(testPageSrc, 'utf-8');
+    
+    // E2Eテスト時はimportmapを削除（バンドルされたライブラリを使用）
+    if (isE2ETest) {
+      content = content.replace(
+        /<script type="importmap">[\s\S]*?<\/script>\s*/g,
+        ''
+      );
+      console.log('✓ Removed importmap from test-page.html for bundled version');
+    }
+    
+    writeFileSync(testPageDest, content);
     console.log('✓ Copied test-page.html to dist/ for E2E testing');
   } else {
     console.warn('⚠ test-page.html not found at', testPageSrc);
@@ -50,9 +61,11 @@ export default defineConfig([
     dts: true,
     sourcemap: isDev,
     outDir: 'dist',
-    external: ['webfft'],
+    // E2Eテスト時はwebfftをバンドルに含める
+    external: isE2ETest ? [] : ['webfft'],
+    noExternal: isE2ETest ? ['webfft'] : undefined,
     target: 'es2022',
-    platform: 'neutral',
+    platform: isE2ETest ? 'browser' : 'neutral',
     splitting: false,
     clean: true,
     minify: !isDev, // 開発時は圧縮しない
@@ -119,9 +132,10 @@ export default defineConfig([
     dts: true,
     sourcemap: isDev,
     outDir: 'dist',
-    external: ['webfft'],
+    external: isE2ETest ? [] : ['webfft'],
+    noExternal: isE2ETest ? ['webfft'] : undefined,
     target: 'es2022',
-    platform: 'neutral',
+    platform: isE2ETest ? 'browser' : 'neutral',
     splitting: false,
     minify: !isDev,
   },
@@ -146,9 +160,10 @@ export default defineConfig([
     dts: true,
     sourcemap: isDev,
     outDir: 'dist',
-    external: ['webfft'],
+    external: isE2ETest ? [] : ['webfft'],
+    noExternal: isE2ETest ? ['webfft'] : undefined,
     target: 'es2022',
-    platform: 'neutral',
+    platform: isE2ETest ? 'browser' : 'neutral',
     splitting: false,
     minify: !isDev,
   },
@@ -160,9 +175,10 @@ export default defineConfig([
     dts: true,
     sourcemap: isDev,
     outDir: 'dist',
-    external: ['webfft'],
+    external: isE2ETest ? [] : ['webfft'],
+    noExternal: isE2ETest ? ['webfft'] : undefined,
     target: 'es2022',
-    platform: 'neutral',
+    platform: isE2ETest ? 'browser' : 'neutral',
     splitting: false,
     minify: !isDev,
   },
@@ -174,9 +190,10 @@ export default defineConfig([
     dts: true,
     sourcemap: isDev,
     outDir: 'dist',
-    external: ['webfft'],
+    external: isE2ETest ? [] : ['webfft'],
+    noExternal: isE2ETest ? ['webfft'] : undefined,
     target: 'es2022',
-    platform: 'neutral',
+    platform: isE2ETest ? 'browser' : 'neutral',
     splitting: false,
     minify: !isDev,
   },
@@ -240,9 +257,10 @@ export default defineConfig([
     dts: true,
     sourcemap: isDev,
     outDir: 'dist',
-    external: ['webfft'],
+    external: isE2ETest ? [] : ['webfft'],
+    noExternal: isE2ETest ? ['webfft'] : undefined,
     target: 'es2022',
-    platform: 'neutral',
+    platform: isE2ETest ? 'browser' : 'neutral',
     splitting: false,
     minify: !isDev,
   },

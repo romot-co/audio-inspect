@@ -66,35 +66,11 @@ function estimateDelay(
   return bestDelay;
 }
 
-// コヒーレンス計算
+// コヒーレンス計算（最適化版）
 async function calculateCoherence(
-  left: Float32Array,
-  right: Float32Array,
-  fftSize: number,
-  sampleRate: number
+  leftFFT: { magnitude: Float32Array; phase: Float32Array },
+  rightFFT: { magnitude: Float32Array; phase: Float32Array }
 ): Promise<Float32Array> {
-  const leftFFT = await getFFT(
-    {
-      channelData: [left],
-      sampleRate,
-      numberOfChannels: 1,
-      length: left.length,
-      duration: left.length / sampleRate
-    },
-    { fftSize }
-  );
-
-  const rightFFT = await getFFT(
-    {
-      channelData: [right],
-      sampleRate,
-      numberOfChannels: 1,
-      length: right.length,
-      duration: right.length / sampleRate
-    },
-    { fftSize }
-  );
-
   const coherence = new Float32Array(leftFFT.magnitude.length);
 
   for (let i = 0; i < coherence.length; i++) {
@@ -155,10 +131,10 @@ export async function getStereoAnalysis(
   }
 
   const {
-    frameSize = audio.length,
-    calculatePhase = true,
-    calculateITD = true,
-    calculateILD = true
+    frameSize = Math.min(8192, audio.length), // デフォルトを8192に制限
+    calculatePhase = false, // デフォルトをfalseに変更
+    calculateITD = false, // デフォルトをfalseに変更
+    calculateILD = false // デフォルトをfalseに変更
   } = options;
 
   const left = audio.channelData[0];
@@ -179,7 +155,7 @@ export async function getStereoAnalysis(
     };
   }
 
-  // 基本的な統計量の計算
+  // 基本的な統計量の計算（最適化版）
   let sumL = 0,
     sumR = 0,
     sumLR = 0,
@@ -187,7 +163,14 @@ export async function getStereoAnalysis(
     sumR2 = 0;
   let energyL = 0,
     energyR = 0;
+  let energyMid = 0,
+    energySide = 0;
 
+  // ゴニオメーター用データ（基本版）
+  const mid = new Float32Array(len);
+  const side = new Float32Array(len);
+
+  // 1回のループで全ての統計量とゴニオメーター用データを計算
   for (let i = 0; i < len; i++) {
     const l = ensureValidSample(left[i] ?? 0);
     const r = ensureValidSample(right[i] ?? 0);
@@ -200,6 +183,17 @@ export async function getStereoAnalysis(
 
     energyL += l * l;
     energyR += r * r;
+
+    // Mid/Side計算も同時に実行
+    const midVal = (l + r) * 0.5;
+    const sideVal = (l - r) * 0.5;
+
+    energyMid += midVal * midVal;
+    energySide += sideVal * sideVal;
+
+    // ゴニオメーター用データも同時に保存
+    mid[i] = midVal;
+    side[i] = sideVal;
   }
 
   // 相関係数
@@ -210,28 +204,9 @@ export async function getStereoAnalysis(
   const stdR = Math.sqrt(sumR2 / len - meanR * meanR);
   const correlation = stdL > 1e-10 && stdR > 1e-10 ? covariance / (stdL * stdR) : 0;
 
-  // Mid/Side処理
-  const mid = new Float32Array(len);
-  const side = new Float32Array(len);
-  let energyMid = 0,
-    energySide = 0;
-
-  for (let i = 0; i < len; i++) {
-    const l = ensureValidSample(left[i] ?? 0);
-    const r = ensureValidSample(right[i] ?? 0);
-
-    mid[i] = (l + r) * 0.5;
-    side[i] = (l - r) * 0.5;
-
-    energyMid += (mid[i] ?? 0) * (mid[i] ?? 0);
-    energySide += (side[i] ?? 0) * (side[i] ?? 0);
-  }
-
   // メトリクスの計算
   const width = energyMid + energySide > 1e-10 ? energySide / (energyMid + energySide) : 0;
-
   const balance = energyL + energyR > 1e-10 ? (energyR - energyL) / (energyL + energyR) : 0;
-
   const midSideRatio = energySide > 1e-10 ? 10 * Math.log10(energyMid / energySide) : Infinity;
 
   const result: StereoAnalysisResult = {
@@ -241,40 +216,43 @@ export async function getStereoAnalysis(
     midSideRatio
   };
 
-  // 位相解析（オプション）
-  if (calculatePhase && frameSize < audio.length) {
-    const fftSize = Math.pow(2, Math.ceil(Math.log2(frameSize)));
+  // ゴニオメーター用データ（常に設定）
+  result.goniometer = {
+    x: side, // L-R
+    y: mid // L+R
+  };
 
-    // コヒーレンス計算
-    result.coherence = await calculateCoherence(
-      left.subarray(0, frameSize),
-      right.subarray(0, frameSize),
-      fftSize,
-      audio.sampleRate
-    );
+  // 位相解析（オプション、FFT計算を最適化）
+  if (calculatePhase) {
+    const actualFrameSize = Math.min(frameSize, len);
+    const fftSize = Math.pow(2, Math.ceil(Math.log2(actualFrameSize)));
 
-    // 周波数別解析
-    const leftFFT = await getFFT(
-      {
-        channelData: [left.subarray(0, frameSize)],
-        sampleRate: audio.sampleRate,
-        numberOfChannels: 1,
-        length: frameSize,
-        duration: frameSize / audio.sampleRate
-      },
-      { fftSize }
-    );
+    // FFTを並列実行
+    const [leftFFT, rightFFT] = await Promise.all([
+      getFFT(
+        {
+          channelData: [left.subarray(0, actualFrameSize)],
+          sampleRate: audio.sampleRate,
+          numberOfChannels: 1,
+          length: actualFrameSize,
+          duration: actualFrameSize / audio.sampleRate
+        },
+        { fftSize }
+      ),
+      getFFT(
+        {
+          channelData: [right.subarray(0, actualFrameSize)],
+          sampleRate: audio.sampleRate,
+          numberOfChannels: 1,
+          length: actualFrameSize,
+          duration: actualFrameSize / audio.sampleRate
+        },
+        { fftSize }
+      )
+    ]);
 
-    const rightFFT = await getFFT(
-      {
-        channelData: [right.subarray(0, frameSize)],
-        sampleRate: audio.sampleRate,
-        numberOfChannels: 1,
-        length: frameSize,
-        duration: frameSize / audio.sampleRate
-      },
-      { fftSize }
-    );
+    // コヒーレンス計算（最適化版）
+    result.coherence = await calculateCoherence(leftFFT, rightFFT);
 
     // 周波数別ステレオ幅
     result.widthFrequency = calculateFrequencyWidth(
@@ -284,7 +262,7 @@ export async function getStereoAnalysis(
       rightFFT.phase
     );
 
-    // 平均位相差
+    // 平均位相差（最適化版）
     let phaseDiffSum = 0;
     let weightSum = 0;
 
@@ -298,9 +276,8 @@ export async function getStereoAnalysis(
       const weight = leftMag * rightMag;
       let phaseDiff = leftPhase - rightPhase;
 
-      // 位相差を -π から π の範囲に正規化
-      while (phaseDiff > Math.PI) phaseDiff -= 2 * Math.PI;
-      while (phaseDiff < -Math.PI) phaseDiff += 2 * Math.PI;
+      // 位相差を -π から π の範囲に正規化（高速版）
+      phaseDiff = ((phaseDiff + Math.PI) % (2 * Math.PI)) - Math.PI;
 
       phaseDiffSum += phaseDiff * weight;
       weightSum += weight;
@@ -311,7 +288,10 @@ export async function getStereoAnalysis(
 
   // ITD（両耳間時間差）計算（オプション）
   if (calculateITD) {
-    const delaySamples = estimateDelay(left, right);
+    const delaySamples = estimateDelay(
+      left.subarray(0, Math.min(frameSize, len)),
+      right.subarray(0, Math.min(frameSize, len))
+    );
     result.itd = (delaySamples / audio.sampleRate) * 1000; // ms
   }
 
@@ -322,12 +302,6 @@ export async function getStereoAnalysis(
 
     result.ild = rmsL > 1e-10 && rmsR > 1e-10 ? 20 * Math.log10(rmsR / rmsL) : 0;
   }
-
-  // ゴニオメーター用データ（Lissajous表示）
-  result.goniometer = {
-    x: side, // L-R
-    y: mid // L+R
-  };
 
   return result;
 }

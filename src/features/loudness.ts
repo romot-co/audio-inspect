@@ -50,19 +50,6 @@ function applyBiquad(
   return output;
 }
 
-// K-weightingフィルタの適用
-function applyKWeighting(channelData: Float32Array, sampleRate: number): Float32Array {
-  const coeffs = getKWeightingCoeffsImpl(sampleRate);
-
-  // Stage 1: プリフィルタ（高域シェルビング）
-  let filtered = applyBiquad(channelData, coeffs[0]!);
-
-  // Stage 2: RLB フィルタ（高域通過）
-  filtered = applyBiquad(filtered, coeffs[1]!);
-
-  return filtered;
-}
-
 // ブロックのラウドネス計算
 function calculateBlockLoudness(channels: Float32Array[]): number {
   let sumOfSquares = 0;
@@ -127,7 +114,6 @@ export function getKWeightingCoeffs(sampleRate: number): BiquadCoeffs[] {
 export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult {
   const {
     channelMode = audio.numberOfChannels >= 2 ? 'stereo' : 'mono',
-    gated = true,
     calculateShortTerm = false,
     calculateMomentary = false,
     calculateLoudnessRange = false,
@@ -137,6 +123,12 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
   if (audio.numberOfChannels === 0) {
     throw new AudioInspectError('INVALID_INPUT', '処理可能なチャンネルがありません');
   }
+
+  // getLUFSRealtimeを使用した実装
+  const processor = getLUFSRealtime(audio.sampleRate, {
+    channelMode,
+    maxDurationMs: audio.duration * 1000 + 5000 // 音声の長さ + 余裕
+  });
 
   // チャンネルデータの準備
   const channelsToProcess: Float32Array[] = [];
@@ -158,112 +150,58 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
     throw new AudioInspectError('INVALID_INPUT', '処理可能なチャンネルがありません');
   }
 
-  // K-weightingの適用（サンプルレート依存）
-  const kWeightedChannels = channelsToProcess.map((ch) => applyKWeighting(ch, audio.sampleRate));
+  // 短い音声（5秒未満）は一括処理、長い音声は500msチャンクで処理
+  const chunks: Float32Array[][] = [];
+  const length = channelsToProcess[0]!.length;
 
-  // ブロック処理のパラメータ
-  const sampleRate = audio.sampleRate;
-  const blockSizeSamples = Math.floor((BLOCK_SIZE_MS / 1000) * sampleRate);
-  const hopSizeSamples = Math.floor(blockSizeSamples * (1 - BLOCK_OVERLAP));
-  const dataLength = kWeightedChannels[0]?.length ?? 0;
-
-  if (dataLength === 0) {
-    return { integrated: -Infinity };
-  }
-
-  // Integrated Loudness の計算
-  const blockLoudnessValues: number[] = [];
-
-  for (let pos = 0; pos + blockSizeSamples <= dataLength; pos += hopSizeSamples) {
-    const blockChannels = kWeightedChannels.map((ch) => ch.subarray(pos, pos + blockSizeSamples));
-
-    const loudness = calculateBlockLoudness(blockChannels);
-    if (isFinite(loudness)) {
-      blockLoudnessValues.push(loudness);
+  if (audio.duration < 5.0) {
+    // 短い音声は一括処理
+    chunks.push(channelsToProcess);
+  } else {
+    // 長い音声は500msチャンクに分割
+    const chunkSize = Math.floor(audio.sampleRate * 0.5);
+    for (let i = 0; i < length; i += chunkSize) {
+      const chunkEnd = Math.min(i + chunkSize, length);
+      const chunk = channelsToProcess.map((ch) => ch.subarray(i, chunkEnd));
+      chunks.push(chunk);
     }
   }
 
-  let integratedLoudness = -Infinity;
+  // 時系列データ収集用（オプション機能のため）
+  const momentaryValues: number[] = [];
+  const shortTermValues: number[] = [];
 
-  if (blockLoudnessValues.length > 0) {
-    let finalLoudnessValues = [...blockLoudnessValues];
+  // チャンクを順次処理
+  let finalResult;
+  for (const chunk of chunks) {
+    finalResult = processor.process(chunk);
 
-    if (gated) {
-      // 絶対ゲート（-70 LUFS）
-      finalLoudnessValues = finalLoudnessValues.filter((l) => l >= ABSOLUTE_GATE_LUFS);
-
-      if (finalLoudnessValues.length > 0) {
-        // 相対ゲートのための平均計算
-        const sumPower = finalLoudnessValues.reduce((sum, lufs) => {
-          return sum + Math.pow(10, (lufs + 0.691) / 10);
-        }, 0);
-
-        const meanLoudness = -0.691 + 10 * Math.log10(sumPower / finalLoudnessValues.length);
-        const relativeThreshold = meanLoudness - RELATIVE_GATE_LU;
-
-        // 相対ゲート適用
-        finalLoudnessValues = finalLoudnessValues.filter((l) => l >= relativeThreshold);
-      }
+    if (calculateMomentary && isFinite(finalResult.momentary)) {
+      momentaryValues.push(finalResult.momentary);
     }
 
-    if (finalLoudnessValues.length > 0) {
-      // 最終的なIntegrated Loudness
-      const sumPower = finalLoudnessValues.reduce((sum, lufs) => {
-        return sum + Math.pow(10, (lufs + 0.691) / 10);
-      }, 0);
-
-      integratedLoudness = -0.691 + 10 * Math.log10(sumPower / finalLoudnessValues.length);
+    if (calculateShortTerm && isFinite(finalResult.shortTerm)) {
+      shortTermValues.push(finalResult.shortTerm);
     }
   }
 
   const result: LUFSResult = {
-    integrated: integratedLoudness
+    integrated: finalResult?.integrated ?? -Infinity
   };
 
-  // Short-term Loudness（オプション）
-  if (calculateShortTerm) {
-    const shortTermSamples = Math.floor((SHORT_TERM_WINDOW_MS / 1000) * sampleRate);
-    const shortTermHop = hopSizeSamples;
-    const shortTermValues: number[] = [];
-
-    for (let pos = 0; pos + shortTermSamples <= dataLength; pos += shortTermHop) {
-      const windowChannels = kWeightedChannels.map((ch) =>
-        ch.subarray(pos, pos + shortTermSamples)
-      );
-
-      const loudness = calculateBlockLoudness(windowChannels);
-      if (isFinite(loudness)) {
-        shortTermValues.push(loudness);
-      }
-    }
-
+  // オプション機能の処理
+  if (calculateShortTerm && shortTermValues.length > 0) {
     result.shortTerm = new Float32Array(shortTermValues);
   }
 
-  // Momentary Loudness（オプション）
-  if (calculateMomentary) {
-    const momentarySamples = Math.floor((MOMENTARY_WINDOW_MS / 1000) * sampleRate);
-    const momentaryHop = hopSizeSamples;
-    const momentaryValues: number[] = [];
-
-    for (let pos = 0; pos + momentarySamples <= dataLength; pos += momentaryHop) {
-      const windowChannels = kWeightedChannels.map((ch) =>
-        ch.subarray(pos, pos + momentarySamples)
-      );
-
-      const loudness = calculateBlockLoudness(windowChannels);
-      if (isFinite(loudness)) {
-        momentaryValues.push(loudness);
-      }
-    }
-
+  if (calculateMomentary && momentaryValues.length > 0) {
     result.momentary = new Float32Array(momentaryValues);
   }
 
-  // Loudness Range（オプション）
+  // ラウドネスレンジ計算（short-termから）
   if (calculateLoudnessRange && result.shortTerm) {
     const validValues = Array.from(result.shortTerm)
-      .filter((v) => v > ABSOLUTE_GATE_LUFS && isFinite(v))
+      .filter((v) => v > -70.0 && isFinite(v)) // 絶対ゲート
       .sort((a, b) => a - b);
 
     if (validValues.length > 0) {
@@ -278,7 +216,7 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
     }
   }
 
-  // True Peak（オプション - 簡易実装）
+  // True Peak計算（簡易実装）
   if (calculateTruePeak) {
     result.truePeak = channelsToProcess.map((ch) => {
       let peak = 0;
@@ -291,4 +229,213 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
   }
 
   return result;
+}
+
+// リアルタイム処理用の状態管理クラス
+class RealtimeLUFSProcessor {
+  private sampleRate: number;
+  private channelMode: 'mono' | 'stereo';
+  private blockSize: number;
+  private hopSize: number;
+  private blockBuffer: number[][] = [];
+  private maxBlocks: number;
+  private currentSamples: Float32Array[] = [];
+  private sampleCount: number = 0;
+  private biquadStates: BiquadState[][] = [];
+
+  constructor(
+    sampleRate: number,
+    channelMode: 'mono' | 'stereo' = 'stereo',
+    maxDurationMs: number = 30000
+  ) {
+    this.sampleRate = sampleRate;
+    this.channelMode = channelMode;
+    this.blockSize = Math.floor((BLOCK_SIZE_MS / 1000) * sampleRate);
+    this.hopSize = Math.floor(this.blockSize * (1 - BLOCK_OVERLAP));
+    // 最大保持ブロック数（デフォルト30秒）
+    this.maxBlocks = Math.ceil(maxDurationMs / ((this.hopSize / sampleRate) * 1000));
+
+    // チャンネル数に応じてバッファを初期化
+    const numChannels = channelMode === 'stereo' ? 2 : 1;
+    for (let i = 0; i < numChannels; i++) {
+      this.currentSamples.push(new Float32Array(this.blockSize));
+      // K-weightingフィルタの状態（2段）
+      this.biquadStates.push([
+        { x1: 0, x2: 0, y1: 0, y2: 0 },
+        { x1: 0, x2: 0, y1: 0, y2: 0 }
+      ]);
+    }
+  }
+
+  /**
+   * 新しいオーディオチャンクを処理
+   * @param chunk - 入力オーディオチャンク（チャンネルごとのFloat32Array配列）
+   * @returns 現在のLUFS値（integrated, momentary, shortTerm）
+   */
+  process(chunk: Float32Array[]): { integrated: number; momentary: number; shortTerm: number } {
+    const numChannels = this.channelMode === 'stereo' ? Math.min(chunk.length, 2) : 1;
+    const coeffs = getKWeightingCoeffsImpl(this.sampleRate);
+
+    // 各チャンネルを処理
+    for (let ch = 0; ch < numChannels; ch++) {
+      const inputData = chunk[ch];
+      if (!inputData) continue;
+
+      // K-weightingフィルタを適用（状態を保持）
+      let filtered = applyBiquad(inputData, coeffs[0]!, this.biquadStates[ch]![0]!);
+      filtered = applyBiquad(filtered, coeffs[1]!, this.biquadStates[ch]![1]!);
+
+      // サンプルをバッファに追加
+      const currentBuffer = this.currentSamples[ch]!;
+
+      let processedSamples = 0;
+      while (processedSamples < filtered.length) {
+        const remainingSpace = this.blockSize - this.sampleCount;
+        const samplesToAdd = Math.min(filtered.length - processedSamples, remainingSpace);
+
+        // 現在のブロックバッファに追加
+        currentBuffer.set(
+          filtered.subarray(processedSamples, processedSamples + samplesToAdd),
+          this.sampleCount
+        );
+        this.sampleCount += samplesToAdd;
+        processedSamples += samplesToAdd;
+
+        // ブロックが完成したら処理
+        if (this.sampleCount >= this.blockSize) {
+          // ブロックのラウドネスを計算
+          const blockLoudness = calculateBlockLoudness(this.currentSamples.slice(0, numChannels));
+          if (isFinite(blockLoudness)) {
+            this.blockBuffer.push([blockLoudness, Date.now()]);
+
+            // 古いブロックを削除
+            if (this.blockBuffer.length > this.maxBlocks) {
+              this.blockBuffer.shift();
+            }
+          }
+
+          // オーバーラップ部分をシフト
+          currentBuffer.copyWithin(0, this.hopSize);
+          this.sampleCount = this.blockSize - this.hopSize;
+        }
+      }
+    }
+
+    // 現在のLUFS値を計算
+    return this.calculateCurrentLUFS();
+  }
+
+  /**
+   * 現在の統合ラウドネスを計算
+   */
+  private calculateCurrentLUFS(): { integrated: number; momentary: number; shortTerm: number } {
+    if (this.blockBuffer.length === 0) {
+      return { integrated: -Infinity, momentary: -Infinity, shortTerm: -Infinity };
+    }
+
+    const now = Date.now();
+
+    // Momentary (400ms)
+    const momentaryBlocks = this.blockBuffer
+      .filter(([_, timestamp]) => now - timestamp! <= MOMENTARY_WINDOW_MS)
+      .map(([loudness]) => loudness!);
+
+    // Short-term (3s)
+    const shortTermBlocks = this.blockBuffer
+      .filter(([_, timestamp]) => now - timestamp! <= SHORT_TERM_WINDOW_MS)
+      .map(([loudness]) => loudness!);
+
+    // Integrated (全ブロック with gating)
+    let integratedBlocks = this.blockBuffer.map(([loudness]) => loudness!);
+
+    // ゲーティング処理
+    // 絶対ゲート（-70 LUFS）
+    integratedBlocks = integratedBlocks.filter((l) => l! >= ABSOLUTE_GATE_LUFS);
+
+    let integrated = -Infinity;
+    if (integratedBlocks.length > 0) {
+      // 相対ゲートのための平均計算
+      const sumPower = integratedBlocks.reduce(
+        (sum, lufs) => sum! + Math.pow(10, (lufs! + 0.691) / 10),
+        0
+      );
+      const meanLoudness = -0.691 + 10 * Math.log10(sumPower! / integratedBlocks.length);
+      const relativeThreshold = meanLoudness - RELATIVE_GATE_LU;
+
+      // 相対ゲート適用
+      const gatedBlocks = integratedBlocks.filter((l) => l! >= relativeThreshold);
+
+      if (gatedBlocks.length > 0) {
+        const gatedSumPower = gatedBlocks.reduce(
+          (sum, lufs) => sum! + Math.pow(10, (lufs! + 0.691) / 10),
+          0
+        );
+        integrated = -0.691 + 10 * Math.log10(gatedSumPower! / gatedBlocks.length);
+      }
+    }
+
+    // Momentary計算
+    let momentary = -Infinity;
+    if (momentaryBlocks.length > 0) {
+      const sumPower = momentaryBlocks.reduce(
+        (sum, lufs) => sum! + Math.pow(10, (lufs! + 0.691) / 10),
+        0
+      );
+      momentary = -0.691 + 10 * Math.log10(sumPower! / momentaryBlocks.length);
+    }
+
+    // Short-term計算
+    let shortTerm = -Infinity;
+    if (shortTermBlocks.length > 0) {
+      const sumPower = shortTermBlocks.reduce(
+        (sum, lufs) => sum! + Math.pow(10, (lufs! + 0.691) / 10),
+        0
+      );
+      shortTerm = -0.691 + 10 * Math.log10(sumPower! / shortTermBlocks.length);
+    }
+
+    return { integrated, momentary, shortTerm };
+  }
+
+  /**
+   * 状態をリセット
+   */
+  reset(): void {
+    this.blockBuffer = [];
+    this.sampleCount = 0;
+
+    // バッファとフィルタ状態をクリア
+    for (let i = 0; i < this.currentSamples.length; i++) {
+      this.currentSamples[i]!.fill(0);
+      for (let j = 0; j < this.biquadStates[i]!.length; j++) {
+        this.biquadStates[i]![j] = { x1: 0, x2: 0, y1: 0, y2: 0 };
+      }
+    }
+  }
+
+  /**
+   * 現在のブロックバッファ数を取得
+   */
+  getBufferSize(): number {
+    return this.blockBuffer.length;
+  }
+}
+
+export interface RealtimeLUFSOptions {
+  channelMode?: 'mono' | 'stereo';
+  maxDurationMs?: number; // 最大保持時間（デフォルト30秒）
+}
+
+/**
+ * リアルタイムLUFS処理器を取得
+ * @param sampleRate サンプルレート
+ * @param options 処理オプション
+ * @returns リアルタイムLUFS処理器
+ */
+export function getLUFSRealtime(
+  sampleRate: number,
+  options: RealtimeLUFSOptions = {}
+): RealtimeLUFSProcessor {
+  const { channelMode = 'stereo', maxDurationMs = 30000 } = options;
+  return new RealtimeLUFSProcessor(sampleRate, channelMode, maxDurationMs);
 }

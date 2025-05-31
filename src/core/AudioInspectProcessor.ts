@@ -89,8 +89,12 @@ try {
     // LUFS（ラウドネス測定）
     getLUFS: getLUFS as FeatureFunction,
 
-    // フォールバック（他の関数も含む）
-    ...(features as Record<string, FeatureFunction>)
+    // フォールバック（他の関数も含む、ただしクラスは除外）
+    ...(Object.fromEntries(
+      Object.entries(features).filter(
+        ([key, value]) => typeof value === 'function' && key !== 'RealtimeLUFSProcessor'
+      )
+    ) as Record<string, FeatureFunction>)
   };
 } catch (error) {
   console.warn('[AudioInspectProcessor] 一部の機能のインポートに失敗、基本機能のみ使用:', error);

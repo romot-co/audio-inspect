@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getLUFS } from '../../src/features/loudness.js';
+import { getLUFS, getLUFSRealtime } from '../../src/features/loudness.js';
 import type { AudioData } from '../../src/types.js';
 
 // テスト用のAudioDataを作成するヘルパー
@@ -338,6 +338,140 @@ describe('getLUFS', () => {
       if (result.truePeak) {
         expect(result.truePeak.length).toBe(1);
       }
+    });
+  });
+
+  describe('getLUFSRealtime', () => {
+    it('should process audio chunks in real-time', () => {
+      const processor = getLUFSRealtime(48000, { channelMode: 'mono' });
+
+      // 100msのチャンクを処理
+      const chunkSize = 4800; // 100ms
+      const blockSize = Math.floor(0.4 * 48000); // 400ms = 19200 samples
+
+      for (let i = 0; i < 10; i++) {
+        const chunk = createSineWave(1000, chunkSize / 48000, 48000, 0.1);
+        const result = processor.process([chunk]);
+
+        // 最初のブロックが完成するまではデータがない
+        // 400ms必要なので、100msチャンクなら4つ以上必要
+        const samplesProcessed = (i + 1) * chunkSize;
+        if (samplesProcessed < blockSize) {
+          expect(result.integrated).toBe(-Infinity);
+        } else {
+          expect(result.integrated).toBeTypeOf('number');
+          expect(result.momentary).toBeTypeOf('number');
+          expect(result.shortTerm).toBeTypeOf('number');
+        }
+      }
+    });
+
+    it('should handle stereo processing', () => {
+      const processor = getLUFSRealtime(48000, { channelMode: 'stereo' });
+
+      const chunkSize = 4800; // 100ms
+      const left = createSineWave(1000, chunkSize / 48000, 48000, 0.1);
+      const right = createSineWave(1500, chunkSize / 48000, 48000, 0.1);
+
+      for (let i = 0; i < 50; i++) {
+        const result = processor.process([left, right]);
+
+        if (i > 10) {
+          // 十分なデータが蓄積された後
+          expect(result.integrated).toBeTypeOf('number');
+          expect(result.integrated).toBeLessThan(0);
+        }
+      }
+    });
+
+    it('should calculate momentary loudness correctly', () => {
+      const processor = getLUFSRealtime(48000, { channelMode: 'mono' });
+
+      // 400msのチャンクを処理
+      const chunkSize = 19200; // 400ms
+      const signal = createSineWave(1000, chunkSize / 48000, 48000, 0.1);
+
+      const result = processor.process([signal]);
+
+      // 400msのデータがあればmomentaryが計算される
+      expect(result.momentary).toBeTypeOf('number');
+      expect(result.momentary).toBeLessThan(0);
+    });
+
+    it('should calculate short-term loudness correctly', () => {
+      const processor = getLUFSRealtime(48000, { channelMode: 'mono' });
+
+      // 3秒分のデータを100msずつ処理
+      const chunkSize = 4800; // 100ms
+      let lastResult;
+
+      for (let i = 0; i < 30; i++) {
+        // 3秒
+        const chunk = createSineWave(1000, chunkSize / 48000, 48000, 0.1);
+        lastResult = processor.process([chunk]);
+      }
+
+      // 3秒のデータがあればshortTermが計算される
+      expect(lastResult!.shortTerm).toBeTypeOf('number');
+      expect(lastResult!.shortTerm).toBeLessThan(0);
+    });
+
+    it('should reset state correctly', () => {
+      const processor = getLUFSRealtime(48000, { channelMode: 'mono' });
+
+      // 500ms (0.5秒) のチャンクを処理 - これは1ブロック以上
+      const chunk = createSineWave(1000, 0.5, 48000, 0.1);
+      processor.process([chunk]);
+
+      expect(processor.getBufferSize()).toBeGreaterThan(0);
+
+      // リセット
+      processor.reset();
+
+      expect(processor.getBufferSize()).toBe(0);
+
+      // リセット後の最初の処理 - 100msのチャンクを使用
+      const smallChunk = createSineWave(1000, 0.1, 48000, 0.1);
+      const result = processor.process([smallChunk]);
+      expect(result.integrated).toBe(-Infinity);
+    });
+
+    it('should maintain buffer size limit', () => {
+      const processor = getLUFSRealtime(48000, {
+        channelMode: 'mono',
+        maxDurationMs: 5000
+      }); // 5秒の最大バッファ
+
+      // 10秒分のデータを処理
+      const chunkSize = 4800; // 100ms
+      for (let i = 0; i < 100; i++) {
+        const chunk = createSineWave(1000, chunkSize / 48000, 48000, 0.1);
+        processor.process([chunk]);
+      }
+
+      // バッファサイズが制限内に収まっている
+      const expectedMaxBlocks = Math.ceil(5000 / 100); // 5秒 / 100ms hop
+      expect(processor.getBufferSize()).toBeLessThanOrEqual(expectedMaxBlocks);
+    });
+
+    it('should produce consistent results with batch processing', () => {
+      // バッチ処理
+      const signal = createSineWave(1000, 5.0, 48000, 0.1);
+      const audio = createTestAudioData([signal]);
+      const batchResult = getLUFS(audio, { calculateMomentary: true });
+
+      // リアルタイム処理
+      const processor = getLUFSRealtime(48000, { channelMode: 'mono' });
+      const chunkSize = 4800; // 100ms
+      let realtimeResult;
+
+      for (let i = 0; i < Math.floor(signal.length / chunkSize); i++) {
+        const chunk = signal.subarray(i * chunkSize, (i + 1) * chunkSize);
+        realtimeResult = processor.process([new Float32Array(chunk)]);
+      }
+
+      // 結果が近似的に一致する（完全一致は期待しない）
+      expect(Math.abs(realtimeResult!.integrated - batchResult.integrated)).toBeLessThan(1); // 1 LU以内
     });
   });
 });

@@ -72,6 +72,20 @@ export type {
   FFTResult
 } from './core/fft-provider.js';
 
+// STFT/iSTFT機能
+export {
+  generateWindow,
+  stft,
+  istft,
+  STFTProcessor,
+  RealtimeSTFTProcessor
+} from './core/stft.js';
+export type {
+  WindowType,
+  STFTOptions,
+  STFTResult
+} from './core/stft.js';
+
 // すべての特徴量機能
 export * from './features/index.js';
 
