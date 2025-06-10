@@ -1,6 +1,6 @@
 {
   "name": "audio-inspect",
-  "version": "0.0.1-beta.5",
+  "version": "0.0.1-beta.6",
   "description": "Lightweight yet powerful audio analysis library",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -25,7 +25,7 @@
   },
   "files": [
     "dist/**/*.js",
-    "dist/**/*.cjs", 
+    "dist/**/*.cjs",
     "dist/**/*.d.ts",
     "dist/core/AudioInspectProcessor.js",
     "README.md"
