@@ -177,12 +177,11 @@ export async function getFFT(
   const windowedData = applyWindow(inputData, windowFunction);
 
   // FFTプロバイダーを作成（フォールバック機能付き）
-  const tryProviders: FFTProviderType[] = 
-    provider === 'webfft' ? ['webfft', 'native'] : [provider];
-  
+  const tryProviders: FFTProviderType[] = provider === 'webfft' ? ['webfft', 'native'] : [provider];
+
   let lastError: unknown;
   let fftProvider: Awaited<ReturnType<typeof FFTProviderFactory.createProvider>> | null = null;
-  
+
   for (const p of tryProviders) {
     try {
       fftProvider = await FFTProviderFactory.createProvider({
@@ -200,7 +199,7 @@ export async function getFFT(
       }
     }
   }
-  
+
   if (!fftProvider) {
     throw lastError || new AudioInspectError('FFT_PROVIDER_ERROR', 'Failed to create FFT provider');
   }

@@ -9,9 +9,7 @@ declare const AudioWorkletGlobalScope: AudioWorkletGlobalScopeInterface | undefi
 const isAudioWorkletGlobalScope = typeof AudioWorkletGlobalScope !== 'undefined';
 
 // デバッグビルドのチェック
-const __DEV__ = typeof process !== 'undefined'
-  ? process.env.NODE_ENV !== 'production'
-  : false;
+const __DEV__ = typeof process !== 'undefined' ? process.env.NODE_ENV !== 'production' : false;
 
 import {
   AudioInspectProcessorOptions,
