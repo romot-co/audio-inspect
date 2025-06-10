@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Inspect - ラウドネス測定デモ</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    h1 {
+      color: #333;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    .controls {
+      margin-bottom: 30px;
+      text-align: center;
+    }
+    
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      margin: 5px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    
+    button:hover {
+      background: #0056b3;
+    }
+    
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    .status {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 3px;
+    }
+    
+    .status.recording {
+      background: #d4edda;
+      color: #155724;
+    }
+    
+    .status.processing {
+      background: #fff3cd;
+      color: #856404;
+    }
+    
+    .lufs-display {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      border-radius: 15px;
+      text-align: center;
+      margin: 30px 0;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    
+    .lufs-value {
+      font-size: 4em;
+      font-weight: bold;
+      margin: 10px 0;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .lufs-label {
+      font-size: 1.2em;
+      opacity: 0.9;
+    }
+    
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      margin: 30px 0;
+    }
+    
+    .metric-card {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      text-align: center;
+      border-left: 4px solid #007bff;
+    }
+    
+    .metric-value {
+      font-size: 2em;
+      font-weight: bold;
+      color: #007bff;
+      margin: 10px 0;
+    }
+    
+    .metric-label {
+      color: #666;
+      font-size: 0.9em;
+    }
+    
+    .loudness-range {
+      margin: 20px 0;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border-left: 4px solid #28a745;
+    }
+    
+    .range-bar {
+      height: 20px;
+      background: linear-gradient(90deg, #dc3545, #ffc107, #28a745);
+      border-radius: 10px;
+      position: relative;
+      margin: 10px 0;
+    }
+    
+    .range-indicator {
+      position: absolute;
+      top: -5px;
+      width: 4px;
+      height: 30px;
+      background: #333;
+      transform: translateX(-2px);
+      transition: left 0.3s ease;
+    }
+    
+    .range-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #666;
+    }
+    
+    .canvas-container {
+      margin: 20px 0;
+      text-align: center;
+    }
+    
+    canvas {
+      border: 1px solid #ddd;
+      background: white;
+      margin: 10px;
+    }
+    
+    .results {
+      margin-top: 20px;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 5px;
+      border-left: 4px solid #007bff;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    .result-item {
+      margin: 10px 0;
+      padding: 10px;
+      background: white;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    
+    .error {
+      color: #dc3545;
+      background: #f8d7da;
+      border-color: #f5c6cb;
+    }
+    
+    .warning {
+      background: #fff3cd;
+      border-left-color: #ffc107;
+      color: #856404;
+    }
+    
+    .info-panel {
+      background: #e3f2fd;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 20px 0;
+      border-left: 4px solid #2196f3;
+    }
+    
+    .info-panel h4 {
+      margin-top: 0;
+      color: #1976d2;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔊 ラウドネス測定デモ (LUFS)</h1>
+    
+    <div class="info-panel">
+      <h4>LUFS (Loudness Units relative to Full Scale) について</h4>
+      <p>
+        LUFSは放送・配信業界で標準的に使用されるラウドネス測定単位です。
+        人間の聴覚特性に基づいた測定を行い、音量の主観的な感じ方をより正確に表現します。
+      </p>
+      <ul>
+        <li><strong>放送基準:</strong> -23 LUFS (日本・欧州) / -24 LUFS (米国)</li>
+        <li><strong>音楽配信:</strong> -14 LUFS (Spotify, Apple Music)</li>
+        <li><strong>YouTube:</strong> -14 LUFS</li>
+      </ul>
+    </div>
+    
+    <div class="controls">
+      <button id="startBtn">🎤 測定開始</button>
+      <button id="stopBtn" disabled>⏹️ 停止</button>
+      <button id="resetBtn">🔄 リセット</button>
+    </div>
+    
+    <div id="status" class="status">マイクアクセスを許可して「測定開始」ボタンを押してください</div>
+    
+    <div class="lufs-display">
+      <div id="lufsValue" class="lufs-value">-∞</div>
+      <div class="lufs-label">LUFS (Integrated Loudness)</div>
+    </div>
+    
+    <div class="loudness-range">
+      <h4>ラウドネス範囲</h4>
+      <div class="range-bar">
+        <div id="lufsIndicator" class="range-indicator"></div>
+      </div>
+      <div class="range-labels">
+        <span>-40 LUFS</span>
+        <span>-30 LUFS</span>
+        <span>-20 LUFS</span>
+        <span>-10 LUFS</span>
+        <span>0 LUFS</span>
+      </div>
+    </div>
+    
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div id="momentaryLufs" class="metric-value">-∞</div>
+        <div class="metric-label">Momentary LUFS<br>(400ms)</div>
+      </div>
+      <div class="metric-card">
+        <div id="shortTermLufs" class="metric-value">-∞</div>
+        <div class="metric-label">Short-term LUFS<br>(3s)</div>
+      </div>
+      <div class="metric-card">
+        <div id="loudnessRange" class="metric-value">0</div>
+        <div class="metric-label">Loudness Range<br>(LU)</div>
+      </div>
+      <div class="metric-card">
+        <div id="truePeak" class="metric-value">-∞</div>
+        <div class="metric-label">True Peak<br>(dBTP)</div>
+      </div>
+    </div>
+    
+    <div class="canvas-container">
+      <div>
+        <canvas id="lufsHistory" width="800" height="200"></canvas>
+        <div style="font-size: 12px; color: #666;">LUFS値の時系列変化</div>
+      </div>
+      <div>
+        <canvas id="gatingVisualization" width="800" height="150"></canvas>
+        <div style="font-size: 12px; color: #666;">ゲーティング処理の可視化</div>
+      </div>
+    </div>
+    
+    <div class="results">
+      <h3>測定結果 (最新10件)</h3>
+      <div id="results"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    class LoudnessDemo {
+      constructor() {
+        this.audioContext = null;
+        this.stream = null;
+        this.source = null;
+        this.audioInspectNode = null;
+        this.isRecording = false;
+        
+        this.lufsHistory = [];
+        this.momentaryHistory = [];
+        this.maxHistoryLength = 300; // 5分 (1秒間隔)
+        
+        this.setupEventListeners();
+        this.setupCanvas();
+      }
+      
+      setupEventListeners() {
+        document.getElementById('startBtn').addEventListener('click', () => this.startAnalysis());
+        document.getElementById('stopBtn').addEventListener('click', () => this.stopAnalysis());
+        document.getElementById('resetBtn').addEventListener('click', () => this.resetMeasurement());
+      }
+      
+      setupCanvas() {
+        this.historyCanvas = document.getElementById('lufsHistory');
+        this.historyCtx = this.historyCanvas.getContext('2d');
+        
+        this.gatingCanvas = document.getElementById('gatingVisualization');
+        this.gatingCtx = this.gatingCanvas.getContext('2d');
+        
+        this.clearCanvases();
+      }
+      
+      clearCanvases() {
+        this.historyCtx.clearRect(0, 0, this.historyCanvas.width, this.historyCanvas.height);
+        this.historyCtx.fillStyle = '#f8f9fa';
+        this.historyCtx.fillRect(0, 0, this.historyCanvas.width, this.historyCanvas.height);
+        
+        this.gatingCtx.clearRect(0, 0, this.gatingCanvas.width, this.gatingCanvas.height);
+        this.gatingCtx.fillStyle = '#f8f9fa';
+        this.gatingCtx.fillRect(0, 0, this.gatingCanvas.width, this.gatingCanvas.height);
+      }
+      
+      async startAnalysis() {
+        try {
+          this.setStatus('初期化中...', 'processing');
+          
+          this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          
+          this.stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+              sampleRate: 48000 // LUFS測定に推奨
+            } 
+          });
+          
+          this.source = this.audioContext.createMediaStreamSource(this.stream);
+          
+          await this.loadAudioWorklet();
+          await this.startLufsMeasurement();
+          
+          document.getElementById('startBtn').disabled = true;
+          document.getElementById('stopBtn').disabled = false;
+          this.setStatus('🔴 Recording and measuring loudness...', 'recording');
+          
+        } catch (error) {
+          console.error('Failed to start analysis:', error);
+          this.addError(`初期化失敗: ${error.message}`);
+          this.setStatus('エラーが発生しました', 'error');
+        }
+      }
+      
+      async loadAudioWorklet() {
+        const processorCode = `
+class LoudnessProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.bufferSize = 2048;
+    this.buffer = new Float32Array(this.bufferSize);
+    this.bufferIndex = 0;
+    
+    // LUFS測定用のフィルタとバッファ
+    this.preFilter = this.createPreFilter(sampleRate);
+    this.kWeightingFilter = this.createKWeightingFilter(sampleRate);
+    
+    // ゲーティング用のバッファ
+    this.momentaryBuffer = [];
+    this.shortTermBuffer = [];
+    this.integratedBuffer = [];
+    
+    this.lastMomentaryTime = 0;
+    this.lastShortTermTime = 0;
+    this.lastIntegratedTime = 0;
+  }
+  
+  process(inputs, outputs, parameters) {
+    const input = inputs[0];
+    if (!input || !input[0]) return true;
+    
+    const inputData = input[0];
+    
+    for (let i = 0; i < inputData.length; i++) {
+      this.buffer[this.bufferIndex] = inputData[i];
+      this.bufferIndex = (this.bufferIndex + 1) % this.bufferSize;
+      
+      if (this.bufferIndex === 0) {
+        this.processLoudness();
+      }
+    }
+    
+    return true;
+  }
+  
+  processLoudness() {
+    // フィルタリング
+    const preFiltered = this.applyFilter(Array.from(this.buffer), this.preFilter);
+    const kWeighted = this.applyFilter(preFiltered, this.kWeightingFilter);
+    
+    // 平均二乗の計算
+    const meanSquare = this.calculateMeanSquare(kWeighted);
+    const loudness = this.meanSquareToLufs(meanSquare);
+    
+    const currentTime = Date.now();
+    
+    // Momentary LUFS (400ms)
+    this.momentaryBuffer.push({ loudness, time: currentTime });
+    this.momentaryBuffer = this.momentaryBuffer.filter(item => 
+      currentTime - item.time <= 400
+    );
+    
+    // Short-term LUFS (3s)
+    this.shortTermBuffer.push({ loudness, time: currentTime });
+    this.shortTermBuffer = this.shortTermBuffer.filter(item => 
+      currentTime - item.time <= 3000
+    );
+    
+    // Integrated LUFS (累積)
+    this.integratedBuffer.push({ loudness, time: currentTime });
+    
+    // 結果計算
+    const momentaryLufs = this.calculateGatedLoudness(this.momentaryBuffer);
+    const shortTermLufs = this.calculateGatedLoudness(this.shortTermBuffer);
+    const integratedLufs = this.calculateIntegratedLoudness();
+    
+    // True Peak計算
+    const truePeak = this.calculateTruePeak(Array.from(this.buffer));
+    
+    // Loudness Range計算
+    const loudnessRange = this.calculateLoudnessRange();
+    
+    this.port.postMessage({
+      type: 'loudnessResult',
+      data: {
+        momentaryLufs,
+        shortTermLufs,
+        integratedLufs,
+        truePeak,
+        loudnessRange,
+        timestamp: currentTime,
+        gatingData: this.getGatingVisualizationData()
+      }
+    });
+  }
+  
+  createPreFilter(sampleRate) {
+    // IEC 61672-1準拠のプリフィルタ
+    // 高域通過フィルタ（1681Hz, 2次）
+    const fc = 1681.974450955533;
+    const Q = 1 / Math.sqrt(2);
+    return this.createBiquadFilter('highpass', fc, Q, sampleRate);
+  }
+  
+  createKWeightingFilter(sampleRate) {
+    // ITU-R BS.1770-4準拠のK重み付けフィルタ
+    const fc = 38.13547087602444;
+    const Q = 0.5003270373238773;
+    return this.createBiquadFilter('highpass', fc, Q, sampleRate);
+  }
+  
+  createBiquadFilter(type, fc, Q, sampleRate) {
+    const omega = 2 * Math.PI * fc / sampleRate;
+    const sin = Math.sin(omega);
+    const cos = Math.cos(omega);
+    const alpha = sin / (2 * Q);
+    
+    let b0, b1, b2, a0, a1, a2;
+    
+    if (type === 'highpass') {
+      b0 = (1 + cos) / 2;
+      b1 = -(1 + cos);
+      b2 = (1 + cos) / 2;
+      a0 = 1 + alpha;
+      a1 = -2 * cos;
+      a2 = 1 - alpha;
+    }
+    
+    return {
+      b0: b0 / a0,
+      b1: b1 / a0,
+      b2: b2 / a0,
+      a1: a1 / a0,
+      a2: a2 / a0,
+      x1: 0,
+      x2: 0,
+      y1: 0,
+      y2: 0
+    };
+  }
+  
+  applyFilter(input, filter) {
+    const output = [];
+    
+    for (let i = 0; i < input.length; i++) {
+      const x = input[i];
+      const y = filter.b0 * x + filter.b1 * filter.x1 + filter.b2 * filter.x2
+                - filter.a1 * filter.y1 - filter.a2 * filter.y2;
+      
+      filter.x2 = filter.x1;
+      filter.x1 = x;
+      filter.y2 = filter.y1;
+      filter.y1 = y;
+      
+      output.push(y);
+    }
+    
+    return output;
+  }
+  
+  calculateMeanSquare(signal) {
+    let sum = 0;
+    for (let i = 0; i < signal.length; i++) {
+      sum += signal[i] * signal[i];
+    }
+    return sum / signal.length;
+  }
+  
+  meanSquareToLufs(meanSquare) {
+    if (meanSquare <= 0) return -Infinity;
+    return -0.691 + 10 * Math.log10(meanSquare);
+  }
+  
+  calculateGatedLoudness(buffer) {
+    if (buffer.length === 0) return -Infinity;
+    
+    // ゲーティング処理（-70 LUFS以下は除外）
+    const validMeasurements = buffer.filter(item => item.loudness > -70);
+    
+    if (validMeasurements.length === 0) return -Infinity;
+    
+    // 線形平均
+    let sum = 0;
+    for (const measurement of validMeasurements) {
+      sum += Math.pow(10, measurement.loudness / 10);
+    }
+    
+    return 10 * Math.log10(sum / validMeasurements.length);
+  }
+  
+  calculateIntegratedLoudness() {
+    if (this.integratedBuffer.length === 0) return -Infinity;
+    
+    // 2段階ゲーティング
+    // 1段階目: -70 LUFS
+    const firstGated = this.integratedBuffer.filter(item => item.loudness > -70);
+    if (firstGated.length === 0) return -Infinity;
+    
+    // 相対ゲート計算
+    const meanLoudness = this.calculateGatedLoudness(firstGated);
+    const relativeGate = meanLoudness - 10;
+    
+    // 2段階目: 相対ゲート
+    const secondGated = firstGated.filter(item => item.loudness > relativeGate);
+    if (secondGated.length === 0) return -Infinity;
+    
+    return this.calculateGatedLoudness(secondGated);
+  }
+  
+  calculateTruePeak(signal) {
+    // 簡易True Peak計算（実際にはアップサンプリングが必要）
+    let peak = 0;
+    for (let i = 0; i < signal.length; i++) {
+      const abs = Math.abs(signal[i]);
+      if (abs > peak) peak = abs;
+    }
+    
+    // dBTPに変換
+    return peak > 0 ? 20 * Math.log10(peak) : -Infinity;
+  }
+  
+  calculateLoudnessRange() {
+    if (this.integratedBuffer.length < 30) return 0; // 最低3秒必要
+    
+    // 短期間ラウドネス値のソート
+    const shortTermValues = [];
+    for (let i = 0; i < this.integratedBuffer.length - 29; i++) {
+      const segment = this.integratedBuffer.slice(i, i + 30);
+      const loudness = this.calculateGatedLoudness(segment);
+      if (loudness > -Infinity) {
+        shortTermValues.push(loudness);
+      }
+    }
+    
+    if (shortTermValues.length === 0) return 0;
+    
+    shortTermValues.sort((a, b) => a - b);
+    
+    // 10%点と95%点の差
+    const idx10 = Math.floor(shortTermValues.length * 0.1);
+    const idx95 = Math.floor(shortTermValues.length * 0.95);
+    
+    return shortTermValues[idx95] - shortTermValues[idx10];
+  }
+  
+  getGatingVisualizationData() {
+    const recentData = this.integratedBuffer.slice(-100); // 最新100フレーム
+    return recentData.map(item => ({
+      loudness: item.loudness,
+      gated: item.loudness > -70,
+      time: item.time
+    }));
+  }
+}
+
+registerProcessor('loudness-processor', LoudnessProcessor);
+        `;
+        
+        const blob = new Blob([processorCode], { type: 'application/javascript' });
+        const workletUrl = URL.createObjectURL(blob);
+        
+        await this.audioContext.audioWorklet.addModule(workletUrl);
+        URL.revokeObjectURL(workletUrl);
+      }
+      
+      async startLufsMeasurement() {
+        this.audioInspectNode = new AudioWorkletNode(this.audioContext, 'loudness-processor');
+        
+        this.audioInspectNode.port.onmessage = (event) => {
+          if (event.data.type === 'loudnessResult') {
+            this.handleLoudnessResult(event.data.data);
+          }
+        };
+        
+        this.source.connect(this.audioInspectNode);
+        this.isRecording = true;
+      }
+      
+      handleLoudnessResult(data) {
+        // メイン表示更新
+        this.updateLufsDisplay(data.integratedLufs);
+        
+        // メトリクス更新
+        document.getElementById('momentaryLufs').textContent = 
+          data.momentaryLufs === -Infinity ? '-∞' : data.momentaryLufs.toFixed(1);
+        document.getElementById('shortTermLufs').textContent = 
+          data.shortTermLufs === -Infinity ? '-∞' : data.shortTermLufs.toFixed(1);
+        document.getElementById('loudnessRange').textContent = data.loudnessRange.toFixed(1);
+        document.getElementById('truePeak').textContent = 
+          data.truePeak === -Infinity ? '-∞' : data.truePeak.toFixed(1);
+        
+        // 履歴更新
+        this.addToHistory(data);
+        
+        // 可視化更新
+        this.drawLufsHistory();
+        this.drawGatingVisualization(data.gatingData);
+        
+        // 警告チェック
+        this.checkLoudnessStandards(data);
+        
+        // 結果表示
+        this.addResult(data);
+      }
+      
+      updateLufsDisplay(lufs) {
+        const lufsElement = document.getElementById('lufsValue');
+        const indicatorElement = document.getElementById('lufsIndicator');
+        
+        if (lufs === -Infinity) {
+          lufsElement.textContent = '-∞';
+          indicatorElement.style.left = '0%';
+        } else {
+          lufsElement.textContent = lufs.toFixed(1);
+          
+          // インジケーター位置更新 (-40 to 0 LUFS範囲)
+          const position = Math.max(0, Math.min(100, (lufs + 40) / 40 * 100));
+          indicatorElement.style.left = position + '%';
+          
+          // 色変更
+          if (lufs > -10) {
+            lufsElement.style.color = '#dc3545'; // 赤（危険）
+          } else if (lufs > -18) {
+            lufsElement.style.color = '#ffc107'; // 黄（注意）
+          } else {
+            lufsElement.style.color = 'white'; // 白（正常）
+          }
+        }
+      }
+      
+      addToHistory(data) {
+        this.lufsHistory.push({
+          integrated: data.integratedLufs,
+          momentary: data.momentaryLufs,
+          shortTerm: data.shortTermLufs,
+          timestamp: data.timestamp
+        });
+        
+        if (this.lufsHistory.length > this.maxHistoryLength) {
+          this.lufsHistory.shift();
+        }
+      }
+      
+      drawLufsHistory() {
+        const canvas = this.historyCanvas;
+        const ctx = this.historyCtx;
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#f8f9fa';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        if (this.lufsHistory.length < 2) return;
+        
+        // グリッド描画
+        this.drawGrid(ctx, canvas, -40, 0, 5, 'LUFS');
+        
+        const step = canvas.width / this.maxHistoryLength;
+        
+        // Integrated LUFS
+        this.drawLufsLine(ctx, this.lufsHistory.map(h => h.integrated), step, canvas.height, '#007bff', 2);
+        
+        // Short-term LUFS
+        this.drawLufsLine(ctx, this.lufsHistory.map(h => h.shortTerm), step, canvas.height, '#28a745', 1);
+        
+        // Momentary LUFS
+        this.drawLufsLine(ctx, this.lufsHistory.map(h => h.momentary), step, canvas.height, '#ffc107', 1);
+        
+        // 基準線
+        this.drawReferenceLine(ctx, canvas, -23, '#dc3545', '放送基準 (-23 LUFS)');
+        this.drawReferenceLine(ctx, canvas, -14, '#fd7e14', '配信基準 (-14 LUFS)');
+        
+        // 凡例
+        this.drawLegend(ctx, canvas);
+      }
+      
+      drawLufsLine(ctx, values, step, height, color, lineWidth) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.beginPath();
+        
+        let started = false;
+        for (let i = 0; i < values.length; i++) {
+          const value = values[i];
+          if (value === -Infinity) continue;
+          
+          const x = i * step;
+          const y = height - ((value + 40) / 40) * height;
+          
+          if (!started) {
+            ctx.moveTo(x, y);
+            started = true;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        
+        ctx.stroke();
+      }
+      
+      drawGrid(ctx, canvas, min, max, interval, unit) {
+        ctx.strokeStyle = '#e0e0e0';
+        ctx.lineWidth = 1;
+        ctx.font = '10px Arial';
+        ctx.fillStyle = '#666';
+        
+        // 水平線
+        for (let value = min; value <= max; value += interval) {
+          const y = canvas.height - ((value - min) / (max - min)) * canvas.height;
+          
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(canvas.width, y);
+          ctx.stroke();
+          
+          ctx.fillText(`${value} ${unit}`, 5, y - 5);
+        }
+      }
+      
+      drawReferenceLine(ctx, canvas, value, color, label) {
+        const y = canvas.height - ((value + 40) / 40) * canvas.height;
+        
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+        
+        ctx.setLineDash([]);
+        
+        // ラベル
+        ctx.fillStyle = color;
+        ctx.font = '12px Arial';
+        ctx.fillText(label, canvas.width - 150, y - 5);
+      }
+      
+      drawLegend(ctx, canvas) {
+        const legends = [
+          { color: '#007bff', label: 'Integrated', width: 2 },
+          { color: '#28a745', label: 'Short-term', width: 1 },
+          { color: '#ffc107', label: 'Momentary', width: 1 }
+        ];
+        
+        let x = 10;
+        const y = 20;
+        
+        for (const legend of legends) {
+          ctx.strokeStyle = legend.color;
+          ctx.lineWidth = legend.width;
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + 20, y);
+          ctx.stroke();
+          
+          ctx.fillStyle = legend.color;
+          ctx.font = '12px Arial';
+          ctx.fillText(legend.label, x + 25, y + 4);
+          
+          x += 100;
+        }
+      }
+      
+      drawGatingVisualization(gatingData) {
+        const canvas = this.gatingCanvas;
+        const ctx = this.gatingCtx;
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#f8f9fa';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        if (!gatingData || gatingData.length === 0) return;
+        
+        const barWidth = canvas.width / gatingData.length;
+        
+        for (let i = 0; i < gatingData.length; i++) {
+          const data = gatingData[i];
+          const x = i * barWidth;
+          
+          // ゲートされていない部分は赤、ゲートされた部分は緑
+          ctx.fillStyle = data.gated ? '#28a745' : '#dc3545';
+          
+          // ラウドネス値に応じた高さ
+          const normalizedHeight = data.loudness > -70 ? 
+            ((data.loudness + 70) / 70) * canvas.height : 0;
+          
+          ctx.fillRect(x, canvas.height - normalizedHeight, barWidth, normalizedHeight);
+        }
+        
+        // ゲート線（-70 LUFS）
+        const gateY = canvas.height - (0 / 70) * canvas.height;
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(0, gateY);
+        ctx.lineTo(canvas.width, gateY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // ラベル
+        ctx.fillStyle = '#333';
+        ctx.font = '12px Arial';
+        ctx.fillText('ゲート: -70 LUFS', 10, gateY - 5);
+      }
+      
+      checkLoudnessStandards(data) {
+        const lufs = data.integratedLufs;
+        const truePeak = data.truePeak;
+        
+        let warnings = [];
+        
+        if (lufs > -10) {
+          warnings.push('音量が大きすぎます（-10 LUFS超過）');
+        } else if (lufs > -14) {
+          warnings.push('配信プラットフォームで音量が下げられる可能性があります');
+        }
+        
+        if (truePeak > -1) {
+          warnings.push('True Peakが-1 dBTPを超過しています（クリッピングのリスク）');
+        }
+        
+        if (data.loudnessRange > 20) {
+          warnings.push('ラウドネス範囲が大きすぎます（20 LU超過）');
+        }
+        
+        for (const warning of warnings) {
+          this.addWarning(warning);
+        }
+      }
+      
+      resetMeasurement() {
+        this.lufsHistory = [];
+        this.momentaryHistory = [];
+        
+        // 表示リセット
+        document.getElementById('lufsValue').textContent = '-∞';
+        document.getElementById('momentaryLufs').textContent = '-∞';
+        document.getElementById('shortTermLufs').textContent = '-∞';
+        document.getElementById('loudnessRange').textContent = '0';
+        document.getElementById('truePeak').textContent = '-∞';
+        
+        // インジケーターリセット
+        document.getElementById('lufsIndicator').style.left = '0%';
+        document.getElementById('lufsValue').style.color = 'white';
+        
+        this.clearCanvases();
+        this.clearResults();
+      }
+      
+      stopAnalysis() {
+        this.isRecording = false;
+        
+        if (this.audioInspectNode) {
+          this.source.disconnect(this.audioInspectNode);
+          this.audioInspectNode = null;
+        }
+        
+        if (this.stream) {
+          this.stream.getTracks().forEach(track => track.stop());
+          this.stream = null;
+        }
+        
+        if (this.audioContext) {
+          this.audioContext.close();
+          this.audioContext = null;
+        }
+        
+        this.source = null;
+        
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+        this.setStatus('⏹️ 測定を停止しました', 'info');
+      }
+      
+      addResult(data) {
+        const resultsContainer = document.getElementById('results');
+        const resultDiv = document.createElement('div');
+        resultDiv.className = 'result-item';
+        
+        const timeStr = new Date(data.timestamp).toLocaleTimeString();
+        
+        resultDiv.innerHTML = `
+          <strong>${timeStr}:</strong><br>
+          Integrated: ${data.integratedLufs === -Infinity ? '-∞' : data.integratedLufs.toFixed(1)} LUFS<br>
+          Short-term: ${data.shortTermLufs === -Infinity ? '-∞' : data.shortTermLufs.toFixed(1)} LUFS<br>
+          Momentary: ${data.momentaryLufs === -Infinity ? '-∞' : data.momentaryLufs.toFixed(1)} LUFS<br>
+          Range: ${data.loudnessRange.toFixed(1)} LU<br>
+          True Peak: ${data.truePeak === -Infinity ? '-∞' : data.truePeak.toFixed(1)} dBTP
+        `;
+        
+        resultsContainer.appendChild(resultDiv);
+        
+        while (resultsContainer.children.length > 10) {
+          resultsContainer.removeChild(resultsContainer.firstChild);
+        }
+        
+        resultDiv.scrollIntoView({ behavior: 'smooth' });
+      }
+      
+      addWarning(message) {
+        const resultsContainer = document.getElementById('results');
+        const warningDiv = document.createElement('div');
+        warningDiv.className = 'result-item warning';
+        warningDiv.innerHTML = `<strong>⚠️ 警告:</strong> ${message}`;
+        resultsContainer.appendChild(warningDiv);
+      }
+      
+      addError(message) {
+        const resultsContainer = document.getElementById('results');
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'result-item error';
+        errorDiv.innerHTML = `<strong>Error:</strong> ${message}`;
+        resultsContainer.appendChild(errorDiv);
+      }
+      
+      clearResults() {
+        document.getElementById('results').innerHTML = '';
+      }
+      
+      setStatus(message, type = 'info') {
+        const statusDiv = document.getElementById('status');
+        statusDiv.className = `status ${type}`;
+        statusDiv.textContent = message;
+      }
+    }
+    
+    // デモ開始
+    new LoudnessDemo();
+  </script>
+</body>
+</html>

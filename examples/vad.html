@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Inspect - VAD (音声区間検出) デモ</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    h1 {
+      color: #333;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    .controls {
+      margin-bottom: 30px;
+      text-align: center;
+    }
+    
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      margin: 5px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    
+    button:hover {
+      background: #0056b3;
+    }
+    
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    .status {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 3px;
+    }
+    
+    .status.recording {
+      background: #d4edda;
+      color: #155724;
+    }
+    
+    .status.processing {
+      background: #fff3cd;
+      color: #856404;
+    }
+    
+    .vad-status {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      border-radius: 15px;
+      text-align: center;
+      margin: 30px 0;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+      transition: all 0.3s ease;
+    }
+    
+    .vad-status.speech {
+      background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+    }
+    
+    .vad-status.silence {
+      background: linear-gradient(135deg, #9E9E9E 0%, #757575 100%);
+    }
+    
+    .vad-indicator {
+      font-size: 4em;
+      margin: 10px 0;
+    }
+    
+    .vad-label {
+      font-size: 1.5em;
+      font-weight: bold;
+    }
+    
+    .vad-confidence {
+      font-size: 1em;
+      opacity: 0.8;
+      margin-top: 10px;
+    }
+    
+    .parameters {
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+    
+    .parameter-group {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin: 15px 0;
+    }
+    
+    .parameter {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .parameter label {
+      font-weight: bold;
+      margin-bottom: 5px;
+      color: #333;
+    }
+    
+    .parameter input[type="range"] {
+      width: 100%;
+    }
+    
+    .parameter-value {
+      text-align: center;
+      font-family: monospace;
+      background: white;
+      padding: 5px;
+      border-radius: 3px;
+      margin-top: 5px;
+    }
+    
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+    }
+    
+    .metric-card {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      text-align: center;
+      border-left: 4px solid #007bff;
+    }
+    
+    .metric-value {
+      font-size: 1.5em;
+      font-weight: bold;
+      color: #007bff;
+      margin: 5px 0;
+    }
+    
+    .metric-label {
+      color: #666;
+      font-size: 0.8em;
+    }
+    
+    .canvas-container {
+      margin: 20px 0;
+      text-align: center;
+    }
+    
+    canvas {
+      border: 1px solid #ddd;
+      background: white;
+      margin: 10px;
+    }
+    
+    .segments-container {
+      margin: 20px 0;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+    
+    .segment {
+      display: inline-block;
+      padding: 5px 10px;
+      margin: 2px;
+      border-radius: 15px;
+      font-size: 12px;
+      font-family: monospace;
+    }
+    
+    .segment.speech {
+      background: #d4edda;
+      color: #155724;
+    }
+    
+    .segment.silence {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    
+    .results {
+      margin-top: 20px;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 5px;
+      border-left: 4px solid #007bff;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    .result-item {
+      margin: 10px 0;
+      padding: 10px;
+      background: white;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    
+    .error {
+      color: #dc3545;
+      background: #f8d7da;
+      border-color: #f5c6cb;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎙️ VAD (音声区間検出) デモ</h1>
+    
+    <div class="controls">
+      <button id="startBtn">🎤 検出開始</button>
+      <button id="stopBtn" disabled>⏹️ 停止</button>
+      <button id="resetBtn">🔄 リセット</button>
+    </div>
+    
+    <div id="status" class="status">マイクアクセスを許可して「検出開始」ボタンを押してください</div>
+    
+    <div id="vadStatus" class="vad-status">
+      <div id="vadIndicator" class="vad-indicator">🔇</div>
+      <div id="vadLabel" class="vad-label">待機中</div>
+      <div id="vadConfidence" class="vad-confidence">信頼度: 0%</div>
+    </div>
+    
+    <div class="parameters">
+      <h3>VADパラメータ</h3>
+      <div class="parameter-group">
+        <div class="parameter">
+          <label for="energyThreshold">エネルギー閾値</label>
+          <input type="range" id="energyThreshold" min="0.001" max="0.1" step="0.001" value="0.01">
+          <div id="energyThresholdValue" class="parameter-value">0.010</div>
+        </div>
+        <div class="parameter">
+          <label for="zcrThreshold">ZCR閾値</label>
+          <input type="range" id="zcrThreshold" min="0.1" max="2.0" step="0.1" value="0.5">
+          <div id="zcrThresholdValue" class="parameter-value">0.5</div>
+        </div>
+        <div class="parameter">
+          <label for="minSpeechDuration">最小音声長 (ms)</label>
+          <input type="range" id="minSpeechDuration" min="100" max="1000" step="50" value="300">
+          <div id="minSpeechDurationValue" class="parameter-value">300</div>
+        </div>
+        <div class="parameter">
+          <label for="minSilenceDuration">最小無音長 (ms)</label>
+          <input type="range" id="minSilenceDuration" min="100" max="1000" step="50" value="200">
+          <div id="minSilenceDurationValue" class="parameter-value">200</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div id="currentEnergy" class="metric-value">0.000</div>
+        <div class="metric-label">現在のエネルギー</div>
+      </div>
+      <div class="metric-card">
+        <div id="currentZCR" class="metric-value">0.000</div>
+        <div class="metric-label">現在のZCR</div>
+      </div>
+      <div class="metric-card">
+        <div id="speechRatio" class="metric-value">0%</div>
+        <div class="metric-label">音声区間比率</div>
+      </div>
+      <div class="metric-card">
+        <div id="segmentCount" class="metric-value">0</div>
+        <div class="metric-label">検出セグメント数</div>
+      </div>
+    </div>
+    
+    <div class="canvas-container">
+      <div>
+        <canvas id="vadVisualization" width="800" height="200"></canvas>
+        <div style="font-size: 12px; color: #666;">VAD検出結果（緑: 音声、赤: 無音）</div>
+      </div>
+      <div>
+        <canvas id="featureVisualization" width="800" height="200"></canvas>
+        <div style="font-size: 12px; color: #666;">特徴量の時系列変化（青: エネルギー、オレンジ: ZCR）</div>
+      </div>
+    </div>
+    
+    <div class="segments-container">
+      <h3>検出された音声セグメント</h3>
+      <div id="segments"></div>
+    </div>
+    
+    <div class="results">
+      <h3>検出結果 (最新10件)</h3>
+      <div id="results"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    class VADDemo {
+      constructor() {
+        this.audioContext = null;
+        this.stream = null;
+        this.source = null;
+        this.audioInspectNode = null;
+        this.isRecording = false;
+        
+        this.vadHistory = [];
+        this.featureHistory = [];
+        this.segments = [];
+        this.currentSegment = null;
+        this.maxHistoryLength = 200;
+        
+        this.totalFrames = 0;
+        this.speechFrames = 0;
+        
+        this.setupEventListeners();
+        this.setupCanvas();
+        this.updateParameterValues();
+      }
+      
+      setupEventListeners() {
+        document.getElementById('startBtn').addEventListener('click', () => this.startAnalysis());
+        document.getElementById('stopBtn').addEventListener('click', () => this.stopAnalysis());
+        document.getElementById('resetBtn').addEventListener('click', () => this.resetDetection());
+        
+        // パラメータ変更
+        const parameters = ['energyThreshold', 'zcrThreshold', 'minSpeechDuration', 'minSilenceDuration'];
+        parameters.forEach(param => {
+          const slider = document.getElementById(param);
+          slider.addEventListener('input', () => {
+            this.updateParameterValues();
+            this.updateVADParameters();
+          });
+        });
+      }
+      
+      setupCanvas() {
+        this.vadCanvas = document.getElementById('vadVisualization');
+        this.vadCtx = this.vadCanvas.getContext('2d');
+        
+        this.featureCanvas = document.getElementById('featureVisualization');
+        this.featureCtx = this.featureCanvas.getContext('2d');
+        
+        this.clearCanvases();
+      }
+      
+      updateParameterValues() {
+        const parameters = ['energyThreshold', 'zcrThreshold', 'minSpeechDuration', 'minSilenceDuration'];
+        parameters.forEach(param => {
+          const slider = document.getElementById(param);
+          const display = document.getElementById(param + 'Value');
+          display.textContent = parseFloat(slider.value).toFixed(3);
+        });
+      }
+      
+      clearCanvases() {
+        this.vadCtx.clearRect(0, 0, this.vadCanvas.width, this.vadCanvas.height);
+        this.vadCtx.fillStyle = '#f8f9fa';
+        this.vadCtx.fillRect(0, 0, this.vadCanvas.width, this.vadCanvas.height);
+        
+        this.featureCtx.clearRect(0, 0, this.featureCanvas.width, this.featureCanvas.height);
+        this.featureCtx.fillStyle = '#f8f9fa';
+        this.featureCtx.fillRect(0, 0, this.featureCanvas.width, this.featureCanvas.height);
+      }
+      
+      async startAnalysis() {
+        try {
+          this.setStatus('初期化中...', 'processing');
+          
+          this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          
+          this.stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false
+            } 
+          });
+          
+          this.source = this.audioContext.createMediaStreamSource(this.stream);
+          
+          await this.loadAudioWorklet();
+          await this.startVADDetection();
+          
+          document.getElementById('startBtn').disabled = true;
+          document.getElementById('stopBtn').disabled = false;
+          this.setStatus('🔴 Recording and detecting voice activity...', 'recording');
+          
+        } catch (error) {
+          console.error('Failed to start analysis:', error);
+          this.addError(`初期化失敗: ${error.message}`);
+          this.setStatus('エラーが発生しました', 'error');
+        }
+      }
+      
+      async loadAudioWorklet() {
+        const processorCode = `
+class VADProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.bufferSize = 1024;
+    this.buffer = new Float32Array(this.bufferSize);
+    this.bufferIndex = 0;
+    
+    // VADパラメータ
+    this.parameters = {
+      energyThreshold: 0.01,
+      zcrThreshold: 0.5,
+      minSpeechDuration: 300,
+      minSilenceDuration: 200
+    };
+    
+    // 状態管理
+    this.currentState = 'silence'; // 'speech' or 'silence'
+    this.stateStartTime = Date.now();
+    this.lastUpdateTime = Date.now();
+    
+    this.port.onmessage = (event) => {
+      if (event.data.type === 'updateParameters') {
+        this.parameters = { ...this.parameters, ...event.data.parameters };
+      }
+    };
+  }
+  
+  process(inputs, outputs, parameters) {
+    const input = inputs[0];
+    if (!input || !input[0]) return true;
+    
+    const inputData = input[0];
+    
+    for (let i = 0; i < inputData.length; i++) {
+      this.buffer[this.bufferIndex] = inputData[i];
+      this.bufferIndex = (this.bufferIndex + 1) % this.bufferSize;
+      
+      if (this.bufferIndex === 0) {
+        this.processVAD();
+      }
+    }
+    
+    return true;
+  }
+  
+  processVAD() {
+    const currentTime = Date.now();
+    
+    // 特徴量計算
+    const energy = this.calculateEnergy();
+    const zcr = this.calculateZCR();
+    const spectralCentroid = this.calculateSpectralCentroid();
+    
+    // VAD判定
+    const isSpeech = this.classifyFrame(energy, zcr);
+    
+    // 状態遷移の判定
+    const newState = this.updateState(isSpeech, currentTime);
+    
+    this.port.postMessage({
+      type: 'vadResult',
+      data: {
+        isSpeech: newState === 'speech',
+        confidence: this.calculateConfidence(energy, zcr),
+        features: {
+          energy: energy,
+          zcr: zcr,
+          spectralCentroid: spectralCentroid
+        },
+        state: newState,
+        stateChanged: newState !== this.currentState,
+        timestamp: currentTime
+      }
+    });
+    
+    this.currentState = newState;
+    this.lastUpdateTime = currentTime;
+  }
+  
+  calculateEnergy() {
+    let sum = 0;
+    for (let i = 0; i < this.bufferSize; i++) {
+      sum += this.buffer[i] * this.buffer[i];
+    }
+    return sum / this.bufferSize;
+  }
+  
+  calculateZCR() {
+    let crossings = 0;
+    for (let i = 1; i < this.bufferSize; i++) {
+      if ((this.buffer[i] >= 0) !== (this.buffer[i-1] >= 0)) {
+        crossings++;
+      }
+    }
+    return crossings / this.bufferSize;
+  }
+  
+  calculateSpectralCentroid() {
+    const spectrum = this.getSpectrum();
+    const frequencies = this.getFrequencies();
+    
+    let numerator = 0;
+    let denominator = 0;
+    
+    for (let i = 0; i < spectrum.length; i++) {
+      numerator += frequencies[i] * spectrum[i];
+      denominator += spectrum[i];
+    }
+    
+    return denominator > 0 ? numerator / denominator : 0;
+  }
+  
+  getSpectrum() {
+    // 簡易FFT実装
+    const fft = this.simpleFFT(Array.from(this.buffer));
+    return fft.slice(0, this.bufferSize / 2).map(complex => 
+      Math.sqrt(complex.real * complex.real + complex.imag * complex.imag)
+    );
+  }
+  
+  getFrequencies() {
+    return Array.from({length: this.bufferSize / 2}, (_, i) => 
+      i * sampleRate / this.bufferSize
+    );
+  }
+  
+  simpleFFT(signal) {
+    const N = signal.length;
+    if (N <= 1) return signal.map(x => ({real: x, imag: 0}));
+    
+    const result = [];
+    for (let k = 0; k < N; k++) {
+      let real = 0, imag = 0;
+      for (let n = 0; n < N; n++) {
+        const angle = -2 * Math.PI * k * n / N;
+        real += signal[n] * Math.cos(angle);
+        imag += signal[n] * Math.sin(angle);
+      }
+      result.push({real, imag});
+    }
+    return result;
+  }
+  
+  classifyFrame(energy, zcr) {
+    // エネルギーベースの1次判定
+    const energyCheck = energy > this.parameters.energyThreshold;
+    
+    // ZCRベースの2次判定（音声は適度なZCR値を持つ）
+    const zcrCheck = zcr > this.parameters.zcrThreshold && zcr < 2.0;
+    
+    return energyCheck && zcrCheck;
+  }
+  
+  updateState(isSpeech, currentTime) {
+    const stateDuration = currentTime - this.stateStartTime;
+    
+    if (this.currentState === 'silence' && isSpeech) {
+      // 無音から音声への遷移候補
+      if (stateDuration >= this.parameters.minSilenceDuration) {
+        this.stateStartTime = currentTime;
+        return 'speech';
+      }
+    } else if (this.currentState === 'speech' && !isSpeech) {
+      // 音声から無音への遷移候補
+      if (stateDuration >= this.parameters.minSpeechDuration) {
+        this.stateStartTime = currentTime;
+        return 'silence';
+      }
+    } else if (this.currentState === 'silence' && !isSpeech) {
+      // 無音継続
+      return 'silence';
+    } else if (this.currentState === 'speech' && isSpeech) {
+      // 音声継続
+      return 'speech';
+    }
+    
+    // 状態変更の条件を満たさない場合は現在の状態を維持
+    return this.currentState;
+  }
+  
+  calculateConfidence(energy, zcr) {
+    // エネルギーとZCRから信頼度を計算
+    const energyScore = Math.min(1, energy / this.parameters.energyThreshold);
+    const zcrScore = Math.min(1, Math.max(0, 1 - Math.abs(zcr - 1.0) / 1.0));
+    
+    return (energyScore * 0.7 + zcrScore * 0.3) * 100;
+  }
+}
+
+registerProcessor('vad-processor', VADProcessor);
+        `;
+        
+        const blob = new Blob([processorCode], { type: 'application/javascript' });
+        const workletUrl = URL.createObjectURL(blob);
+        
+        await this.audioContext.audioWorklet.addModule(workletUrl);
+        URL.revokeObjectURL(workletUrl);
+      }
+      
+      async startVADDetection() {
+        this.audioInspectNode = new AudioWorkletNode(this.audioContext, 'vad-processor');
+        
+        // 初期パラメータ設定
+        this.updateVADParameters();
+        
+        this.audioInspectNode.port.onmessage = (event) => {
+          if (event.data.type === 'vadResult') {
+            this.handleVADResult(event.data.data);
+          }
+        };
+        
+        this.source.connect(this.audioInspectNode);
+        this.isRecording = true;
+      }
+      
+      updateVADParameters() {
+        if (!this.audioInspectNode) return;
+        
+        const parameters = {
+          energyThreshold: parseFloat(document.getElementById('energyThreshold').value),
+          zcrThreshold: parseFloat(document.getElementById('zcrThreshold').value),
+          minSpeechDuration: parseInt(document.getElementById('minSpeechDuration').value),
+          minSilenceDuration: parseInt(document.getElementById('minSilenceDuration').value)
+        };
+        
+        this.audioInspectNode.port.postMessage({
+          type: 'updateParameters',
+          parameters: parameters
+        });
+      }
+      
+      handleVADResult(data) {
+        // VAD状態表示更新
+        this.updateVADDisplay(data);
+        
+        // メトリクス更新
+        this.updateMetrics(data);
+        
+        // 履歴更新
+        this.addToHistory(data);
+        
+        // セグメント管理
+        this.updateSegments(data);
+        
+        // 可視化更新
+        this.drawVADVisualization();
+        this.drawFeatureVisualization();
+        
+        // 結果表示
+        if (data.stateChanged) {
+          this.addResult(data);
+        }
+      }
+      
+      updateVADDisplay(data) {
+        const statusDiv = document.getElementById('vadStatus');
+        const indicator = document.getElementById('vadIndicator');
+        const label = document.getElementById('vadLabel');
+        const confidence = document.getElementById('vadConfidence');
+        
+        if (data.isSpeech) {
+          statusDiv.className = 'vad-status speech';
+          indicator.textContent = '🎤';
+          label.textContent = '音声検出中';
+        } else {
+          statusDiv.className = 'vad-status silence';
+          indicator.textContent = '🔇';
+          label.textContent = '無音状態';
+        }
+        
+        confidence.textContent = `信頼度: ${Math.round(data.confidence)}%`;
+      }
+      
+      updateMetrics(data) {
+        document.getElementById('currentEnergy').textContent = data.features.energy.toFixed(6);
+        document.getElementById('currentZCR').textContent = data.features.zcr.toFixed(3);
+        
+        // 音声区間比率の計算
+        this.totalFrames++;
+        if (data.isSpeech) {
+          this.speechFrames++;
+        }
+        
+        const speechRatio = (this.speechFrames / this.totalFrames) * 100;
+        document.getElementById('speechRatio').textContent = `${speechRatio.toFixed(1)}%`;
+        
+        document.getElementById('segmentCount').textContent = this.segments.length.toString();
+      }
+      
+      addToHistory(data) {
+        this.vadHistory.push({
+          isSpeech: data.isSpeech,
+          confidence: data.confidence,
+          timestamp: data.timestamp
+        });
+        
+        this.featureHistory.push({
+          energy: data.features.energy,
+          zcr: data.features.zcr,
+          spectralCentroid: data.features.spectralCentroid || 0,
+          timestamp: data.timestamp
+        });
+        
+        if (this.vadHistory.length > this.maxHistoryLength) {
+          this.vadHistory.shift();
+        }
+        
+        if (this.featureHistory.length > this.maxHistoryLength) {
+          this.featureHistory.shift();
+        }
+      }
+      
+      updateSegments(data) {
+        if (data.stateChanged) {
+          if (this.currentSegment) {
+            // 前のセグメントを終了
+            this.currentSegment.endTime = data.timestamp;
+            this.currentSegment.duration = this.currentSegment.endTime - this.currentSegment.startTime;
+            this.segments.push(this.currentSegment);
+            this.updateSegmentsDisplay();
+          }
+          
+          // 新しいセグメントを開始
+          this.currentSegment = {
+            type: data.isSpeech ? 'speech' : 'silence',
+            startTime: data.timestamp,
+            endTime: null,
+            duration: 0
+          };
+        }
+      }
+      
+      updateSegmentsDisplay() {
+        const container = document.getElementById('segments');
+        container.innerHTML = '';
+        
+        // 最新20セグメントのみ表示
+        const recentSegments = this.segments.slice(-20);
+        
+        for (const segment of recentSegments) {
+          const div = document.createElement('div');
+          div.className = `segment ${segment.type}`;
+          
+          const startTime = new Date(segment.startTime).toLocaleTimeString();
+          const duration = segment.duration;
+          
+          div.textContent = `${segment.type}: ${startTime} (${duration}ms)`;
+          container.appendChild(div);
+        }
+      }
+      
+      drawVADVisualization() {
+        const canvas = this.vadCanvas;
+        const ctx = this.vadCtx;
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#f8f9fa';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        if (this.vadHistory.length === 0) return;
+        
+        const barWidth = canvas.width / this.maxHistoryLength;
+        
+        for (let i = 0; i < this.vadHistory.length; i++) {
+          const data = this.vadHistory[i];
+          const x = i * barWidth;
+          
+          // VAD状態に応じて色を変更
+          ctx.fillStyle = data.isSpeech ? '#28a745' : '#dc3545';
+          
+          // 信頼度に応じた高さ
+          const height = (data.confidence / 100) * canvas.height;
+          
+          ctx.fillRect(x, canvas.height - height, barWidth, height);
+        }
+        
+        // 閾値線
+        const thresholdY = canvas.height - (50 / 100) * canvas.height;
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(0, thresholdY);
+        ctx.lineTo(canvas.width, thresholdY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // ラベル
+        ctx.fillStyle = '#333';
+        ctx.font = '12px Arial';
+        ctx.fillText('信頼度閾値: 50%', 10, thresholdY - 5);
+      }
+      
+      drawFeatureVisualization() {
+        const canvas = this.featureCanvas;
+        const ctx = this.featureCtx;
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#f8f9fa';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        if (this.featureHistory.length < 2) return;
+        
+        const step = canvas.width / this.maxHistoryLength;
+        
+        // エネルギー（正規化）
+        this.drawFeatureLine(ctx, this.featureHistory.map(h => h.energy), step, canvas.height, '#007bff', 0.1);
+        
+        // ZCR（正規化）
+        this.drawFeatureLine(ctx, this.featureHistory.map(h => h.zcr), step, canvas.height, '#fd7e14', 2.0);
+        
+        // 閾値線
+        const energyThreshold = parseFloat(document.getElementById('energyThreshold').value);
+        const zcrThreshold = parseFloat(document.getElementById('zcrThreshold').value);
+        
+        this.drawThresholdLine(ctx, canvas, energyThreshold / 0.1, '#007bff', 'Energy Threshold');
+        this.drawThresholdLine(ctx, canvas, zcrThreshold / 2.0, '#fd7e14', 'ZCR Threshold');
+        
+        // 凡例
+        this.drawFeatureLegend(ctx, canvas);
+      }
+      
+      drawFeatureLine(ctx, values, step, height, color, maxValue) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        
+        let started = false;
+        for (let i = 0; i < values.length; i++) {
+          const normalizedValue = Math.min(1, values[i] / maxValue);
+          const x = i * step;
+          const y = height - normalizedValue * height;
+          
+          if (!started) {
+            ctx.moveTo(x, y);
+            started = true;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        
+        ctx.stroke();
+      }
+      
+      drawThresholdLine(ctx, canvas, normalizedValue, color, label) {
+        const y = canvas.height - normalizedValue * canvas.height;
+        
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        ctx.fillStyle = color;
+        ctx.font = '10px Arial';
+        ctx.fillText(label, 5, y - 5);
+      }
+      
+      drawFeatureLegend(ctx, canvas) {
+        const legends = [
+          { color: '#007bff', label: 'Energy (x10)' },
+          { color: '#fd7e14', label: 'ZCR (x0.5)' }
+        ];
+        
+        let x = canvas.width - 150;
+        const y = 20;
+        
+        for (const legend of legends) {
+          ctx.strokeStyle = legend.color;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + 20, y);
+          ctx.stroke();
+          
+          ctx.fillStyle = legend.color;
+          ctx.font = '12px Arial';
+          ctx.fillText(legend.label, x + 25, y + 4);
+          
+          y += 20;
+        }
+      }
+      
+      resetDetection() {
+        this.vadHistory = [];
+        this.featureHistory = [];
+        this.segments = [];
+        this.currentSegment = null;
+        this.totalFrames = 0;
+        this.speechFrames = 0;
+        
+        // 表示リセット
+        document.getElementById('vadIndicator').textContent = '🔇';
+        document.getElementById('vadLabel').textContent = '待機中';
+        document.getElementById('vadConfidence').textContent = '信頼度: 0%';
+        document.getElementById('vadStatus').className = 'vad-status';
+        
+        document.getElementById('currentEnergy').textContent = '0.000';
+        document.getElementById('currentZCR').textContent = '0.000';
+        document.getElementById('speechRatio').textContent = '0%';
+        document.getElementById('segmentCount').textContent = '0';
+        
+        document.getElementById('segments').innerHTML = '';
+        
+        this.clearCanvases();
+        this.clearResults();
+      }
+      
+      stopAnalysis() {
+        this.isRecording = false;
+        
+        if (this.audioInspectNode) {
+          this.source.disconnect(this.audioInspectNode);
+          this.audioInspectNode = null;
+        }
+        
+        if (this.stream) {
+          this.stream.getTracks().forEach(track => track.stop());
+          this.stream = null;
+        }
+        
+        if (this.audioContext) {
+          this.audioContext.close();
+          this.audioContext = null;
+        }
+        
+        this.source = null;
+        
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+        this.setStatus('⏹️ 検出を停止しました', 'info');
+      }
+      
+      addResult(data) {
+        const resultsContainer = document.getElementById('results');
+        const resultDiv = document.createElement('div');
+        resultDiv.className = 'result-item';
+        
+        const timeStr = new Date(data.timestamp).toLocaleTimeString();
+        const stateStr = data.isSpeech ? '音声' : '無音';
+        const confidenceStr = Math.round(data.confidence);
+        
+        resultDiv.innerHTML = `
+          <strong>${timeStr}:</strong> ${stateStr}検出 (信頼度: ${confidenceStr}%)<br>
+          Energy: ${data.features.energy.toFixed(6)}, ZCR: ${data.features.zcr.toFixed(3)}
+        `;
+        
+        resultsContainer.appendChild(resultDiv);
+        
+        while (resultsContainer.children.length > 10) {
+          resultsContainer.removeChild(resultsContainer.firstChild);
+        }
+        
+        resultDiv.scrollIntoView({ behavior: 'smooth' });
+      }
+      
+      addError(message) {
+        const resultsContainer = document.getElementById('results');
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'result-item error';
+        errorDiv.innerHTML = `<strong>Error:</strong> ${message}`;
+        resultsContainer.appendChild(errorDiv);
+      }
+      
+      clearResults() {
+        document.getElementById('results').innerHTML = '';
+      }
+      
+      setStatus(message, type = 'info') {
+        const statusDiv = document.getElementById('status');
+        statusDiv.className = `status ${type}`;
+        statusDiv.textContent = message;
+      }
+    }
+    
+    // デモ開始
+    new VADDemo();
+  </script>
+</body>
+</html>

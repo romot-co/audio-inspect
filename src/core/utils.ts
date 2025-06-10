@@ -7,6 +7,24 @@ import {
 } from './a-weighting-filter.js';
 
 /**
+ * Cross-platform performance timing function
+ * Works in both browser and Node.js environments
+ * @returns Current time in milliseconds
+ */
+export function getPerformanceNow(): number {
+  if (typeof performance !== 'undefined' && performance.now) {
+    return performance.now();
+  }
+  // Node.js fallback using process.hrtime
+  if (typeof process !== 'undefined' && process.hrtime) {
+    const [seconds, nanoseconds] = process.hrtime();
+    return seconds * 1000 + nanoseconds / 1000000;
+  }
+  // Ultimate fallback
+  return Date.now();
+}
+
+/**
  * Safely get channel data common function
  * @param audio - AudioData object
  * @param channel - Channel number (-1 for average of all channels)

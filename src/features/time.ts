@@ -13,7 +13,8 @@ import {
   isValidSample,
   amplitudeToDecibels,
   safeArrayAccess,
-  getTruePeak
+  getTruePeak,
+  getPerformanceNow
 } from '../core/utils.js';
 
 /**
@@ -516,7 +517,7 @@ export function getWaveformAnalysis(
   audio: AudioData,
   options: WaveformAnalysisOptions = {}
 ): WaveformAnalysisResult {
-  const startTime = performance.now();
+  const startTime = getPerformanceNow();
   const { framesPerSecond = 60, channel = 0, method = 'rms', onProgress } = options;
 
   onProgress?.(0, 'Waveform解析を開始');
@@ -583,7 +584,7 @@ export function getWaveformAnalysis(
   }
 
   const averageAmplitude = frameCount > 0 ? totalAmplitude / frameCount : 0;
-  const processingTime = performance.now() - startTime;
+  const processingTime = getPerformanceNow() - startTime;
 
   onProgress?.(100, '処理完了');
 
@@ -608,7 +609,7 @@ export function getPeaksAnalysis(
   audio: AudioData,
   options: PeaksAnalysisOptions = {}
 ): PeaksAnalysisResult {
-  const startTime = performance.now();
+  const startTime = getPerformanceNow();
   const {
     count = 100,
     threshold = 0.1,
@@ -639,7 +640,7 @@ export function getPeaksAnalysis(
       count: 0,
       sampleRate: audio.sampleRate,
       duration: audio.duration,
-      processingTime: performance.now() - startTime
+      processingTime: getPerformanceNow() - startTime
     };
   }
 
@@ -658,7 +659,7 @@ export function getPeaksAnalysis(
       count: 0,
       sampleRate: audio.sampleRate,
       duration: audio.duration,
-      processingTime: performance.now() - startTime
+      processingTime: getPerformanceNow() - startTime
     };
   }
 
@@ -718,7 +719,7 @@ export function getPeaksAnalysis(
       ? allInitialPeaks.reduce((sum, p) => sum + p.amplitude, 0) / allInitialPeaks.length
       : 0;
 
-  const processingTime = performance.now() - startTime;
+  const processingTime = getPerformanceNow() - startTime;
 
   onProgress?.(100, '処理完了');
 
@@ -742,7 +743,7 @@ export function getRMSAnalysis(
   audio: AudioData,
   options: RMSAnalysisOptions = {}
 ): RMSAnalysisResult {
-  const startTime = performance.now();
+  const startTime = getPerformanceNow();
   const { channel = 0, asDB = false, reference = 1.0, onProgress } = options;
 
   onProgress?.(0, 'RMS解析を開始');
@@ -756,7 +757,7 @@ export function getRMSAnalysis(
       channel,
       sampleRate: audio.sampleRate,
       duration: audio.duration,
-      processingTime: performance.now() - startTime
+      processingTime: getPerformanceNow() - startTime
     };
   }
 
@@ -772,7 +773,7 @@ export function getRMSAnalysis(
   }
 
   const rmsValue = Math.sqrt(sumSquares / channelData.length);
-  const processingTime = performance.now() - startTime;
+  const processingTime = getPerformanceNow() - startTime;
 
   onProgress?.(100, '処理完了');
 

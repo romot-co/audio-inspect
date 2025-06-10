@@ -9,6 +9,7 @@ import {
 import { getWaveformAnalysis, getPeaksAnalysis, getRMSAnalysis } from '../features/time.js';
 import { getFFT, type FFTOptions, type FFTAnalysisResult } from '../features/frequency.js';
 import { getEnergy, type EnergyResult } from '../features/energy.js';
+import { getPerformanceNow } from './utils.js';
 
 /**
  * バッチ解析タスクの型定義
@@ -26,7 +27,7 @@ export async function analyzeAll(
   audio: AudioData,
   options: BatchAnalysisOptions
 ): Promise<BatchAnalysisResult> {
-  const startTime = performance.now();
+  const startTime = getPerformanceNow();
   const result: BatchAnalysisResult = {
     processingTime: 0
   };
@@ -177,6 +178,6 @@ export async function analyzeAll(
     })
   );
 
-  result.processingTime = performance.now() - startTime;
+  result.processingTime = getPerformanceNow() - startTime;
   return result;
 }

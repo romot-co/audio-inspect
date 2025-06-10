@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Inspect - Library Usage Example</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    h1 {
+      color: #333;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    .controls {
+      margin-bottom: 30px;
+      text-align: center;
+    }
+    
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      margin: 5px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    
+    button:hover {
+      background: #0056b3;
+    }
+    
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    .feature-selector {
+      margin: 20px 0;
+      text-align: center;
+    }
+    
+    select {
+      padding: 8px 12px;
+      font-size: 16px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    
+    .status {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 3px;
+      text-align: center;
+    }
+    
+    .status.recording {
+      background: #d4edda;
+      color: #155724;
+    }
+    
+    .results {
+      margin-top: 20px;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 5px;
+      border-left: 4px solid #007bff;
+    }
+    
+    .result-item {
+      margin: 10px 0;
+      padding: 10px;
+      background: white;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+    
+    .error {
+      color: #dc3545;
+      background: #f8d7da;
+      border-color: #f5c6cb;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Audio Inspect Library - Proper Usage Example</h1>
+    
+    <div class="feature-selector">
+      <label for="featureSelect">Select Feature: </label>
+      <select id="featureSelect">
+        <option value="getRMS">RMS (Root Mean Square)</option>
+        <option value="getPeaks">Peak Detection</option>
+        <option value="getZeroCrossing">Zero Crossing Rate</option>
+        <option value="getFFT">FFT Analysis</option>
+        <option value="getSpectralFeatures">Spectral Features</option>
+        <option value="getLUFS">LUFS (Loudness)</option>
+        <option value="getVAD">Voice Activity Detection</option>
+        <option value="getStereoAnalysis">Stereo Analysis</option>
+      </select>
+    </div>
+    
+    <div class="controls">
+      <button id="startBtn">Start Analysis</button>
+      <button id="stopBtn" disabled>Stop Analysis</button>
+    </div>
+    
+    <div id="status" class="status">Ready to start</div>
+    
+    <div class="results">
+      <h3>Analysis Results (Latest 10)</h3>
+      <div id="results"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { AudioSetup, ResultDisplay, StatusDisplay } from './common.js';
+    
+    class LibraryDemo {
+      constructor() {
+        this.audioSetup = new AudioSetup();
+        this.resultDisplay = new ResultDisplay('results');
+        this.statusDisplay = new StatusDisplay('status');
+        
+        this.setupEventListeners();
+      }
+      
+      setupEventListeners() {
+        document.getElementById('startBtn').addEventListener('click', () => this.start());
+        document.getElementById('stopBtn').addEventListener('click', () => this.stop());
+      }
+      
+      async start() {
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const featureSelect = document.getElementById('featureSelect');
+        
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        featureSelect.disabled = true;
+        
+        try {
+          this.statusDisplay.setProcessing();
+          
+          // Initialize audio
+          await this.audioSetup.initialize();
+          
+          // Get selected feature
+          const featureName = featureSelect.value;
+          
+          // Set feature-specific options
+          const options = this.getFeatureOptions(featureName);
+          
+          // Start analysis
+          const node = await this.audioSetup.startAnalysis(featureName, options);
+          
+          // Listen for results
+          node.addEventListener('analysisResult', (event) => {
+            this.resultDisplay.addResult(event.data);
+          });
+          
+          // Listen for errors
+          node.addEventListener('error', (event) => {
+            this.resultDisplay.addError(event.message);
+          });
+          
+          this.statusDisplay.setRecording();
+          
+        } catch (error) {
+          console.error('Failed to start:', error);
+          this.resultDisplay.addError(error.message);
+          this.statusDisplay.setStopped();
+          
+          startBtn.disabled = false;
+          stopBtn.disabled = true;
+          featureSelect.disabled = false;
+        }
+      }
+      
+      stop() {
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const featureSelect = document.getElementById('featureSelect');
+        
+        this.audioSetup.stopAnalysis();
+        this.statusDisplay.setStopped();
+        
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        featureSelect.disabled = false;
+      }
+      
+      getFeatureOptions(featureName) {
+        // Return appropriate options based on the selected feature
+        switch (featureName) {
+          case 'getFFT':
+            return {
+              featureOptions: {
+                fftSize: 2048,
+                windowFunction: 'hann',
+                provider: 'native' // Use native provider by default
+              }
+            };
+            
+          case 'getSpectralFeatures':
+            return {
+              featureOptions: {
+                fftSize: 2048,
+                windowFunction: 'hann'
+              }
+            };
+            
+          case 'getLUFS':
+            return {
+              featureOptions: {
+                channelMode: 'stereo',
+                calculateShortTerm: true,
+                calculateMomentary: true
+              }
+            };
+            
+          case 'getPeaks':
+            return {
+              featureOptions: {
+                threshold: 0.3,
+                minDistance: 100
+              }
+            };
+            
+          case 'getVAD':
+            return {
+              featureOptions: {
+                energyThreshold: 0.01,
+                minSpeechDuration: 200,
+                minSilenceDuration: 300
+              }
+            };
+            
+          case 'getStereoAnalysis':
+            return {
+              featureOptions: {
+                calculateCorrelation: true,
+                calculatePhaseCoherence: true
+              }
+            };
+            
+          default:
+            return {};
+        }
+      }
+    }
+    
+    // Initialize demo
+    const demo = new LibraryDemo();
+  </script>
+</body>
+</html>

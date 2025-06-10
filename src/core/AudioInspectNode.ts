@@ -9,6 +9,11 @@ import {
 } from '../types.js';
 import type { FFTProviderType } from './fft-provider.js';
 
+// デバッグビルドのチェック
+const __DEV__ = typeof process !== 'undefined'
+  ? process.env.NODE_ENV !== 'production'
+  : false;
+
 // Check if AudioWorkletNode is available (browser environment only)
 const isAudioWorkletSupported = typeof AudioWorkletNode !== 'undefined';
 
@@ -317,7 +322,9 @@ export class AudioInspectNode
         this.handleError(message as ErrorMessage);
         break;
       default:
-        console.warn('Unknown message type:', message.type);
+        if (__DEV__) {
+          console.warn('Unknown message type:', message.type);
+        }
     }
   }
 

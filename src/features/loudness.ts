@@ -237,11 +237,12 @@ class RealtimeLUFSProcessor {
   private channelMode: 'mono' | 'stereo';
   private blockSize: number;
   private hopSize: number;
-  private blockBuffer: number[][] = [];
+  private blockBuffer: Array<[number, number]> = []; // [loudness, sampleIndex]
   private maxBlocks: number;
   private currentSamples: Float32Array[] = [];
   private sampleCount: number = 0;
   private biquadStates: BiquadState[][] = [];
+  private totalSamplesProcessed: number = 0; // 総処理サンプル数
 
   constructor(
     sampleRate: number,
@@ -306,7 +307,9 @@ class RealtimeLUFSProcessor {
           // ブロックのラウドネスを計算
           const blockLoudness = calculateBlockLoudness(this.currentSamples.slice(0, numChannels));
           if (isFinite(blockLoudness)) {
-            this.blockBuffer.push([blockLoudness, Date.now()]);
+            // サンプルインデックスを記録（ブロック中心位置）
+            const blockCenterSample = this.totalSamplesProcessed + this.blockSize / 2;
+            this.blockBuffer.push([blockLoudness, blockCenterSample]);
 
             // 古いブロックを削除
             if (this.blockBuffer.length > this.maxBlocks) {
@@ -317,6 +320,7 @@ class RealtimeLUFSProcessor {
           // オーバーラップ部分をシフト
           currentBuffer.copyWithin(0, this.hopSize);
           this.sampleCount = this.blockSize - this.hopSize;
+          this.totalSamplesProcessed += this.hopSize;
         }
       }
     }
@@ -333,44 +337,46 @@ class RealtimeLUFSProcessor {
       return { integrated: -Infinity, momentary: -Infinity, shortTerm: -Infinity };
     }
 
-    const now = Date.now();
+    const currentSample = this.totalSamplesProcessed + this.sampleCount;
+    const momentarySamples = (MOMENTARY_WINDOW_MS / 1000) * this.sampleRate;
+    const shortTermSamples = (SHORT_TERM_WINDOW_MS / 1000) * this.sampleRate;
 
     // Momentary (400ms)
     const momentaryBlocks = this.blockBuffer
-      .filter(([_, timestamp]) => now - timestamp! <= MOMENTARY_WINDOW_MS)
-      .map(([loudness]) => loudness!);
+      .filter(([_, sampleIndex]) => currentSample - sampleIndex <= momentarySamples)
+      .map(([loudness]) => loudness);
 
     // Short-term (3s)
     const shortTermBlocks = this.blockBuffer
-      .filter(([_, timestamp]) => now - timestamp! <= SHORT_TERM_WINDOW_MS)
-      .map(([loudness]) => loudness!);
+      .filter(([_, sampleIndex]) => currentSample - sampleIndex <= shortTermSamples)
+      .map(([loudness]) => loudness);
 
     // Integrated (全ブロック with gating)
-    let integratedBlocks = this.blockBuffer.map(([loudness]) => loudness!);
+    let integratedBlocks = this.blockBuffer.map(([loudness]) => loudness);
 
     // ゲーティング処理
     // 絶対ゲート（-70 LUFS）
-    integratedBlocks = integratedBlocks.filter((l) => l! >= ABSOLUTE_GATE_LUFS);
+    integratedBlocks = integratedBlocks.filter((l) => l >= ABSOLUTE_GATE_LUFS);
 
     let integrated = -Infinity;
     if (integratedBlocks.length > 0) {
       // 相対ゲートのための平均計算
       const sumPower = integratedBlocks.reduce(
-        (sum, lufs) => sum! + Math.pow(10, (lufs! + 0.691) / 10),
+        (sum, lufs) => sum + Math.pow(10, (lufs + 0.691) / 10),
         0
       );
-      const meanLoudness = -0.691 + 10 * Math.log10(sumPower! / integratedBlocks.length);
+      const meanLoudness = -0.691 + 10 * Math.log10(sumPower / integratedBlocks.length);
       const relativeThreshold = meanLoudness - RELATIVE_GATE_LU;
 
       // 相対ゲート適用
-      const gatedBlocks = integratedBlocks.filter((l) => l! >= relativeThreshold);
+      const gatedBlocks = integratedBlocks.filter((l) => l >= relativeThreshold);
 
       if (gatedBlocks.length > 0) {
         const gatedSumPower = gatedBlocks.reduce(
-          (sum, lufs) => sum! + Math.pow(10, (lufs! + 0.691) / 10),
+          (sum, lufs) => sum + Math.pow(10, (lufs + 0.691) / 10),
           0
         );
-        integrated = -0.691 + 10 * Math.log10(gatedSumPower! / gatedBlocks.length);
+        integrated = -0.691 + 10 * Math.log10(gatedSumPower / gatedBlocks.length);
       }
     }
 
@@ -378,20 +384,20 @@ class RealtimeLUFSProcessor {
     let momentary = -Infinity;
     if (momentaryBlocks.length > 0) {
       const sumPower = momentaryBlocks.reduce(
-        (sum, lufs) => sum! + Math.pow(10, (lufs! + 0.691) / 10),
+        (sum, lufs) => sum + Math.pow(10, (lufs + 0.691) / 10),
         0
       );
-      momentary = -0.691 + 10 * Math.log10(sumPower! / momentaryBlocks.length);
+      momentary = -0.691 + 10 * Math.log10(sumPower / momentaryBlocks.length);
     }
 
     // Short-term計算
     let shortTerm = -Infinity;
     if (shortTermBlocks.length > 0) {
       const sumPower = shortTermBlocks.reduce(
-        (sum, lufs) => sum! + Math.pow(10, (lufs! + 0.691) / 10),
+        (sum, lufs) => sum + Math.pow(10, (lufs + 0.691) / 10),
         0
       );
-      shortTerm = -0.691 + 10 * Math.log10(sumPower! / shortTermBlocks.length);
+      shortTerm = -0.691 + 10 * Math.log10(sumPower / shortTermBlocks.length);
     }
 
     return { integrated, momentary, shortTerm };
@@ -403,6 +409,7 @@ class RealtimeLUFSProcessor {
   reset(): void {
     this.blockBuffer = [];
     this.sampleCount = 0;
+    this.totalSamplesProcessed = 0;
 
     // バッファとフィルタ状態をクリア
     for (let i = 0; i < this.currentSamples.length; i++) {

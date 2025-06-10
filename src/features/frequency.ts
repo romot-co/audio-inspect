@@ -13,7 +13,7 @@ export interface FFTOptions {
   overlap?: number;
   /** 解析するチャンネル（デフォルト: 0、-1で全チャンネルの平均） */
   channel?: number;
-  /** FFTプロバイダー（デフォルト: 'webfft'） */
+  /** FFTプロバイダー（デフォルト: 'native'） */
   provider?: FFTProviderType;
   /** プロファイリングを有効にする（WebFFTのみ） */
   enableProfiling?: boolean;
@@ -157,7 +157,7 @@ export async function getFFT(
     fftSize = 2048,
     windowFunction = 'hann',
     channel = 0,
-    provider = 'webfft',
+    provider = 'native',
     enableProfiling = false
   } = options;
 
@@ -176,13 +176,34 @@ export async function getFFT(
   // ウィンドウ関数を適用
   const windowedData = applyWindow(inputData, windowFunction);
 
-  // FFTプロバイダーを作成
-  const fftProvider = await FFTProviderFactory.createProvider({
-    type: provider,
-    fftSize,
-    sampleRate: audio.sampleRate,
-    enableProfiling
-  });
+  // FFTプロバイダーを作成（フォールバック機能付き）
+  const tryProviders: FFTProviderType[] = 
+    provider === 'webfft' ? ['webfft', 'native'] : [provider];
+  
+  let lastError: unknown;
+  let fftProvider: Awaited<ReturnType<typeof FFTProviderFactory.createProvider>> | null = null;
+  
+  for (const p of tryProviders) {
+    try {
+      fftProvider = await FFTProviderFactory.createProvider({
+        type: p,
+        fftSize,
+        sampleRate: audio.sampleRate,
+        enableProfiling
+      });
+      break; // 成功したらループを抜ける
+    } catch (e) {
+      lastError = e;
+      // webfftで失敗した場合はnativeにフォールバック
+      if (p === 'webfft' && tryProviders.includes('native')) {
+        continue;
+      }
+    }
+  }
+  
+  if (!fftProvider) {
+    throw lastError || new AudioInspectError('FFT_PROVIDER_ERROR', 'Failed to create FFT provider');
+  }
 
   try {
     // FFTを実行
@@ -336,7 +357,7 @@ async function computeSpectrogram(
 
   // FFTプロバイダーを作成（一度だけ）
   const fftProvider = await FFTProviderFactory.createProvider({
-    type: options.provider || 'webfft',
+    type: options.provider || 'native',
     fftSize,
     sampleRate,
     enableProfiling: options.enableProfiling || false

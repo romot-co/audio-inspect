@@ -1,0 +1,24 @@
+{
+  "name": "audio-inspect-examples",
+  "version": "1.0.0",
+  "description": "Audio Inspect Library Examples and Demos",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx http-server . -p 8080 -c-1 --cors",
+    "dev": "npx http-server . -p 8080 -c-1 --cors -o",
+    "serve": "python3 -m http.server 8080",
+    "serve-py2": "python -m SimpleHTTPServer 8080"
+  },
+  "keywords": [
+    "audio",
+    "analysis",
+    "web-audio",
+    "realtime",
+    "demo"
+  ],
+  "author": "Audio Inspect Project",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
