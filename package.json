@@ -54,11 +54,24 @@
     "rms",
     "peaks",
     "loudness",
+    "lufs",
     "web-audio",
-    "typescript"
+    "audioworklet",
+    "realtime",
+    "typescript",
+    "browser",
+    "nodejs"
   ],
   "author": "Romot",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/romot-co/audio-inspect.git"
+  },
+  "homepage": "https://github.com/romot-co/audio-inspect",
+  "bugs": {
+    "url": "https://github.com/romot-co/audio-inspect/issues"
+  },
   "devDependencies": {
     "@playwright/test": "^1.49.1",
     "@types/node": "^22.10.2",
