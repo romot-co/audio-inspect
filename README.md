@@ -20,8 +20,8 @@ A lightweight yet powerful audio analysis library for web and Node.js environmen
 ## Installation
 
 ```bash
-# Install the latest beta version
-npm install audio-inspect@beta
+# Install the latest version
+npm install audio-inspect
 
 # Or from GitHub
 npm install github:romot-co/audio-inspect
