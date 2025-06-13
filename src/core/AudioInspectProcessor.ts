@@ -238,6 +238,12 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
     const frameSize = input[0]?.length || 0;
     if (frameSize === 0) return;
 
+    // 新規フレームが収まらない場合は先にバッファをシフト（データ欠落防止）
+    const firstBuffer = this.buffers[0];
+    if (firstBuffer && this.bufferWritePosition + frameSize > firstBuffer.length) {
+      this.shiftBuffers();
+    }
+
     // 各チャンネルのデータをバッファに追加
     for (
       let channel = 0;
@@ -249,19 +255,12 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
 
       if (channelData && buffer) {
         for (let i = 0; i < frameSize; i++) {
-          buffer[this.bufferWritePosition + i] = channelData[i] || 0;
+          buffer[this.bufferWritePosition + i] = channelData[i] ?? 0;
         }
       }
     }
 
     this.bufferWritePosition += frameSize;
-
-    // バッファがオーバーフローしそうな場合は、データを前方にシフト
-    // フレームサイズ + マージンを考慮した条件
-    const firstBuffer = this.buffers[0];
-    if (firstBuffer && this.bufferWritePosition + frameSize > firstBuffer.length) {
-      this.shiftBuffers();
-    }
   }
 
   /**

@@ -74,19 +74,15 @@ async function calculateCoherence(
   const coherence = new Float32Array(leftFFT.magnitude.length);
 
   for (let i = 0; i < coherence.length; i++) {
-    const leftMag = leftFFT.magnitude[i] || 0;
-    const rightMag = rightFFT.magnitude[i] || 0;
-    const leftPhase = leftFFT.phase[i] || 0;
-    const rightPhase = rightFFT.phase[i] || 0;
+    const leftMag = leftFFT.magnitude[i] ?? 0;
+    const rightMag = rightFFT.magnitude[i] ?? 0;
+    const phaseDiff = (leftFFT.phase[i] ?? 0) - (rightFFT.phase[i] ?? 0);
 
-    // クロススペクトル
-    const crossReal = leftMag * rightMag * Math.cos(leftPhase - rightPhase);
-    const crossImag = leftMag * rightMag * Math.sin(leftPhase - rightPhase);
-    const crossMag = Math.sqrt(crossReal * crossReal + crossImag * crossImag);
+    // 位相差を考慮したクロススペクトルの実部のみを使用
+    const crossReal = leftMag * rightMag * Math.cos(phaseDiff);
 
-    // コヒーレンス = |Pxy|^2 / (Pxx * Pyy)
     const denominator = leftMag * leftMag * rightMag * rightMag;
-    coherence[i] = denominator > 1e-10 ? (crossMag * crossMag) / denominator : 0;
+    coherence[i] = denominator > 1e-10 ? (crossReal * crossReal) / denominator : 0;
   }
 
   return coherence;
