@@ -277,7 +277,14 @@ class RealtimeLUFSProcessor {
     const numChannels = this.channelMode === 'stereo' ? Math.min(chunk.length, 2) : 1;
     const coeffs = getKWeightingCoeffsImpl(this.sampleRate);
 
-    // 各チャンネルを処理
+    // 入力データの長さを確認（全チャンネル同じ長さと仮定）
+    const inputLength = chunk[0]?.length || 0;
+    if (inputLength === 0) {
+      return this.calculateCurrentLUFS();
+    }
+
+    // 各チャンネルのフィルタ処理を先に行う
+    const filteredChannels: Float32Array[] = [];
     for (let ch = 0; ch < numChannels; ch++) {
       const inputData = chunk[ch];
       if (!inputData) continue;
@@ -285,43 +292,54 @@ class RealtimeLUFSProcessor {
       // K-weightingフィルタを適用（状態を保持）
       let filtered = applyBiquad(inputData, coeffs[0]!, this.biquadStates[ch]![0]!);
       filtered = applyBiquad(filtered, coeffs[1]!, this.biquadStates[ch]![1]!);
+      filteredChannels.push(filtered);
+    }
 
-      // サンプルをバッファに追加
-      const currentBuffer = this.currentSamples[ch]!;
+    // サンプル単位でバッファ処理（チャンネル間で同期）
+    let processedSamples = 0;
+    while (processedSamples < inputLength) {
+      const remainingSpace = this.blockSize - this.sampleCount;
+      const samplesToAdd = Math.min(inputLength - processedSamples, remainingSpace);
 
-      let processedSamples = 0;
-      while (processedSamples < filtered.length) {
-        const remainingSpace = this.blockSize - this.sampleCount;
-        const samplesToAdd = Math.min(filtered.length - processedSamples, remainingSpace);
-
-        // 現在のブロックバッファに追加
-        currentBuffer.set(
-          filtered.subarray(processedSamples, processedSamples + samplesToAdd),
-          this.sampleCount
-        );
-        this.sampleCount += samplesToAdd;
-        processedSamples += samplesToAdd;
-
-        // ブロックが完成したら処理
-        if (this.sampleCount >= this.blockSize) {
-          // ブロックのラウドネスを計算
-          const blockLoudness = calculateBlockLoudness(this.currentSamples.slice(0, numChannels));
-          if (isFinite(blockLoudness)) {
-            // サンプルインデックスを記録（ブロック中心位置）
-            const blockCenterSample = this.totalSamplesProcessed + this.blockSize / 2;
-            this.blockBuffer.push([blockLoudness, blockCenterSample]);
-
-            // 古いブロックを削除
-            if (this.blockBuffer.length > this.maxBlocks) {
-              this.blockBuffer.shift();
-            }
-          }
-
-          // オーバーラップ部分をシフト
-          currentBuffer.copyWithin(0, this.hopSize);
-          this.sampleCount = this.blockSize - this.hopSize;
-          this.totalSamplesProcessed += this.hopSize;
+      // 各チャンネルのデータを同時にバッファに追加
+      for (let ch = 0; ch < numChannels; ch++) {
+        const filtered = filteredChannels[ch];
+        const currentBuffer = this.currentSamples[ch]!;
+        if (filtered) {
+          currentBuffer.set(
+            filtered.subarray(processedSamples, processedSamples + samplesToAdd),
+            this.sampleCount
+          );
         }
+      }
+
+      // サンプルカウントを一度だけ更新
+      this.sampleCount += samplesToAdd;
+      processedSamples += samplesToAdd;
+
+      // ブロックが完成したら処理
+      if (this.sampleCount >= this.blockSize) {
+        // ブロックのラウドネスを計算
+        const blockLoudness = calculateBlockLoudness(this.currentSamples.slice(0, numChannels));
+        if (isFinite(blockLoudness)) {
+          // サンプルインデックスを記録（ブロック中心位置）
+          const blockCenterSample = this.totalSamplesProcessed + this.blockSize / 2;
+          this.blockBuffer.push([blockLoudness, blockCenterSample]);
+
+          // 古いブロックを削除
+          if (this.blockBuffer.length > this.maxBlocks) {
+            this.blockBuffer.shift();
+          }
+        }
+
+        // 全チャンネルのオーバーラップ部分をシフト
+        for (let ch = 0; ch < numChannels; ch++) {
+          const currentBuffer = this.currentSamples[ch]!;
+          currentBuffer.copyWithin(0, this.hopSize);
+        }
+        
+        this.sampleCount = this.blockSize - this.hopSize;
+        this.totalSamplesProcessed += this.hopSize;
       }
     }
 
