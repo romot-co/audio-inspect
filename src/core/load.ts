@@ -45,13 +45,19 @@ function isAudioData(source: AudioSource): source is AudioData {
   );
 }
 
+// シングルトンAudioContext管理
+let sharedAudioContext: AudioContext | null = null;
+
 /**
- * AudioContextを取得または作成
+ * AudioContextを取得または作成（シングルトンパターン）
  */
 function getAudioContext(): AudioContext {
   // ブラウザ環境でのみAudioContextを使用
   if (typeof AudioContext !== 'undefined') {
-    return new AudioContext();
+    if (!sharedAudioContext || sharedAudioContext.state === 'closed') {
+      sharedAudioContext = new AudioContext();
+    }
+    return sharedAudioContext;
   }
   // Node.js環境では別の処理が必要（将来的に実装）
   throw new AudioInspectError('UNSUPPORTED_FORMAT', 'この環境ではWeb Audio APIが利用できません');
@@ -64,43 +70,49 @@ async function decodeAudioSource(
   source: AudioSource,
   audioContext: AudioContext
 ): Promise<AudioBuffer> {
-  if (source instanceof AudioBuffer) {
-    return source;
-  }
+  try {
+    if (source instanceof AudioBuffer) {
+      return source;
+    }
 
-  if (source instanceof ArrayBuffer) {
-    return await audioContext.decodeAudioData(source);
-  }
+    if (source instanceof ArrayBuffer) {
+      return await audioContext.decodeAudioData(source);
+    }
 
-  if (source instanceof Blob || source instanceof File) {
-    const arrayBuffer = await source.arrayBuffer();
-    return await audioContext.decodeAudioData(arrayBuffer);
-  }
+    if (source instanceof Blob || source instanceof File) {
+      const arrayBuffer = await source.arrayBuffer();
+      return await audioContext.decodeAudioData(arrayBuffer);
+    }
 
-  if (typeof source === 'string' || source instanceof URL) {
-    const url = source instanceof URL ? source.href : source;
-    const response = await fetch(url);
+    if (typeof source === 'string' || source instanceof URL) {
+      const url = source instanceof URL ? source.href : source;
+      const response = await fetch(url);
 
-    if (!response.ok) {
+      if (!response.ok) {
+        throw new AudioInspectError(
+          'NETWORK_ERROR',
+          `音声ファイルの取得に失敗しました: ${response.status}`
+        );
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      return await audioContext.decodeAudioData(arrayBuffer);
+    }
+
+    if (source instanceof MediaStream) {
+      // MediaStreamの処理は複雑なので、将来的に実装
       throw new AudioInspectError(
-        'NETWORK_ERROR',
-        `音声ファイルの取得に失敗しました: ${response.status}`
+        'UNSUPPORTED_FORMAT',
+        'MediaStreamの処理は現在サポートされていません'
       );
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    return await audioContext.decodeAudioData(arrayBuffer);
+    throw new AudioInspectError('INVALID_INPUT', 'サポートされていない音声ソースです');
+  } finally {
+    // デコード完了後、不要になったコンテキストをクリーンアップ
+    // ただし、他の処理で使用中の可能性があるため、即座にはクローズしない
+    // 将来的にはリファレンスカウンティングを実装する可能性あり
   }
-
-  if (source instanceof MediaStream) {
-    // MediaStreamの処理は複雑なので、将来的に実装
-    throw new AudioInspectError(
-      'UNSUPPORTED_FORMAT',
-      'MediaStreamの処理は現在サポートされていません'
-    );
-  }
-
-  throw new AudioInspectError('INVALID_INPUT', 'サポートされていない音声ソースです');
 }
 
 /**
@@ -128,9 +140,11 @@ function audioBufferToAudioData(buffer: AudioBuffer): AudioData {
 async function processAudioData(audioData: AudioData, options: LoadOptions): Promise<AudioData> {
   let result = audioData;
 
-  // モノラル変換
+  // チャンネル変換
   if (options.channels === 'mono' || options.channels === 1) {
     result = convertToMono(result);
+  } else if (options.channels === 'stereo' || options.channels === 2) {
+    result = ensureStereo(result);
   }
 
   // 正規化
@@ -236,6 +250,53 @@ function convertToMono(audioData: AudioData): AudioData {
     channelData: [monoData],
     duration: audioData.duration,
     numberOfChannels: 1,
+    length: audioData.length
+  };
+}
+
+/**
+ * ステレオに変換（モノラルの場合は複製、既にステレオの場合はそのまま）
+ */
+function ensureStereo(audioData: AudioData): AudioData {
+  if (audioData.numberOfChannels === 2) {
+    return audioData;
+  }
+
+  if (audioData.numberOfChannels === 1) {
+    // モノラルをステレオに変換（左右同じ音声）
+    const monoData = audioData.channelData[0];
+    if (!monoData) {
+      throw new AudioInspectError('INVALID_INPUT', 'チャンネル0のデータが存在しません');
+    }
+    const stereoChannelData = [
+      new Float32Array(monoData),
+      new Float32Array(monoData)
+    ];
+
+    return {
+      sampleRate: audioData.sampleRate,
+      channelData: stereoChannelData,
+      duration: audioData.duration,
+      numberOfChannels: 2,
+      length: audioData.length
+    };
+  }
+
+  // 3チャンネル以上の場合は最初の2チャンネルを使用
+  const firstChannel = audioData.channelData[0];
+  if (!firstChannel) {
+    throw new AudioInspectError('INVALID_INPUT', 'チャンネル0のデータが存在しません');
+  }
+  const stereoChannelData = [
+    firstChannel,
+    audioData.channelData[1] || firstChannel // 2チャンネル目がない場合は1チャンネル目を複製
+  ];
+
+  return {
+    sampleRate: audioData.sampleRate,
+    channelData: stereoChannelData,
+    duration: audioData.duration,
+    numberOfChannels: 2,
     length: audioData.length
   };
 }

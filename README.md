@@ -65,7 +65,7 @@ const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 const sourceNode = audioContext.createMediaStreamSource(mediaStream);
 
 // Create AudioInspectNode
-const inspectNode = createAudioInspectNode(audioContext, {
+const inspectNode = await createAudioInspectNode(audioContext, {
   featureName: 'getRMS',
   bufferSize: 1024,
   hopSize: 512
@@ -121,7 +121,7 @@ if (timeVaryingCF.timeVarying) {
 // Real-time crest factor monitoring
 import { createAudioInspectNode } from 'audio-inspect';
 const audioContext = new AudioContext();
-const crestNode = createAudioInspectNode(audioContext, {
+const crestNode = await createAudioInspectNode(audioContext, {
   featureName: 'getCrestFactor',
   featureOptions: { method: 'weighted' },
   bufferSize: 2048,
@@ -282,7 +282,7 @@ console.log(`True Peak: ${loudness.truePeak?.map(tp => `${tp.toFixed(1)} dBTP`).
 // Real-time loudness monitoring
 import { createAudioInspectNode } from 'audio-inspect';
 const audioContext = new AudioContext();
-const loudnessNode = createAudioInspectNode(audioContext, {
+const loudnessNode = await createAudioInspectNode(audioContext, {
   featureName: 'getLUFS',
   featureOptions: { gated: true, calculateMomentary: true },
   bufferSize: 1024,

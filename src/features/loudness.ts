@@ -252,6 +252,15 @@ class RealtimeLUFSProcessor {
     this.sampleRate = sampleRate;
     this.channelMode = channelMode;
     this.blockSize = Math.floor((BLOCK_SIZE_MS / 1000) * sampleRate);
+    
+    // Ensure blockSize is at least 1 to prevent division by zero
+    if (this.blockSize === 0) {
+      throw new AudioInspectError(
+        'INVALID_INPUT', 
+        `サンプルレート ${sampleRate}Hz は低すぎてリアルタイムLUFS処理に対応していません。最低 ${Math.ceil(1000 / BLOCK_SIZE_MS)}Hz 以上が必要です。`
+      );
+    }
+    
     this.hopSize = Math.floor(this.blockSize * (1 - BLOCK_OVERLAP));
     // 最大保持ブロック数（デフォルト30秒）
     this.maxBlocks = Math.ceil(maxDurationMs / ((this.hopSize / sampleRate) * 1000));

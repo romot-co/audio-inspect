@@ -150,6 +150,9 @@ export class AudioInspectNode
     this._bufferSize = options.bufferSize;
     this._hopSize = options.hopSize;
     this._provider = options.provider;
+
+    // 定期的なクリーンアップの設定（Mock mode でも必要）
+    this.setupCleanupInterval();
   }
 
   private getPort(): MessagePort | MockPort {

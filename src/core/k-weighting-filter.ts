@@ -61,10 +61,10 @@ function validateSampleRate(sampleRate: number): void {
 export function designKWeighting(sampleRate: number): BiquadCoeffs[] {
   validateSampleRate(sampleRate);
 
-  // キャッシュ確認
+  // キャッシュ確認（ディープコピーして返す）
   const cached = kWeightingCache.get(sampleRate);
   if (cached) {
-    return cached;
+    return cached.map(c => ({ ...c }));
   }
 
   const coeffs: BiquadCoeffs[] = [];

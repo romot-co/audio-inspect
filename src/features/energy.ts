@@ -6,7 +6,7 @@ export interface EnergyOptions {
   hopSize?: number;
   channel?: number;
   normalized?: boolean;
-  windowFunction?: 'rectangular' | 'hann' | 'hamming'; // エネルギー計算用の窓関数
+  windowFunction?: 'rectangular' | 'hann' | 'hamming' | 'blackman' | 'none'; // エネルギー計算用の窓関数
 }
 
 export interface EnergyResult {
@@ -40,7 +40,14 @@ function applyEnergyWindow(
       case 'hamming':
         windowValue = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (length - 1));
         break;
+      case 'blackman':
+        windowValue =
+          0.42 -
+          0.5 * Math.cos((2 * Math.PI * i) / (length - 1)) +
+          0.08 * Math.cos((4 * Math.PI * i) / (length - 1));
+        break;
       case 'rectangular':
+      case 'none':
       default:
         windowValue = 1.0;
     }

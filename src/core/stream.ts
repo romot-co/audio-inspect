@@ -196,17 +196,30 @@ export async function stream<T>(
 }
 
 /**
- * 簡易AudioInspectNodeファクトリー関数（同期版）
+ * 簡易AudioInspectNodeファクトリー関数（非同期版、モジュール自動登録）
  * E2Eテストや簡単な使用例向け
  * @param context - BaseAudioContext
  * @param options - ノードオプション
  * @returns AudioInspectNode
  */
-export function createAudioInspectNode(
+export async function createAudioInspectNode(
   context: BaseAudioContext,
   options?: AudioInspectNodeOptions
-): AudioInspectNode {
-  return new AudioInspectNode(context, options);
+): Promise<AudioInspectNode> {
+  try {
+    // モジュールが未登録の場合は自動登録
+    if (!isModuleRegistered(context)) {
+      const processorUrl = getDefaultProcessorUrl();
+      await addProcessorModule(context, processorUrl);
+    }
+
+    return new AudioInspectNode(context, options);
+  } catch (error) {
+    throw new AudioInspectError(
+      'INITIALIZATION_FAILED',
+      `AudioInspectNodeの作成に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 /**

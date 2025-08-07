@@ -46,7 +46,7 @@ export interface LoadOptions {
   /** リサンプリング対象のサンプルレート */
   sampleRate?: number;
   /** チャンネル数の指定 */
-  channels?: number | 'mono';
+  channels?: number | 'mono' | 'stereo';
   /** 正規化するか */
   normalize?: boolean;
   /** 遅延読み込み（大きなファイル用） */

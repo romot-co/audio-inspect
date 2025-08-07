@@ -481,6 +481,14 @@ function sincOversample(samples: Float32Array, factor: number): Float32Array {
 export function oversample(samples: Float32Array, options: OversamplingOptions = {}): Float32Array {
   const { factor = 4, interpolation = 'cubic' } = options;
 
+  // Validate factor is one of the supported values for reliable sinc interpolation
+  if (![2, 4, 8].includes(factor)) {
+    throw new AudioInspectError(
+      'INVALID_INPUT', 
+      'オーバーサンプリング係数は2、4、または8である必要があります。他の値ではsinc補間品質が保証されません。'
+    );
+  }
+
   if (factor <= 1) {
     return samples;
   }

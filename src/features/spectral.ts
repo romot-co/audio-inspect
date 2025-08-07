@@ -497,53 +497,62 @@ export async function getTimeVaryingSpectralFeatures(
 
   let previousMagnitude: Float32Array | undefined;
 
-  // フレームごとの解析
-  for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
-    const startSample = frameIndex * hopSize;
-    const endSample = Math.min(startSample + frameSize, samples.length);
+  // FFTプロバイダーを一度だけ作成（パフォーマンス最適化）
+  const { FFTProviderFactory } = await import('../core/fft-provider.js');
+  const fftProvider = await FFTProviderFactory.createProvider({
+    type: 'native',
+    fftSize,
+    sampleRate: audio.sampleRate,
+    enableProfiling: false
+  });
 
-    // 時間位置
-    times[frameIndex] = startSample / audio.sampleRate;
+  try {
+    // フレームごとの解析
+    for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
+      const startSample = frameIndex * hopSize;
+      const endSample = Math.min(startSample + frameSize, samples.length);
 
-    // フレームデータの抽出
-    const frameData = samples.subarray(startSample, endSample);
+      // 時間位置
+      times[frameIndex] = startSample / audio.sampleRate;
 
-    // ゼロパディング（フレームサイズがFFTサイズより小さい場合）
-    const paddedFrame = new Float32Array(fftSize);
-    const copyLength = Math.min(frameData.length, fftSize);
-    if (copyLength > 0) {
-      paddedFrame.set(frameData.subarray(0, copyLength));
+      // フレームデータの抽出
+      const frameData = samples.subarray(startSample, endSample);
+
+      // ゼロパディング（フレームサイズがFFTサイズより小さい場合）
+      const paddedFrame = new Float32Array(fftSize);
+      const copyLength = Math.min(frameData.length, fftSize);
+      if (copyLength > 0) {
+        paddedFrame.set(frameData.subarray(0, copyLength));
+      }
+
+      // ウィンドウ関数を適用（既存のapplyWindow関数を使用）
+      const windowedFrame = applyWindow(paddedFrame, windowFunction as WindowFunction);
+
+      // FFTを実行（プロバイダーを再利用）
+      const fftResult = await fftProvider.fft(windowedFrame);
+
+      // 周波数範囲のインデックスを計算
+      const minIndex = Math.max(0, Math.floor((minFrequency * fftSize) / audio.sampleRate));
+      const maxIndex = Math.min(
+        fftResult.frequencies.length - 1,
+        Math.floor((maxFrequency * fftSize) / audio.sampleRate)
+      );
+
+      // 既存のヘルパー関数を使用してスペクトル特徴量を計算
+      const centroid = calculateSpectralCentroid(fftResult.frequencies, fftResult.magnitude, minIndex, maxIndex);
+      spectralCentroid[frameIndex] = centroid;
+      spectralBandwidth[frameIndex] = calculateSpectralBandwidth(fftResult.frequencies, fftResult.magnitude, minIndex, maxIndex, centroid);
+      spectralRolloff[frameIndex] = calculateSpectralRolloff(fftResult.frequencies, fftResult.magnitude, minIndex, maxIndex, rolloffThreshold);
+      spectralFlatness[frameIndex] = calculateSpectralFlatness(fftResult.magnitude, minIndex, maxIndex);
+      zeroCrossingRate[frameIndex] = calculateZeroCrossingRate(paddedFrame);
+
+      // スペクトルフラックスの計算（前フレームとの比較）
+      spectralFlux[frameIndex] = calculateSpectralFlux(fftResult.magnitude, previousMagnitude);
+      previousMagnitude = new Float32Array(fftResult.magnitude);
     }
-
-    // フレーム用の音声データを作成
-    const frameAudio: AudioData = {
-      channelData: [paddedFrame],
-      sampleRate: audio.sampleRate,
-      numberOfChannels: 1,
-      length: fftSize,
-      duration: fftSize / audio.sampleRate
-    };
-
-    // スペクトル特徴量を計算
-    const features = await getSpectralFeatures(frameAudio, {
-      fftSize,
-      windowFunction,
-      channel: 0,
-      minFrequency,
-      maxFrequency,
-      rolloffThreshold
-    });
-
-    spectralCentroid[frameIndex] = features.spectralCentroid;
-    spectralBandwidth[frameIndex] = features.spectralBandwidth;
-    spectralRolloff[frameIndex] = features.spectralRolloff;
-    spectralFlatness[frameIndex] = features.spectralFlatness;
-    zeroCrossingRate[frameIndex] = features.zeroCrossingRate;
-
-    // スペクトルフラックスの計算（前フレームとの比較）
-    const fftResult = await getFFT(frameAudio, { fftSize, windowFunction, channel: 0 });
-    spectralFlux[frameIndex] = calculateSpectralFlux(fftResult.magnitude, previousMagnitude);
-    previousMagnitude = new Float32Array(fftResult.magnitude);
+  } finally {
+    // FFTプロバイダーを確実にクリーンアップ
+    fftProvider.dispose();
   }
 
   return {

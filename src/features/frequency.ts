@@ -99,6 +99,7 @@ function applyWindow(data: Float32Array, windowType: WindowFunction): Float32Arr
           0.08 * Math.cos((4 * Math.PI * i) / (N - 1));
         break;
       case 'rectangular':
+      case 'none':
       default:
         windowValue = 1;
         break;
@@ -285,9 +286,21 @@ export async function getSpectrum(
 function filterFrequencyRange(fftResult: FFTResult, minFreq: number, maxFreq: number): FFTResult {
   const { frequencies, magnitude, phase, complex } = fftResult;
 
-  const startIndex = frequencies.findIndex((f) => f >= minFreq);
+  let startIndex = frequencies.findIndex((f) => f >= minFreq);
+  if (startIndex < 0) startIndex = 0;
+
   const endIndex = frequencies.findIndex((f) => f > maxFreq);
   const actualEndIndex = endIndex === -1 ? frequencies.length : endIndex;
+
+  // Early return for invalid range
+  if (startIndex >= actualEndIndex) {
+    return {
+      frequencies: new Float32Array(0),
+      magnitude: new Float32Array(0),
+      phase: new Float32Array(0),
+      complex: new Float32Array(0)
+    };
+  }
 
   return {
     frequencies: frequencies.slice(startIndex, actualEndIndex),

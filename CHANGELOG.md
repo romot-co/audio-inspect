@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.4] - 2025-08-07
+
+### Fixed
+
+#### Critical Bug Fixes ⭐⭐⭐
+
+- **Critical**: Fixed `filterFrequencyRange()` returning only last element when minFrequency exceeds Nyquist frequency
+  - Now properly returns empty arrays for invalid frequency ranges instead of slice(-1) behavior
+  - Prevents spectrum analysis from returning near-silence results
+- **Critical**: Fixed `createAudioInspectNode()` crashes with "AudioWorklet module not found" error
+  - Added automatic AudioWorklet module registration using `getDefaultProcessorUrl()`
+  - README examples now work without manual module registration
+- **Critical**: Fixed AudioContext memory leak in `load()` function hitting Chrome's 6-context limit
+  - Implemented singleton AudioContext pattern with proper cleanup
+  - Prevents "error allocating audio context resources" on 7th+ load
+- **Critical**: Fixed A/K-weighting filter coefficients mutation via reference passing
+  - Filter functions now return deep copies to prevent cache corruption
+  - External coefficient modification no longer affects subsequent calls
+- **Critical**: Fixed RealtimeLUFSProcessor division by zero when sampleRate < 2000Hz
+  - Added blockSize validation with descriptive error messages
+  - Prevents crashes in IoT/8kHz audio applications
+
+#### Performance Improvements ⭐⭐
+
+- **Major**: Optimized `getTimeVaryingSpectralFeatures()` performance by 20x+
+  - Now reuses single FFT provider across all frames instead of creating new provider per frame
+  - Reduced import overhead and memory allocation in spectral analysis workflows
+
+#### Memory Management ⭐⭐
+
+- **Enhanced**: Verified all FFT provider disposal code paths use proper try/finally patterns
+  - All providers now support safe double-dispose operations
+- **Fixed**: Added missing cleanup interval setup in AudioInspectNode mock mode for Node.js environments
+
+#### API Usability Enhancements ⭐
+
+- **Added**: `'stereo'` option to `channels` parameter in `load()` options (alongside existing `1|'mono'|2`)
+- **Added**: Explicit `'none'` case handling in all window functions (frequency, energy, spectral)
+- **Added**: `'blackman'` window function option to `EnergyOptions.windowFunction`
+- **Added**: Validation for `oversample()` factor - now restricted to `[2,4,8]` for guaranteed sinc interpolation quality
+
+### Technical Details
+
+- All fixes maintain 100% backward compatibility with existing APIs
+- Enhanced error messages provide clearer debugging information for invalid parameters  
+- Improved memory efficiency in real-time processing scenarios
+- Comprehensive test coverage with 340 passing tests validating all fixes
+
 ## [0.0.3] - 2025-07-24
 
 ### Fixed

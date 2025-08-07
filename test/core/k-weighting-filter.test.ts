@@ -319,8 +319,8 @@ describe('K-weighting Filter (ITU-R BS.1770-5)', () => {
       const kCoeffs1 = getKWeightingCoeffs(sampleRate);
       const kCoeffs2 = getKWeightingCoeffs(sampleRate);
 
-      // キャッシュにより同一オブジェクトが返されることを確認
-      expect(kCoeffs1).toBe(kCoeffs2);
+      // キャッシュによりディープコピーされた同等の結果が返されることを確認（参照渡し修正により）
+      expect(kCoeffs1).toStrictEqual(kCoeffs2);
 
       // 計算結果の一貫性確認
       const kResponse1 = calculateKResponse(kCoeffs1, 1000, sampleRate);

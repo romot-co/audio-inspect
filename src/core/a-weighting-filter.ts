@@ -62,10 +62,10 @@ function validateSampleRate(sampleRate: number): void {
 export function designAWeighting(sampleRate: number): BiquadCoeffs[] {
   validateSampleRate(sampleRate);
 
-  // キャッシュ確認
+  // キャッシュ確認（ディープコピーして返す）
   const cached = aWeightingCache.get(sampleRate);
   if (cached) {
-    return cached;
+    return cached.map(c => ({ ...c }));
   }
 
   // IEC 61672-1:2013 Annex E.4.1の正確な極周波数 (Hz)
