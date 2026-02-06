@@ -169,6 +169,21 @@ describe('getEnergy', () => {
       // 窓関数により結果が変わるはず
       expect(rectangular.totalEnergy).not.toEqual(hann.totalEnergy);
     });
+
+    it('should keep finite energy with frameSize=1 for taper windows', () => {
+      const audio = createTestAudioData(new Float32Array([0.5]));
+
+      const hann = getEnergy(audio, { frameSize: 1, hopSize: 1, windowFunction: 'hann' });
+      const hamming = getEnergy(audio, { frameSize: 1, hopSize: 1, windowFunction: 'hamming' });
+      const blackman = getEnergy(audio, { frameSize: 1, hopSize: 1, windowFunction: 'blackman' });
+
+      expect(Number.isFinite(hann.totalEnergy)).toBe(true);
+      expect(Number.isFinite(hamming.totalEnergy)).toBe(true);
+      expect(Number.isFinite(blackman.totalEnergy)).toBe(true);
+      expect(hann.totalEnergy).toBeCloseTo(0.25, 6);
+      expect(hamming.totalEnergy).toBeCloseTo(0.25, 6);
+      expect(blackman.totalEnergy).toBeCloseTo(0.25, 6);
+    });
   });
 
   describe('normalization', () => {

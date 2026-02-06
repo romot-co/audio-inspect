@@ -324,6 +324,33 @@ describe('getTimeVaryingSpectralFeatures', () => {
       expect(result.zeroCrossingRate.length).toBe(result.times.length);
     });
 
+    it('should keep centroid near tone frequency for stationary sine wave', async () => {
+      const toneFreq = 1000;
+      const signal = createSineWave(toneFreq, 2.0, 44100, 1.0);
+      const audio = createTestAudioData(signal);
+
+      const result = await getTimeVaryingSpectralFeatures(audio, {
+        frameSize: 2048,
+        hopSize: 1024,
+        minFrequency: 20,
+        maxFrequency: 5000
+      });
+
+      const centroidMean =
+        result.spectralCentroid.reduce((sum, value) => sum + value, 0) / result.spectralCentroid.length;
+      const rolloffMean =
+        result.spectralRolloff.reduce((sum, value) => sum + value, 0) / result.spectralRolloff.length;
+      const bandwidthMean =
+        result.spectralBandwidth.reduce((sum, value) => sum + value, 0) / result.spectralBandwidth.length;
+
+      expect(centroidMean).toBeGreaterThan(900);
+      expect(centroidMean).toBeLessThan(1100);
+      expect(rolloffMean).toBeGreaterThan(900);
+      expect(rolloffMean).toBeLessThan(1300);
+      expect(bandwidthMean).toBeGreaterThan(0);
+      expect(bandwidthMean).toBeLessThan(300);
+    });
+
     it('should track changes in spectral content over time', async () => {
       // 前半は低い周波数、後半は高い周波数
       const firstHalf = createSineWave(440, 1.5, 44100, 1.0);

@@ -235,6 +235,42 @@ describe('getSpectrum', () => {
         expect(result.spectrogram.timeFrames).toBeGreaterThan(1);
       }
     });
+
+    it('should reject invalid overlap values for spectrogram', async () => {
+      const signal = createSineWave(440, 0.2, 8000, 1.0);
+      const audio = createTestAudioData(signal, 8000);
+
+      const invalidOverlaps = [-0.1, 1, 1.1, Number.POSITIVE_INFINITY, Number.NaN];
+      for (const overlap of invalidOverlaps) {
+        await expect(
+          getSpectrum(audio, {
+            fftSize: 256,
+            timeFrames: 5,
+            overlap,
+            provider: 'native'
+          })
+        ).rejects.toThrow('overlap');
+      }
+    });
+
+    it('should generate strictly increasing spectrogram times for valid overlap', async () => {
+      const signal = createSineWave(440, 0.5, 8000, 1.0);
+      const audio = createTestAudioData(signal, 8000);
+
+      const result = await getSpectrum(audio, {
+        fftSize: 256,
+        timeFrames: 8,
+        overlap: 0.5,
+        provider: 'native'
+      });
+
+      expect(result.spectrogram).toBeDefined();
+      if (result.spectrogram) {
+        for (let i = 1; i < result.spectrogram.times.length; i++) {
+          expect(result.spectrogram.times[i]).toBeGreaterThan(result.spectrogram.times[i - 1] ?? 0);
+        }
+      }
+    });
   });
 
   describe('spectrogram frequency filtering', () => {

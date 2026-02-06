@@ -244,6 +244,10 @@ export async function getSpectrum(
 
   const channelData = getChannelData(audio, options.channel || 0);
 
+  if (timeFrames > 1 && (!Number.isFinite(overlap) || overlap < 0 || overlap >= 1)) {
+    throw new AudioInspectError('INVALID_INPUT', 'overlapは0以上1未満である必要があります');
+  }
+
   if (timeFrames === 1) {
     // 単一フレームのスペクトラム解析
     const fftResult = await getFFT(audio, { ...fftOptions, fftSize });
@@ -346,6 +350,12 @@ async function computeSpectrogram(
   options: SpectrogramOptions
 ): Promise<SpectrogramData> {
   const hopSize = Math.floor(fftSize * (1 - overlap));
+  if (hopSize <= 0) {
+    throw new AudioInspectError(
+      'INVALID_INPUT',
+      `hopSizeが不正です。overlapを見直してください: overlap=${overlap}`
+    );
+  }
 
   // 修正2.2: 短音声データ処理時のフレーム数不足対応
   let numPossibleFrames;

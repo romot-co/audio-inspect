@@ -33,23 +33,25 @@ function applyEnergyWindow(
   for (let i = 0; i < length && startIdx + i < data.length; i++) {
     let windowValue = 1.0;
 
-    switch (windowType) {
-      case 'hann':
-        windowValue = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (length - 1)));
-        break;
-      case 'hamming':
-        windowValue = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (length - 1));
-        break;
-      case 'blackman':
-        windowValue =
-          0.42 -
-          0.5 * Math.cos((2 * Math.PI * i) / (length - 1)) +
-          0.08 * Math.cos((4 * Math.PI * i) / (length - 1));
-        break;
-      case 'rectangular':
-      case 'none':
-      default:
-        windowValue = 1.0;
+    if (length > 1) {
+      switch (windowType) {
+        case 'hann':
+          windowValue = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (length - 1)));
+          break;
+        case 'hamming':
+          windowValue = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (length - 1));
+          break;
+        case 'blackman':
+          windowValue =
+            0.42 -
+            0.5 * Math.cos((2 * Math.PI * i) / (length - 1)) +
+            0.08 * Math.cos((4 * Math.PI * i) / (length - 1));
+          break;
+        case 'rectangular':
+        case 'none':
+        default:
+          windowValue = 1.0;
+      }
     }
 
     const sample = ensureValidSample(data[startIdx + i] ?? 0);

@@ -120,6 +120,24 @@ describe('getLUFS', () => {
       expect(ungated.integrated).toBeDefined();
       // ゲートありとなしで結果が異なることがある
     });
+
+    it('should make ungated loudness lower when long silence is included', () => {
+      const sampleRate = 48000;
+      const duration = 10.0;
+      const length = Math.floor(sampleRate * duration);
+      const signal = new Float32Array(length);
+
+      // 先頭8秒は無音、後半2秒のみ有音
+      const tone = createSineWave(1000, 2.0, sampleRate, 0.2);
+      signal.set(tone, Math.floor(8 * sampleRate));
+
+      const audio = createTestAudioData([signal], sampleRate);
+      const gated = getLUFS(audio, { gated: true });
+      const ungated = getLUFS(audio, { gated: false });
+
+      expect(gated.integrated).toBeGreaterThan(ungated.integrated);
+      expect(gated.integrated - ungated.integrated).toBeGreaterThan(4);
+    });
   });
 
   describe('additional measurements', () => {
@@ -155,11 +173,11 @@ describe('getLUFS', () => {
 
       const result = getLUFS(audio, { calculateLoudnessRange: true });
 
-      // loudnessRangeは実装されていない可能性がある
-      if (result.loudnessRange !== undefined) {
-        expect(result.loudnessRange).toBeTypeOf('number');
-        expect(result.loudnessRange).toBeGreaterThan(0);
-      }
+      expect(result.loudnessRange).toBeDefined();
+      expect(result.loudnessRange).toBeTypeOf('number');
+      expect(result.loudnessRange).toBeGreaterThan(0);
+      // calculateShortTermを指定していないため、時系列は返さない
+      expect(result.shortTerm).toBeUndefined();
     });
 
     it('should calculate true peak when requested', () => {
@@ -182,12 +200,25 @@ describe('getLUFS', () => {
 
       const result = getLUFS(audio, { calculateLoudnessRange: true });
 
-      // statisticsは実装されていない可能性がある
-      if (result.statistics) {
-        expect(result.statistics.percentile10).toBeTypeOf('number');
-        expect(result.statistics.percentile95).toBeTypeOf('number');
-        expect(result.statistics.percentile95).toBeGreaterThan(result.statistics.percentile10);
-      }
+      expect(result.statistics).toBeDefined();
+      expect(result.statistics?.percentile10).toBeTypeOf('number');
+      expect(result.statistics?.percentile95).toBeTypeOf('number');
+      expect((result.statistics?.percentile95 ?? 0) - (result.statistics?.percentile10 ?? 0)).toBeGreaterThan(0);
+    });
+
+    it('should return both short-term series and LRA when both options are enabled', () => {
+      const signal = createPinkNoise(48000 * 10, 0.1);
+      const audio = createTestAudioData([signal]);
+
+      const result = getLUFS(audio, {
+        calculateShortTerm: true,
+        calculateLoudnessRange: true
+      });
+
+      expect(result.shortTerm).toBeDefined();
+      expect(result.shortTerm?.length).toBeGreaterThan(0);
+      expect(result.loudnessRange).toBeDefined();
+      expect(result.loudnessRange).toBeGreaterThan(0);
     });
   });
 

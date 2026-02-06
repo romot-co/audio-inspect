@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   getPeaks,
   getRMS,
+  getRMSAnalysis,
   getZeroCrossing,
   getWaveform,
   getPeakAmplitude
@@ -337,6 +338,16 @@ describe('getRMS', () => {
 
     expect(rms0).toBeCloseTo(1.0);
     expect(rms1).toBeCloseTo(0.5);
+  });
+});
+
+describe('getRMSAnalysis', () => {
+  it('should ignore invalid samples consistently', () => {
+    const audio = createTestAudioData(new Float32Array([1, NaN, 1]));
+
+    const analysis = getRMSAnalysis(audio, { asDB: false });
+
+    expect(analysis.value).toBeCloseTo(1, 6);
   });
 });
 

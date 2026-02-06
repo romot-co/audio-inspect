@@ -539,10 +539,27 @@ export async function getTimeVaryingSpectralFeatures(
       );
 
       // 既存のヘルパー関数を使用してスペクトル特徴量を計算
-      const centroid = calculateSpectralCentroid(fftResult.frequencies, fftResult.magnitude, minIndex, maxIndex);
+      const centroid = calculateSpectralCentroid(
+        fftResult.magnitude,
+        fftResult.frequencies,
+        minFrequency,
+        maxFrequency
+      );
       spectralCentroid[frameIndex] = centroid;
-      spectralBandwidth[frameIndex] = calculateSpectralBandwidth(fftResult.frequencies, fftResult.magnitude, minIndex, maxIndex, centroid);
-      spectralRolloff[frameIndex] = calculateSpectralRolloff(fftResult.frequencies, fftResult.magnitude, minIndex, maxIndex, rolloffThreshold);
+      spectralBandwidth[frameIndex] = calculateSpectralBandwidth(
+        fftResult.magnitude,
+        fftResult.frequencies,
+        centroid,
+        minFrequency,
+        maxFrequency
+      );
+      spectralRolloff[frameIndex] = calculateSpectralRolloff(
+        fftResult.magnitude,
+        fftResult.frequencies,
+        rolloffThreshold,
+        minFrequency,
+        maxFrequency
+      );
       spectralFlatness[frameIndex] = calculateSpectralFlatness(fftResult.magnitude, minIndex, maxIndex);
       zeroCrossingRate[frameIndex] = calculateZeroCrossingRate(paddedFrame);
 

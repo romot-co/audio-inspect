@@ -764,15 +764,43 @@ export function getRMSAnalysis(
   onProgress?.(50, 'RMS値を計算中');
 
   let sumSquares = 0;
+  let validSampleCount = 0;
   for (let i = 0; i < channelData.length; i++) {
     const sample = channelData[i] ?? 0;
     if (isValidSample(sample)) {
       const validSample = ensureValidSample(sample);
       sumSquares += validSample * validSample;
+      validSampleCount++;
     }
   }
 
-  const rmsValue = Math.sqrt(sumSquares / channelData.length);
+  if (validSampleCount === 0) {
+    const value = asDB ? -Infinity : 0;
+    const processingTime = getPerformanceNow() - startTime;
+
+    onProgress?.(100, '処理完了');
+
+    if (asDB) {
+      return {
+        value,
+        channel,
+        sampleRate: audio.sampleRate,
+        duration: audio.duration,
+        processingTime
+      };
+    }
+
+    return {
+      value,
+      valueDB: -Infinity,
+      channel,
+      sampleRate: audio.sampleRate,
+      duration: audio.duration,
+      processingTime
+    };
+  }
+
+  const rmsValue = Math.sqrt(sumSquares / validSampleCount);
   const processingTime = getPerformanceNow() - startTime;
 
   onProgress?.(100, '処理完了');

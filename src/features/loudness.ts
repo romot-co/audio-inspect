@@ -102,6 +102,15 @@ export interface LUFSResult {
   };
 }
 
+function lufsBlocksToIntegrated(blocks: number[]): number {
+  if (blocks.length === 0) {
+    return -Infinity;
+  }
+
+  const sumPower = blocks.reduce((sum, lufs) => sum + Math.pow(10, (lufs + 0.691) / 10), 0);
+  return -0.691 + 10 * Math.log10(sumPower / blocks.length);
+}
+
 /**
  * テスト用：K-weightingフィルタ係数を取得
  * @param sampleRate サンプルレート
@@ -114,6 +123,7 @@ export function getKWeightingCoeffs(sampleRate: number): BiquadCoeffs[] {
 export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult {
   const {
     channelMode = audio.numberOfChannels >= 2 ? 'stereo' : 'mono',
+    gated = true,
     calculateShortTerm = false,
     calculateMomentary = false,
     calculateLoudnessRange = false,
@@ -127,6 +137,7 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
   // getLUFSRealtimeを使用した実装
   const processor = getLUFSRealtime(audio.sampleRate, {
     channelMode,
+    gated,
     maxDurationMs: audio.duration * 1000 + 5000 // 音声の長さ + 余裕
   });
 
@@ -170,6 +181,7 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
   // 時系列データ収集用（オプション機能のため）
   const momentaryValues: number[] = [];
   const shortTermValues: number[] = [];
+  const collectShortTerm = calculateShortTerm || calculateLoudnessRange;
 
   // チャンクを順次処理
   let finalResult;
@@ -180,7 +192,7 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
       momentaryValues.push(finalResult.momentary);
     }
 
-    if (calculateShortTerm && isFinite(finalResult.shortTerm)) {
+    if (collectShortTerm && isFinite(finalResult.shortTerm)) {
       shortTermValues.push(finalResult.shortTerm);
     }
   }
@@ -199,8 +211,8 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
   }
 
   // ラウドネスレンジ計算（short-termから）
-  if (calculateLoudnessRange && result.shortTerm) {
-    const validValues = Array.from(result.shortTerm)
+  if (calculateLoudnessRange && shortTermValues.length > 0) {
+    const validValues = shortTermValues
       .filter((v) => v > -70.0 && isFinite(v)) // 絶対ゲート
       .sort((a, b) => a - b);
 
@@ -243,24 +255,27 @@ class RealtimeLUFSProcessor {
   private sampleCount: number = 0;
   private biquadStates: BiquadState[][] = [];
   private totalSamplesProcessed: number = 0; // 総処理サンプル数
+  private gated: boolean;
 
   constructor(
     sampleRate: number,
     channelMode: 'mono' | 'stereo' = 'stereo',
-    maxDurationMs: number = 30000
+    maxDurationMs: number = 30000,
+    gated: boolean = true
   ) {
     this.sampleRate = sampleRate;
     this.channelMode = channelMode;
+    this.gated = gated;
     this.blockSize = Math.floor((BLOCK_SIZE_MS / 1000) * sampleRate);
-    
+
     // Ensure blockSize is at least 1 to prevent division by zero
     if (this.blockSize === 0) {
       throw new AudioInspectError(
-        'INVALID_INPUT', 
+        'INVALID_INPUT',
         `サンプルレート ${sampleRate}Hz は低すぎてリアルタイムLUFS処理に対応していません。最低 ${Math.ceil(1000 / BLOCK_SIZE_MS)}Hz 以上が必要です。`
       );
     }
-    
+
     this.hopSize = Math.floor(this.blockSize * (1 - BLOCK_OVERLAP));
     // 最大保持ブロック数（デフォルト30秒）
     this.maxBlocks = Math.ceil(maxDurationMs / ((this.hopSize / sampleRate) * 1000));
@@ -378,32 +393,23 @@ class RealtimeLUFSProcessor {
       .filter(([_, sampleIndex]) => currentSample - sampleIndex <= shortTermSamples)
       .map(([loudness]) => loudness);
 
-    // Integrated (全ブロック with gating)
-    let integratedBlocks = this.blockBuffer.map(([loudness]) => loudness);
-
-    // ゲーティング処理
-    // 絶対ゲート（-70 LUFS）
-    integratedBlocks = integratedBlocks.filter((l) => l >= ABSOLUTE_GATE_LUFS);
-
     let integrated = -Infinity;
-    if (integratedBlocks.length > 0) {
-      // 相対ゲートのための平均計算
-      const sumPower = integratedBlocks.reduce(
-        (sum, lufs) => sum + Math.pow(10, (lufs + 0.691) / 10),
-        0
-      );
-      const meanLoudness = -0.691 + 10 * Math.log10(sumPower / integratedBlocks.length);
-      const relativeThreshold = meanLoudness - RELATIVE_GATE_LU;
+    const integratedBlocks = this.blockBuffer
+      .map(([loudness]) => loudness)
+      .filter((loudness) => isFinite(loudness));
+    if (!this.gated) {
+      integrated = lufsBlocksToIntegrated(integratedBlocks);
+    } else if (integratedBlocks.length > 0) {
+      // 絶対ゲート（-70 LUFS）
+      const absoluteGated = integratedBlocks.filter((l) => l >= ABSOLUTE_GATE_LUFS);
+      if (absoluteGated.length > 0) {
+        // 相対ゲートのしきい値を計算
+        const meanLoudness = lufsBlocksToIntegrated(absoluteGated);
+        const relativeThreshold = meanLoudness - RELATIVE_GATE_LU;
 
-      // 相対ゲート適用
-      const gatedBlocks = integratedBlocks.filter((l) => l >= relativeThreshold);
-
-      if (gatedBlocks.length > 0) {
-        const gatedSumPower = gatedBlocks.reduce(
-          (sum, lufs) => sum + Math.pow(10, (lufs + 0.691) / 10),
-          0
-        );
-        integrated = -0.691 + 10 * Math.log10(gatedSumPower / gatedBlocks.length);
+        // 相対ゲート適用
+        const relativeGated = absoluteGated.filter((l) => l >= relativeThreshold);
+        integrated = lufsBlocksToIntegrated(relativeGated);
       }
     }
 
@@ -457,6 +463,7 @@ class RealtimeLUFSProcessor {
 
 export interface RealtimeLUFSOptions {
   channelMode?: 'mono' | 'stereo';
+  gated?: boolean;
   maxDurationMs?: number; // 最大保持時間（デフォルト30秒）
 }
 
@@ -470,6 +477,6 @@ export function getLUFSRealtime(
   sampleRate: number,
   options: RealtimeLUFSOptions = {}
 ): RealtimeLUFSProcessor {
-  const { channelMode = 'stereo', maxDurationMs = 30000 } = options;
-  return new RealtimeLUFSProcessor(sampleRate, channelMode, maxDurationMs);
+  const { channelMode = 'stereo', maxDurationMs = 30000, gated = true } = options;
+  return new RealtimeLUFSProcessor(sampleRate, channelMode, maxDurationMs, gated);
 }
