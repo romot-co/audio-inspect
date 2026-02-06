@@ -64,7 +64,7 @@ export function designKWeighting(sampleRate: number): BiquadCoeffs[] {
   // キャッシュ確認（ディープコピーして返す）
   const cached = kWeightingCache.get(sampleRate);
   if (cached) {
-    return cached.map(c => ({ ...c }));
+    return cached.map((c) => ({ ...c }));
   }
 
   const coeffs: BiquadCoeffs[] = [];

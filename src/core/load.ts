@@ -268,10 +268,7 @@ function ensureStereo(audioData: AudioData): AudioData {
     if (!monoData) {
       throw new AudioInspectError('INVALID_INPUT', 'チャンネル0のデータが存在しません');
     }
-    const stereoChannelData = [
-      new Float32Array(monoData),
-      new Float32Array(monoData)
-    ];
+    const stereoChannelData = [new Float32Array(monoData), new Float32Array(monoData)];
 
     return {
       sampleRate: audioData.sampleRate,

@@ -203,7 +203,9 @@ describe('getLUFS', () => {
       expect(result.statistics).toBeDefined();
       expect(result.statistics?.percentile10).toBeTypeOf('number');
       expect(result.statistics?.percentile95).toBeTypeOf('number');
-      expect((result.statistics?.percentile95 ?? 0) - (result.statistics?.percentile10 ?? 0)).toBeGreaterThan(0);
+      expect(
+        (result.statistics?.percentile95 ?? 0) - (result.statistics?.percentile10 ?? 0)
+      ).toBeGreaterThan(0);
     });
 
     it('should return both short-term series and LRA when both options are enabled', () => {

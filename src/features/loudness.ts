@@ -361,7 +361,7 @@ class RealtimeLUFSProcessor {
           const currentBuffer = this.currentSamples[ch]!;
           currentBuffer.copyWithin(0, this.hopSize);
         }
-        
+
         this.sampleCount = this.blockSize - this.hopSize;
         this.totalSamplesProcessed += this.hopSize;
       }

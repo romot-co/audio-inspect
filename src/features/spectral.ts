@@ -560,7 +560,11 @@ export async function getTimeVaryingSpectralFeatures(
         minFrequency,
         maxFrequency
       );
-      spectralFlatness[frameIndex] = calculateSpectralFlatness(fftResult.magnitude, minIndex, maxIndex);
+      spectralFlatness[frameIndex] = calculateSpectralFlatness(
+        fftResult.magnitude,
+        minIndex,
+        maxIndex
+      );
       zeroCrossingRate[frameIndex] = calculateZeroCrossingRate(paddedFrame);
 
       // スペクトルフラックスの計算（前フレームとの比較）

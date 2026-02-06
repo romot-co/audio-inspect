@@ -337,11 +337,14 @@ describe('getTimeVaryingSpectralFeatures', () => {
       });
 
       const centroidMean =
-        result.spectralCentroid.reduce((sum, value) => sum + value, 0) / result.spectralCentroid.length;
+        result.spectralCentroid.reduce((sum, value) => sum + value, 0) /
+        result.spectralCentroid.length;
       const rolloffMean =
-        result.spectralRolloff.reduce((sum, value) => sum + value, 0) / result.spectralRolloff.length;
+        result.spectralRolloff.reduce((sum, value) => sum + value, 0) /
+        result.spectralRolloff.length;
       const bandwidthMean =
-        result.spectralBandwidth.reduce((sum, value) => sum + value, 0) / result.spectralBandwidth.length;
+        result.spectralBandwidth.reduce((sum, value) => sum + value, 0) /
+        result.spectralBandwidth.length;
 
       expect(centroidMean).toBeGreaterThan(900);
       expect(centroidMean).toBeLessThan(1100);
