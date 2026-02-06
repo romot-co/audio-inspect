@@ -1,470 +1,191 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Audio Inspect - デモページ一覧</title>
-  <style>
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      margin: 0;
-      padding: 20px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-    }
-    
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      background: white;
-      padding: 40px;
-      border-radius: 20px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-    }
-    
-    .header {
-      text-align: center;
-      margin-bottom: 50px;
-    }
-    
-    .header h1 {
-      color: #333;
-      font-size: 3em;
-      margin-bottom: 10px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-    
-    .header p {
-      color: #666;
-      font-size: 1.2em;
-      max-width: 600px;
-      margin: 0 auto;
-      line-height: 1.6;
-    }
-    
-    .demo-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-      gap: 30px;
-      margin: 40px 0;
-    }
-    
-    .demo-card {
-      background: white;
-      border-radius: 15px;
-      padding: 30px;
-      box-shadow: 0 5px 20px rgba(0,0,0,0.1);
-      transition: all 0.3s ease;
-      border: 2px solid transparent;
-      position: relative;
-      overflow: hidden;
-    }
-    
-    .demo-card::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 4px;
-      background: linear-gradient(90deg, #667eea, #764ba2);
-    }
-    
-    .demo-card:hover {
-      transform: translateY(-10px);
-      box-shadow: 0 15px 40px rgba(0,0,0,0.2);
-      border-color: #667eea;
-    }
-    
-    .demo-icon {
-      font-size: 3em;
-      margin-bottom: 20px;
-      text-align: center;
-    }
-    
-    .demo-title {
-      font-size: 1.5em;
-      font-weight: bold;
-      color: #333;
-      margin-bottom: 15px;
-      text-align: center;
-    }
-    
-    .demo-description {
-      color: #666;
-      line-height: 1.6;
-      margin-bottom: 20px;
-      text-align: center;
-    }
-    
-    .demo-features {
-      list-style: none;
-      padding: 0;
-      margin: 20px 0;
-    }
-    
-    .demo-features li {
-      padding: 5px 0;
-      color: #555;
-      position: relative;
-      padding-left: 20px;
-    }
-    
-    .demo-features li::before {
-      content: '✓';
-      position: absolute;
-      left: 0;
-      color: #28a745;
-      font-weight: bold;
-    }
-    
-    .demo-button {
-      display: block;
-      width: 100%;
-      padding: 15px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      text-decoration: none;
-      border-radius: 10px;
-      text-align: center;
-      font-weight: bold;
-      font-size: 1.1em;
-      transition: all 0.3s ease;
-      border: none;
-      cursor: pointer;
-    }
-    
-    .demo-button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-    }
-    
-    .info-section {
-      background: #f8f9fa;
-      padding: 30px;
-      border-radius: 15px;
-      margin: 40px 0;
-      text-align: center;
-    }
-    
-    .info-section h2 {
-      color: #333;
-      margin-bottom: 20px;
-    }
-    
-    .tech-stack {
-      display: flex;
-      justify-content: center;
-      flex-wrap: wrap;
-      gap: 15px;
-      margin: 20px 0;
-    }
-    
-    .tech-item {
-      background: white;
-      padding: 10px 20px;
-      border-radius: 25px;
-      color: #667eea;
-      font-weight: bold;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    
-    .github-link {
-      display: inline-block;
-      margin-top: 20px;
-      padding: 12px 30px;
-      background: #333;
-      color: white;
-      text-decoration: none;
-      border-radius: 25px;
-      font-weight: bold;
-      transition: all 0.3s ease;
-    }
-    
-    .github-link:hover {
-      background: #555;
-      transform: translateY(-2px);
-    }
-    
-    .footer {
-      text-align: center;
-      margin-top: 50px;
-      padding-top: 30px;
-      border-top: 2px solid #eee;
-      color: #666;
-    }
-    
-    @media (max-width: 768px) {
-      .container {
-        padding: 20px;
-        margin: 10px;
-      }
-      
-      .header h1 {
-        font-size: 2em;
-      }
-      
-      .demo-grid {
-        grid-template-columns: 1fr;
-        gap: 20px;
-      }
-    }
-  </style>
+  <title>Audio Inspect Studio</title>
+  <link rel="stylesheet" href="./studio.css">
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <h1>🎵 Audio Inspect</h1>
-      <p>
-        リアルタイム音声解析ライブラリのデモ集です。<br>
-        各デモページで異なる音声特徴量の解析をブラウザで体験できます。
-      </p>
-    </div>
-    
-    <div class="demo-grid">
-      <div class="demo-card">
-        <div class="demo-icon">🎤</div>
-        <div class="demo-title">時間領域特徴量</div>
-        <div class="demo-description">
-          RMS、ピーク値、ゼロクロッシング率など、時間領域での基本的な音声特徴量をリアルタイムで解析します。
+  <main class="app">
+    <header class="topbar">
+      <h1>Audio Inspect Studio</h1>
+      <p>Realtime + Offline Audio Monitoring</p>
+    </header>
+
+    <section class="layout">
+      <aside class="panel controls">
+        <h2>Source</h2>
+        <div class="mode-switch" role="tablist" aria-label="Source mode">
+          <button id="modeMicBtn" type="button" class="mode-btn active" data-mode="mic" role="tab" aria-selected="true">Microphone</button>
+          <button id="modeFileBtn" type="button" class="mode-btn" data-mode="file" role="tab" aria-selected="false">File</button>
         </div>
-        <ul class="demo-features">
-          <li>RMS (Root Mean Square)</li>
-          <li>ピーク値検出</li>
-          <li>ゼロクロッシング率</li>
-          <li>波形表示</li>
-        </ul>
-        <a href="time-domain.html" class="demo-button">デモを開始</a>
-      </div>
-      
-      <div class="demo-card">
-        <div class="demo-icon">📊</div>
-        <div class="demo-title">周波数領域特徴量</div>
-        <div class="demo-description">
-          FFT解析によるスペクトラム表示と周波数領域での特徴量抽出を行います。
+
+        <section id="micPanel" class="subpanel">
+          <div class="button-row">
+            <button id="startMicBtn" type="button" class="btn-primary">Start Mic</button>
+            <button id="stopMicBtn" type="button" class="btn-secondary" disabled>Stop Mic</button>
+          </div>
+        </section>
+
+        <section id="filePanel" class="subpanel hidden">
+          <label class="field">
+            <span>Audio File (wav/mp3)</span>
+            <input id="fileInput" type="file" accept=".wav,audio/wav,audio/x-wav,.mp3,audio/mpeg">
+          </label>
+          <audio id="filePlayer" controls preload="metadata"></audio>
+          <dl class="meta">
+            <div><dt>File</dt><dd id="fileMetaName">-</dd></div>
+            <div><dt>Duration</dt><dd id="fileMetaDuration">-</dd></div>
+            <div><dt>Sample Rate</dt><dd id="fileMetaRate">-</dd></div>
+            <div><dt>Channels</dt><dd id="fileMetaChannels">-</dd></div>
+          </dl>
+        </section>
+
+        <h2>Realtime Tuning</h2>
+        <div class="form-grid">
+          <label class="field">
+            <span>FFT Size</span>
+            <select id="fftSize">
+              <option value="1024">1024</option>
+              <option value="2048" selected>2048</option>
+              <option value="4096">4096</option>
+              <option value="8192">8192</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Frequency Scale</span>
+            <select id="frequencyScale">
+              <option value="log" selected>Log</option>
+              <option value="linear">Linear</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Display Max Hz</span>
+            <input id="displayMaxHz" type="number" value="12000" step="100">
+          </label>
+          <label class="field">
+            <span>Smoothing</span>
+            <div class="range-row">
+              <input id="smoothing" type="range" min="0" max="0.98" step="0.01" value="0.82">
+              <output id="smoothingValue">0.82</output>
+            </div>
+          </label>
+          <label class="field">
+            <span>Min dB</span>
+            <input id="minDb" type="number" value="-100" step="1">
+          </label>
+          <label class="field">
+            <span>Max dB</span>
+            <input id="maxDb" type="number" value="-16" step="1">
+          </label>
         </div>
-        <ul class="demo-features">
-          <li>FFT (高速フーリエ変換)</li>
-          <li>スペクトラム解析</li>
-          <li>基本周波数検出</li>
-          <li>スペクトログラム表示</li>
-        </ul>
-        <a href="frequency-domain.html" class="demo-button">デモを開始</a>
-      </div>
-      
-      <div class="demo-card">
-        <div class="demo-icon">🎼</div>
-        <div class="demo-title">スペクトル特徴量</div>
-        <div class="demo-description">
-          MFCC、スペクトル重心、エントロピーなど、高度なスペクトル解析機能を提供します。
+
+        <div class="button-row">
+          <button id="captureBtn" type="button" class="btn-secondary">Capture Snapshot</button>
+          <button id="resetStatsBtn" type="button" class="btn-secondary">Reset Stats</button>
         </div>
-        <ul class="demo-features">
-          <li>MFCC (メル周波数ケプストラム係数)</li>
-          <li>スペクトル重心・帯域幅</li>
-          <li>スペクトルエントロピー</li>
-          <li>スペクトルクレスト</li>
-        </ul>
-        <a href="spectral-features.html" class="demo-button">デモを開始</a>
-      </div>
-      
-      <div class="demo-card">
-        <div class="demo-icon">🔊</div>
-        <div class="demo-title">ラウドネス測定</div>
-        <div class="demo-description">
-          放送業界標準のLUFS（Loudness Units Full Scale）によるラウドネス測定を行います。
+
+        <h2>Offline Analysis</h2>
+        <div class="checks" id="offlineChecks">
+          <label><input type="checkbox" data-offline-analysis="rms" checked> RMS / Peak / Crest</label>
+          <label><input type="checkbox" data-offline-analysis="spectrum" checked> Spectrum</label>
+          <label><input type="checkbox" data-offline-analysis="spectral" checked> Spectral Features</label>
+          <label><input type="checkbox" data-offline-analysis="lufs" checked> LUFS</label>
+          <label><input type="checkbox" data-offline-analysis="vad" checked> VAD</label>
+          <label><input type="checkbox" data-offline-analysis="mfcc"> MFCC</label>
         </div>
-        <ul class="demo-features">
-          <li>LUFS測定 (ITU-R BS.1770準拠)</li>
-          <li>Momentary/Short-term/Integrated</li>
-          <li>True Peak測定</li>
-          <li>放送基準との比較</li>
-        </ul>
-        <a href="loudness.html" class="demo-button">デモを開始</a>
-      </div>
-      
-      <div class="demo-card">
-        <div class="demo-icon">🎙️</div>
-        <div class="demo-title">VAD (音声区間検出)</div>
-        <div class="demo-description">
-          エネルギーとゼロクロッシング率を用いた音声区間の自動検出機能です。
+        <label class="toggle-line">
+          <input id="offlineNormalize" type="checkbox" checked>
+          Normalize before offline analysis
+        </label>
+        <button id="runOfflineBtn" type="button" class="btn-primary" disabled>Run Full File Analysis</button>
+        <p id="offlineStatus" class="status-line">ファイルを選択するとオフライン解析を実行できます。</p>
+      </aside>
+
+      <section class="panel main">
+        <div class="main-head">
+          <h2>Realtime Analyzer</h2>
+          <span id="liveStatusBadge" class="badge">Idle</span>
         </div>
-        <ul class="demo-features">
-          <li>リアルタイム音声検出</li>
-          <li>エネルギーベース判定</li>
-          <li>ゼロクロッシング率解析</li>
-          <li>調整可能なパラメータ</li>
-        </ul>
-        <a href="vad.html" class="demo-button">デモを開始</a>
-      </div>
-      
-      <div class="demo-card">
-        <div class="demo-icon">🎧</div>
-        <div class="demo-title">ステレオ解析</div>
-        <div class="demo-description">
-          ステレオ音声の位相相関、バランス、空間的な特徴を解析します。
+
+        <div class="metric-grid">
+          <article><h3>Source</h3><p id="metricSource">-</p></article>
+          <article><h3>RMS</h3><p id="metricRms">-</p></article>
+          <article><h3>Peak</h3><p id="metricPeak">-</p></article>
+          <article><h3>Dominant</h3><p id="metricDominant">-</p></article>
+          <article><h3>Centroid</h3><p id="metricCentroid">-</p></article>
+          <article><h3>ZCR</h3><p id="metricZcr">-</p></article>
+          <article><h3>Pitch</h3><p id="metricPitch">-</p></article>
+          <article><h3>Note</h3><p id="metricNote">-</p></article>
+          <article><h3>Speech Ratio</h3><p id="metricSpeechRatio">-</p></article>
+          <article><h3>Momentary LUFS</h3><p id="metricMomentary">-</p></article>
+          <article><h3>Short-term LUFS</h3><p id="metricShortTerm">-</p></article>
+          <article><h3>Integrated LUFS</h3><p id="metricIntegrated">-</p></article>
+          <article><h3>Est True Peak</h3><p id="metricTruePeak">-</p></article>
+          <article><h3>Headroom</h3><p id="metricHeadroom">-</p></article>
+          <article><h3>Clip Count</h3><p id="metricClipCount">-</p></article>
+          <article><h3>Correlation</h3><p id="metricCorrelation">-</p></article>
+          <article><h3>Stereo Width</h3><p id="metricStereoWidth">-</p></article>
+          <article><h3>Balance</h3><p id="metricStereoBalance">-</p></article>
         </div>
-        <ul class="demo-features">
-          <li>位相相関測定</li>
-          <li>L/Rバランス解析</li>
-          <li>ステレオ幅計算</li>
-          <li>ベクタースコープ表示</li>
+
+        <section class="band-section">
+          <h3>Band Meters</h3>
+          <div class="band-row"><span>Sub</span><div class="meter"><div id="band_sub_fill"></div></div><b id="band_sub_val">-</b></div>
+          <div class="band-row"><span>Bass</span><div class="meter"><div id="band_bass_fill"></div></div><b id="band_bass_val">-</b></div>
+          <div class="band-row"><span>LowMid</span><div class="meter"><div id="band_lowmid_fill"></div></div><b id="band_lowmid_val">-</b></div>
+          <div class="band-row"><span>HighMid</span><div class="meter"><div id="band_highmid_fill"></div></div><b id="band_highmid_val">-</b></div>
+          <div class="band-row"><span>Air</span><div class="meter"><div id="band_air_fill"></div></div><b id="band_air_val">-</b></div>
+        </section>
+
+        <section class="canvas-grid">
+          <article class="canvas-card">
+            <div class="canvas-head"><h3>Spectrum</h3><span>Realtime</span></div>
+            <canvas id="spectrumCanvas" width="1200" height="420"></canvas>
+          </article>
+          <article class="canvas-card">
+            <div class="canvas-head"><h3>Waterfall Spectrogram</h3><span>Realtime</span></div>
+            <canvas id="waterfallCanvas" width="1200" height="380"></canvas>
+          </article>
+          <article class="canvas-card">
+            <div class="canvas-head"><h3>Waveform</h3><span>Realtime</span></div>
+            <canvas id="waveformCanvas" width="1200" height="260"></canvas>
+          </article>
+          <article class="canvas-card">
+            <div class="canvas-head"><h3>Stereo Scope</h3><span>Vectorscope (L-R / L+R)</span></div>
+            <canvas id="stereoCanvas" width="1200" height="260"></canvas>
+          </article>
+          <article class="canvas-card">
+            <div class="canvas-head"><h3>VAD Timeline</h3><span>Speech / Silence</span></div>
+            <canvas id="vadCanvas" width="1200" height="160"></canvas>
+          </article>
+          <article class="canvas-card">
+            <div class="canvas-head"><h3>MFCC Heatmap</h3><span>13 Coefficients</span></div>
+            <canvas id="mfccCanvas" width="1200" height="220"></canvas>
+          </article>
+        </section>
+      </section>
+
+      <aside class="panel side">
+        <h2>Snapshots</h2>
+        <ul id="snapshotList" class="snapshot-list">
+          <li class="empty">Capture Snapshot で履歴を残せます。</li>
         </ul>
-        <a href="stereo-analysis.html" class="demo-button">デモを開始</a>
-      </div>
-      
-      <div class="demo-card">
-        <div class="demo-icon">📚</div>
-        <div class="demo-title">ライブラリ使用例</div>
-        <div class="demo-description">
-          Audio Inspectライブラリの正しい使用方法を示すサンプルコードです。実際のプロジェクトでの実装の参考にしてください。
+
+        <h2>Offline Results</h2>
+        <div id="offlineResults" class="result-stack">
+          <p class="empty">オフライン解析結果はここに表示されます。</p>
         </div>
-        <ul class="demo-features">
-          <li>ライブラリインポート方法</li>
-          <li>各機能の正しい呼び出し</li>
-          <li>エラーハンドリング</li>
-          <li>オプション設定例</li>
-        </ul>
-        <a href="library-example.html" class="demo-button">デモを開始</a>
-      </div>
-    </div>
-    
-    <div class="info-section">
-      <h2>技術仕様</h2>
-      <p>Audio InspectはWebブラウザで動作するリアルタイム音声解析ライブラリです。</p>
-      
-      <div class="tech-stack">
-        <span class="tech-item">Web Audio API</span>
-        <span class="tech-item">AudioWorklet</span>
-        <span class="tech-item">TypeScript</span>
-        <span class="tech-item">Canvas 2D</span>
-        <span class="tech-item">ES Modules</span>
-      </div>
-      
-      <p>
-        最新のWeb標準技術を使用し、プラグインやライブラリのインストールなしで
-        高品質な音声解析機能を提供します。
-      </p>
-      
-      <a href="https://github.com/user/audio-inspect" class="github-link">
-        📱 GitHub リポジトリ
-      </a>
-    </div>
-    
-    <div class="info-section">
-      <h2>使用方法</h2>
-      <div style="text-align: left; max-width: 600px; margin: 0 auto;">
-        <ol style="line-height: 1.8;">
-          <li><strong>マイクアクセスを許可</strong><br>
-              ブラウザがマイクアクセスを要求した際に「許可」を選択してください。</li>
-          
-          <li><strong>デモページを選択</strong><br>
-              上記のカードから興味のある解析機能を選んでクリックしてください。</li>
-          
-          <li><strong>解析開始</strong><br>
-              各デモページで「解析開始」ボタンを押すと、リアルタイム解析が開始されます。</li>
-          
-          <li><strong>結果を確認</strong><br>
-              グラフやメーターで音声特徴量をリアルタイムで確認できます。</li>
-        </ol>
-      </div>
-    </div>
-    
-    <div class="info-section">
-      <h2>対応ブラウザ</h2>
-      <div class="tech-stack">
-        <span class="tech-item">Chrome 76+</span>
-        <span class="tech-item">Firefox 76+</span>
-        <span class="tech-item">Safari 14.1+</span>
-        <span class="tech-item">Edge 79+</span>
-      </div>
-      <p>
-        AudioWorkletをサポートする最新のWebブラウザが必要です。<br>
-        最適な体験のためにはChrome、Firefox、Safariの最新版をお使いください。
-      </p>
-    </div>
-    
-    <div class="footer">
-      <p>
-        © 2024 Audio Inspect Project. 
-        このデモは教育・研究目的で作成されています。
-      </p>
-      <p>
-        <small>
-          Web Audio API、AudioWorklet技術を使用した
-          リアルタイム音声解析のデモンストレーションです。
-        </small>
-      </p>
-    </div>
-  </div>
-  
-  <script>
-    // ブラウザ対応チェック
-    document.addEventListener('DOMContentLoaded', function() {
-      // AudioWorklet対応チェック
-      if (!window.AudioContext && !window.webkitAudioContext) {
-        showWarning('このブラウザはWeb Audio APIに対応していません。');
-        return;
-      }
-      
-      // AudioWorklet対応チェック
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      if (!audioContext.audioWorklet) {
-        showWarning('このブラウザはAudioWorkletに対応していません。Chrome 76+、Firefox 76+、Safari 14.1+をお使いください。');
-        return;
-      }
-      
-      audioContext.close();
-      
-      // getUserMedia対応チェック
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        showWarning('このブラウザはマイクアクセスに対応していません。');
-        return;
-      }
-      
-      console.log('Audio Inspect デモ準備完了');
-    });
-    
-    function showWarning(message) {
-      const warning = document.createElement('div');
-      warning.style.cssText = `
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: #dc3545;
-        color: white;
-        padding: 15px 25px;
-        border-radius: 10px;
-        font-weight: bold;
-        z-index: 1000;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-      `;
-      warning.textContent = message;
-      document.body.appendChild(warning);
-      
-      // ボタンを無効化
-      const buttons = document.querySelectorAll('.demo-button');
-      buttons.forEach(button => {
-        button.style.opacity = '0.5';
-        button.style.pointerEvents = 'none';
-        button.innerHTML += ' (非対応)';
-      });
-    }
-    
-    // カードホバーエフェクト
-    const cards = document.querySelectorAll('.demo-card');
-    cards.forEach(card => {
-      card.addEventListener('mouseenter', function() {
-        this.style.transform = 'translateY(-10px) scale(1.02)';
-      });
-      
-      card.addEventListener('mouseleave', function() {
-        this.style.transform = 'translateY(0) scale(1)';
-      });
-    });
-  </script>
+
+        <details>
+          <summary>Raw JSON</summary>
+          <pre id="rawJson">{}</pre>
+        </details>
+      </aside>
+    </section>
+  </main>
+
+  <script type="module" src="./studio.js"></script>
 </body>
 </html>

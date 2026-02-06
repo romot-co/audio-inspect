@@ -365,9 +365,16 @@ npm run test:e2e
 # Build library
 npm run build
 
+# Run local demo server (includes build)
+npm run demo
+
 # Quality checks
 npm run format && npm run lint && npm run type-check
 ```
+
+When the server is running, open:
+- `http://127.0.0.1:4173/examples/index.html`
+- `http://127.0.0.1:4173/examples/offline-analyzer.html`
 
 ## License
 
