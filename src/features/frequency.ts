@@ -1,5 +1,6 @@
-import { AudioData, AudioInspectError, WindowFunction } from '../types.js';
+import { AudioData, AudioInspectError, WindowFunction, type ChannelSelector } from '../types.js';
 import { FFTProviderFactory, type FFTProviderType, type FFTResult } from '../core/fft-provider.js';
+import { getChannelData } from '../core/utils.js';
 
 /**
  * FFT分析のオプション
@@ -11,8 +12,8 @@ export interface FFTOptions {
   windowFunction?: WindowFunction;
   /** オーバーラップ率（デフォルト: 0.5） */
   overlap?: number;
-  /** 解析するチャンネル（デフォルト: 0、-1で全チャンネルの平均） */
-  channel?: number;
+  /** 解析するチャンネル（デフォルト: 0） */
+  channel?: ChannelSelector;
   /** FFTプロバイダー（デフォルト: 'native'） */
   provider?: FFTProviderType;
   /** プロファイリングを有効にする（WebFFTのみ） */
@@ -112,38 +113,6 @@ function applyWindow(data: Float32Array, windowType: WindowFunction): Float32Arr
 }
 
 /**
- * 指定されたチャンネルのデータを取得
- */
-function getChannelData(audio: AudioData, channel: number): Float32Array {
-  if (channel === -1) {
-    // 全チャンネルの平均を計算
-    const averageData = new Float32Array(audio.length);
-    for (let i = 0; i < audio.length; i++) {
-      let sum = 0;
-      for (let ch = 0; ch < audio.numberOfChannels; ch++) {
-        const channelData = audio.channelData[ch];
-        if (channelData && i < channelData.length) {
-          sum += channelData[i] as number;
-        }
-      }
-      averageData[i] = sum / audio.numberOfChannels;
-    }
-    return averageData;
-  }
-
-  if (channel < -1 || channel >= audio.numberOfChannels) {
-    throw new AudioInspectError('INVALID_INPUT', `Invalid channel number: ${channel}`);
-  }
-
-  const channelData = audio.channelData[channel];
-  if (!channelData) {
-    throw new AudioInspectError('INVALID_INPUT', `Channel ${channel} data does not exist`);
-  }
-
-  return channelData;
-}
-
-/**
  * FFT分析を行う
  *
  * @param audio - 音声データ
@@ -161,6 +130,10 @@ export async function getFFT(
     provider = 'native',
     enableProfiling = false
   } = options;
+
+  if (fftSize <= 0 || (fftSize & (fftSize - 1)) !== 0) {
+    throw new AudioInspectError('INVALID_INPUT', 'FFTサイズは2の冪である必要があります');
+  }
 
   // チャンネルデータを取得
   const channelData = getChannelData(audio, channel);
@@ -202,7 +175,11 @@ export async function getFFT(
   }
 
   if (!fftProvider) {
-    throw lastError || new AudioInspectError('FFT_PROVIDER_ERROR', 'Failed to create FFT provider');
+    throw new AudioInspectError(
+      'INITIALIZATION_FAILED',
+      'Failed to create FFT provider',
+      lastError
+    );
   }
 
   try {
@@ -242,7 +219,7 @@ export async function getSpectrum(
     ...fftOptions
   } = options;
 
-  const channelData = getChannelData(audio, options.channel || 0);
+  const channelData = getChannelData(audio, options.channel ?? 0);
 
   if (timeFrames > 1 && (!Number.isFinite(overlap) || overlap < 0 || overlap >= 1)) {
     throw new AudioInspectError('INVALID_INPUT', 'overlapは0以上1未満である必要があります');

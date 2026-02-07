@@ -1,9 +1,9 @@
-import { AudioData, AudioInspectError, AmplitudeOptions } from '../types.js';
+import { AudioData, AudioInspectError, AmplitudeOptions, type ChannelSelector } from '../types.js';
 import { getChannelData, ensureValidSample, applyAWeighting } from '../core/utils.js';
 import { getRMS, getPeakAmplitude } from './time.js';
 
 export interface CrestFactorOptions {
-  channel?: number;
+  channel?: ChannelSelector;
   windowSize?: number; // 窓サイズ（秒）
   hopSize?: number; // ホップサイズ（秒）
   method?: 'simple' | 'weighted'; // 重み付きクレストファクター

@@ -1,5 +1,5 @@
-import { AudioData, AudioInspectError, WindowFunction } from '../types';
-import { ensureValidSample, nextPowerOfTwo } from '../core/utils';
+import { AudioData, AudioInspectError, WindowFunction, type ChannelSelector } from '../types';
+import { ensureValidSample, getChannelData, nextPowerOfTwo } from '../core/utils';
 import { getFFT } from './frequency';
 
 /**
@@ -11,7 +11,7 @@ export interface SpectralFeaturesOptions {
   /** 窓関数 */
   windowFunction?: 'hann' | 'hamming' | 'blackman' | 'none';
   /** 解析するチャンネル */
-  channel?: number;
+  channel?: ChannelSelector;
   /** 最小周波数 */
   minFrequency?: number;
   /** 最大周波数 */
@@ -87,7 +87,7 @@ export interface SpectralEntropyOptions {
   /** 窓関数 */
   windowFunction?: 'hann' | 'hamming' | 'blackman' | 'none';
   /** 解析するチャンネル */
-  channel?: number;
+  channel?: ChannelSelector;
   /** 最小周波数 */
   minFrequency?: number;
   /** 最大周波数 */
@@ -115,7 +115,7 @@ export interface SpectralCrestOptions {
   /** 窓関数 */
   windowFunction?: 'hann' | 'hamming' | 'blackman' | 'none';
   /** 解析するチャンネル */
-  channel?: number;
+  channel?: ChannelSelector;
   /** 最小周波数 */
   minFrequency?: number;
   /** 最大周波数 */
@@ -381,10 +381,7 @@ export async function getSpectralFeatures(
     maxFrequency = audio.sampleRate / 2,
     rolloffThreshold = 0.85
   } = options;
-
-  if (channel >= audio.numberOfChannels) {
-    throw new AudioInspectError('INVALID_INPUT', `無効なチャンネル番号: ${channel}`);
-  }
+  const samples = getChannelData(audio, channel);
 
   // FFT解析
   const fftResult = await getFFT(audio, {
@@ -430,10 +427,6 @@ export async function getSpectralFeatures(
   const spectralFlatness = calculateSpectralFlatness(fftResult.magnitude, minIndex, maxIndex);
 
   // ゼロ交差率
-  const samples = audio.channelData[channel];
-  if (!samples) {
-    throw new AudioInspectError('INVALID_INPUT', `チャンネル ${channel} のデータが存在しません`);
-  }
   const zeroCrossingRate = calculateZeroCrossingRate(samples);
 
   return {
@@ -470,15 +463,7 @@ export async function getTimeVaryingSpectralFeatures(
     rolloffThreshold = 0.85,
     numFrames
   } = options;
-
-  if (channel >= audio.numberOfChannels) {
-    throw new AudioInspectError('INVALID_INPUT', `無効なチャンネル番号: ${channel}`);
-  }
-
-  const samples = audio.channelData[channel];
-  if (!samples) {
-    throw new AudioInspectError('INVALID_INPUT', `チャンネル ${channel} のデータが存在しません`);
-  }
+  const samples = getChannelData(audio, channel);
 
   const totalFrames = numFrames || Math.floor((samples.length - frameSize) / hopSize) + 1;
 
@@ -693,10 +678,6 @@ export async function getSpectralEntropy(
     maxFrequency = audio.sampleRate / 2
   } = options;
 
-  if (channel >= audio.numberOfChannels) {
-    throw new AudioInspectError('INVALID_INPUT', `無効なチャンネル番号: ${channel}`);
-  }
-
   // FFT解析
   const fftResult = await getFFT(audio, {
     fftSize,
@@ -746,10 +727,6 @@ export async function getSpectralCrest(
     maxFrequency = audio.sampleRate / 2,
     asDB = false
   } = options;
-
-  if (channel >= audio.numberOfChannels) {
-    throw new AudioInspectError('INVALID_INPUT', `無効なチャンネル番号: ${channel}`);
-  }
 
   // FFT解析
   const fftResult = await getFFT(audio, {
@@ -848,7 +825,7 @@ export interface MFCCOptions {
   /** 窓関数（'hann', 'hamming', 'blackman', 'rectangular'） */
   windowFunction?: WindowFunction;
   /** 解析するチャンネル */
-  channel?: number;
+  channel?: ChannelSelector;
   /** Melフィルタバンクの数（デフォルト: 40） */
   numMelFilters?: number;
   /** MFCC係数の数（デフォルト: 13） */
@@ -1050,10 +1027,6 @@ export async function getMFCC(audio: AudioData, options: MFCCOptions = {}): Prom
     lifterCoeff = 22
   } = options;
 
-  if (channel >= audio.numberOfChannels) {
-    throw new AudioInspectError('INVALID_INPUT', `無効なチャンネル番号: ${channel}`);
-  }
-
   // フレームサイズとホップサイズをサンプル数に変換（Math.roundで量子化誤差低減）
   const frameSizeSamples = Math.round((frameSizeMs / 1000) * audio.sampleRate);
   const hopSizeSamples = Math.round((hopSizeMs / 1000) * audio.sampleRate);
@@ -1065,10 +1038,7 @@ export async function getMFCC(audio: AudioData, options: MFCCOptions = {}): Prom
   // FFTサイズの自動計算（最小1024、フレーム長以上の2の冪乗）
   const fftSize = options.fftSize ?? Math.max(1024, nextPowerOfTwo(frameSizeSamples));
 
-  const samples = audio.channelData[channel];
-  if (!samples) {
-    throw new AudioInspectError('INVALID_INPUT', `チャンネル ${channel} のデータが存在しません`);
-  }
+  const samples = getChannelData(audio, channel);
 
   // プリエンファシス適用
   const emphasizedSamples = applyPreEmphasis(samples, preEmphasis);

@@ -1,49 +1,67 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('AudioInspectNode E2E Tests', () => {
+test.describe('Realtime monitor API', () => {
   test.beforeEach(async ({ page }) => {
-    // コンソールログをキャプチャ
-    page.on('console', (msg) => {
-      console.log(`[Browser Console ${msg.type().toUpperCase()}]: ${msg.text()}`);
-    });
-
-    // ページエラーをキャプチャ
-    page.on('pageerror', (err) => {
-      console.error(`[Browser Error]: ${err.message}`);
-    });
-
-    // テストページに移動
-    await page.goto('/test-page.html');
+    await page.goto('/examples/index.html');
   });
 
-  test('AudioInspectNodeがカスタムAudioNodeとして動作することを検証', async ({ page }) => {
-    const testResults = await page.evaluate(async () => {
-      return (window as any).runFullTest();
+  test('monitor() emits frames and supports dynamic feature updates', async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      const AudioInspect = await import('/dist/index.js');
+
+      const context = new AudioContext();
+      await context.resume();
+
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(440, context.currentTime);
+      gain.gain.setValueAtTime(0.12, context.currentTime);
+      oscillator.connect(gain);
+
+      const session = await AudioInspect.monitor({
+        context,
+        source: gain,
+        engine: 'main-thread',
+        emit: 'hop',
+        features: { rms: true }
+      });
+
+      let frameCount = 0;
+      let lastRms = 0;
+
+      const offFrame = session.onFrame((frame) => {
+        if (typeof frame.results.rms === 'number') {
+          frameCount += 1;
+          lastRms = frame.results.rms;
+        }
+      });
+
+      oscillator.start();
+      await new Promise((resolve) => setTimeout(resolve, 240));
+
+      await session.setFeature('spectrum', { fftSize: 1024 });
+      await new Promise((resolve) => setTimeout(resolve, 240));
+
+      const latest = session.read();
+      const spectrum = session.readFeature('spectrum');
+
+      oscillator.stop();
+      offFrame();
+      await session.close();
+      await context.close();
+
+      return {
+        frameCount,
+        lastRms,
+        latestHasRms: typeof latest?.results?.rms === 'number',
+        spectrumBins: spectrum?.frequencies?.length ?? 0
+      };
     });
 
-    console.log('Test results:', JSON.stringify(testResults, null, 2));
-
-    // 基本テストの検証
-    expect(testResults.basicTest?.success).toBe(true);
-    expect(testResults.basicTest?.nodeProperties?.hasConnect).toBe(true);
-    expect(testResults.basicTest?.nodeProperties?.hasDisconnect).toBe(true);
-    expect(testResults.basicTest?.nodeProperties?.hasContext).toBe(true);
-    expect(testResults.basicTest?.nodeProperties?.numberOfInputs).toBe(1);
-    expect(testResults.basicTest?.nodeProperties?.numberOfOutputs).toBe(0);
-    expect(testResults.basicTest?.nodeProperties?.isAudioWorkletNode).toBe(true);
-
-    // カスタムプロパティの検証
-    expect(testResults.basicTest?.customProperties?.featureName).toBe('getRMS');
-    expect(testResults.basicTest?.customProperties?.bufferSize).toBe(1024);
-    expect(testResults.basicTest?.customProperties?.hopSize).toBe(512);
-    expect(testResults.basicTest?.customProperties?.hasUpdateOptions).toBe(true);
-    expect(testResults.basicTest?.customProperties?.hasReset).toBe(true);
-
-    // 接続テストの検証
-    expect(testResults.connectionTest?.success).toBe(true);
-    expect(testResults.connectionTest?.connectionSuccessful).toBe(true);
-    expect(testResults.connectionTest?.rmsCount).toBeGreaterThanOrEqual(3);
-    expect(testResults.connectionTest?.averageRMS).toBeGreaterThan(0);
-    expect(testResults.connectionTest?.rmsValues?.length).toBeGreaterThan(0);
+    expect(result.frameCount).toBeGreaterThan(0);
+    expect(result.lastRms).toBeGreaterThan(0);
+    expect(result.latestHasRms).toBe(true);
+    expect(result.spectrumBins).toBeGreaterThan(0);
   });
 });

@@ -1,8 +1,8 @@
-import { AudioData } from '../types.js';
+import { AudioData, type ChannelSelector } from '../types.js';
 import { getChannelData, ensureValidSample } from '../core/utils.js';
 
 export interface VADOptions {
-  channel?: number;
+  channel?: ChannelSelector;
   frameSizeMs?: number;
   hopSizeMs?: number;
   method?: 'energy' | 'zcr' | 'combined' | 'adaptive';

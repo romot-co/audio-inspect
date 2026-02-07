@@ -7,15 +7,16 @@ import type { FFTProviderType } from './core/fft-provider.js';
 /**
  * 音声ソースの型定義
  */
+export type AudioLike = AudioData | AudioBuffer;
+
 export type AudioSource =
+  | AudioLike
   | ArrayBuffer
+  | ArrayBufferView
   | Blob
   | File
   | URL
-  | string // URLパス
-  | MediaStream
-  | AudioBuffer
-  | AudioData;
+  | string;
 
 /**
  * 音声データの構造
@@ -34,10 +35,24 @@ export interface AudioData {
 }
 
 /**
+ * チャンネル選択
+ */
+export type ChannelSelector = 'mix' | number | 'all' | readonly number[];
+
+/**
  * 特徴抽出関数の型
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Feature<T> = (audio: AudioData, ...args: any[]) => T | Promise<T>;
+
+export interface AudioDecoder {
+  /** 診断・ログ用のバックエンド名 */
+  name: string;
+  decode(
+    input: ArrayBuffer | ArrayBufferView | Blob,
+    options?: { signal?: AbortSignal }
+  ): Promise<AudioData>;
+}
 
 /**
  * ロード時のオプション
@@ -49,46 +64,12 @@ export interface LoadOptions {
   channels?: number | 'mono' | 'stereo';
   /** 正規化するか */
   normalize?: boolean;
-  /** 遅延読み込み（大きなファイル用） */
-  lazy?: boolean;
-  /** チャンクサイズ（ストリーミング時） */
-  chunkSize?: number;
-}
-
-/**
- * ストリーミング制御インターフェース
- */
-export interface StreamController {
-  pause(): void;
-  resume(): void;
-  stop(): void;
-  readonly paused: boolean;
-}
-
-/**
- * ストリーミングオプション
- */
-export interface StreamOptions {
-  /** バッファサイズ */
-  bufferSize?: number;
-  /** ホップサイズ */
-  hopSize?: number;
-  /** 更新頻度の制限（ミリ秒） */
-  throttle?: number;
-  /** 窓関数の種類 */
-  windowFunction?: WindowFunction;
-  /** AudioInspectProcessorのモジュールURL（フル機能版を使用する場合） */
-  processorModuleUrl?: string;
-}
-
-/**
- * フォールバック機能付きストリーミングオプション
- */
-export interface StreamOptionsWithFallback extends StreamOptions {
-  /** フォールバック処理を有効にするか */
-  enableFallback?: boolean;
-  /** フォールバック時のハンドラー */
-  fallbackHandler?: (audio: AudioData) => void;
+  /** 中断シグナル */
+  signal?: AbortSignal;
+  /** 実行環境に応じたfetch注入（Node等） */
+  fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  /** デコードバックエンド注入（Node等） */
+  decoder?: AudioDecoder;
 }
 
 /**
@@ -112,7 +93,7 @@ export interface BiquadCoeffs {
  * 振幅測定のオプション
  */
 export interface AmplitudeOptions {
-  channel?: number;
+  channel?: ChannelSelector;
   asDB?: boolean;
   reference?: number; // dB計算の基準値（デフォルト: 1.0 = 0 dBFS）
   truePeak?: boolean; // True Peak検出を使用するか
@@ -124,7 +105,7 @@ export interface AmplitudeOptions {
  * 共通の解析オプション
  */
 export interface CommonAnalysisOptions {
-  channel?: number;
+  channel?: ChannelSelector;
 }
 
 /**
@@ -246,34 +227,6 @@ export interface RMSAnalysisResult extends BaseAnalysisResult {
   channel: number;
 }
 
-// ==============================================
-// バッチ処理API用の型定義
-// ==============================================
-
-/**
- * バッチ解析のオプション
- */
-export interface BatchAnalysisOptions {
-  waveform?: { framesPerSecond?: number; channel?: number; method?: 'rms' | 'peak' | 'average' };
-  peaks?: { count?: number; threshold?: number; channel?: number; minDistance?: number };
-  rms?: { channel?: number; asDB?: boolean; reference?: number };
-  spectrum?: { fftSize?: number; windowFunction?: WindowFunction; channel?: number };
-  energy?: { windowSizeMs?: number; hopSizeMs?: number; channel?: number };
-  onProgress?: (percent: number, feature: string) => void;
-}
-
-/**
- * バッチ解析の結果
- */
-export interface BatchAnalysisResult {
-  waveform?: WaveformAnalysisResult;
-  peaks?: PeaksAnalysisResult;
-  rms?: RMSAnalysisResult;
-  spectrum?: SpectrumAnalysisResult;
-  energy?: EnergyAnalysisResult;
-  processingTime: number;
-}
-
 /**
  * Nullable型の明示的な定義
  */
@@ -292,51 +245,43 @@ export type Result<T, E = AudioInspectError> =
  */
 export type ErrorCode =
   | 'INVALID_INPUT'
+  | 'INVALID_STATE'
   | 'UNSUPPORTED_FORMAT'
   | 'DECODE_ERROR'
+  | 'DECODE_BACKEND_MISSING'
   | 'NETWORK_ERROR'
-  | 'FFT_PROVIDER_ERROR'
   | 'PROCESSING_ERROR'
   | 'INITIALIZATION_FAILED'
   | 'WORKLET_NOT_SUPPORTED' // AudioWorkletサポートなし
   | 'MODULE_LOAD_FAILED' // モジュール読み込み失敗
   | 'INSUFFICIENT_DATA' // データ不足
   | 'MEMORY_ERROR' // メモリエラー
-  | 'CANCELLED'; // 処理キャンセル
+  | 'ABORTED'; // 処理キャンセル
 
 /**
  * Audio-inspect specific error（拡張版）
  */
 export class AudioInspectError extends Error {
   public override readonly name = 'AudioInspectError';
-  public readonly timestamp = new Date();
+  public readonly code: string;
   public override readonly cause?: unknown;
+  public readonly details?: unknown;
 
   constructor(
-    public readonly code: ErrorCode,
+    code: string,
     message: string,
     cause?: unknown,
-    public readonly details?: unknown
+    details?: unknown
   ) {
     super(message, { cause });
+    this.code = code;
     this.cause = cause;
-    
+    this.details = details;
+
     // スタックトレースを保持
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, AudioInspectError);
     }
-  }
-  
-  toJSON() {
-    return {
-      name: this.name,
-      code: this.code,
-      message: this.message,
-      details: this.details,
-      timestamp: this.timestamp,
-      stack: this.stack,
-      cause: this.cause
-    };
   }
 }
 
@@ -344,7 +289,7 @@ export class AudioInspectError extends Error {
  * エラー作成ヘルパー関数
  */
 export function createError(
-  code: ErrorCode,
+  code: string,
   message: string,
   details?: unknown
 ): AudioInspectError {

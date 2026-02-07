@@ -6,7 +6,6 @@
   "include": [
     "./**/*.ts",
     "./**/*.spec.ts",
-    "./global.d.ts",
     "../../src/**/*.ts"
   ]
-} 
+}

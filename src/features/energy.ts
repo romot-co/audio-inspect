@@ -1,10 +1,10 @@
-import { AudioData, AudioInspectError } from '../types.js';
+import { AudioData, AudioInspectError, type ChannelSelector } from '../types.js';
 import { getChannelData, ensureValidSample } from '../core/utils.js';
 
 export interface EnergyOptions {
   frameSize?: number;
   hopSize?: number;
-  channel?: number;
+  channel?: ChannelSelector;
   normalized?: boolean;
   windowFunction?: 'rectangular' | 'hann' | 'hamming' | 'blackman' | 'none'; // エネルギー計算用の窓関数
 }

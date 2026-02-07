@@ -1,272 +1,210 @@
-import { describe, it, expect, vi } from 'vitest';
-import { analyze } from '../../src/core/analyze.js';
-import { AudioInspectError } from '../../src/types.js';
-import type { AudioData, Feature } from '../../src/types.js';
+import { describe, expect, it, vi } from 'vitest';
+import { analyze, inspect } from '../../src/core/analyze.js';
+import { AudioInspectError, type AudioData } from '../../src/types.js';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
-// テスト用のAudioDataを作成するヘルパー
-function createTestAudioData(options: Partial<AudioData> = {}): AudioData {
-  const sampleRate = options.sampleRate ?? 44100;
-  const duration = options.duration ?? 1;
-  const length = options.length ?? sampleRate * duration;
-
-  // 負の値やゼロの場合はデフォルト値を使用（バリデーション用のテスト以外）
-  const safeLength = Math.max(1, length);
-  const channelData = options.channelData ?? [new Float32Array(safeLength)];
-
+function createAudioData(durationSeconds = 1, sampleRate = 44100): AudioData {
+  const length = Math.floor(durationSeconds * sampleRate);
+  const channel = new Float32Array(length);
+  for (let i = 0; i < length; i++) {
+    channel[i] = Math.sin((2 * Math.PI * 440 * i) / sampleRate) * 0.5;
+  }
   return {
     sampleRate,
-    channelData,
-    duration,
-    numberOfChannels: channelData.length,
+    channelData: [channel],
+    numberOfChannels: 1,
     length,
-    ...options
+    duration: length / sampleRate
   };
 }
 
-describe('analyze', () => {
-  it('should execute feature function and return result', async () => {
-    const audio = createTestAudioData();
-    const mockFeature: Feature<number> = vi.fn().mockResolvedValue(42);
+function createStereoAudioData(durationSeconds = 1, sampleRate = 44100): AudioData {
+  const length = Math.floor(durationSeconds * sampleRate);
+  const left = new Float32Array(length);
+  const right = new Float32Array(length);
+  for (let i = 0; i < length; i++) {
+    left[i] = Math.sin((2 * Math.PI * 220 * i) / sampleRate) * 0.5;
+    right[i] = Math.sin((2 * Math.PI * 440 * i) / sampleRate) * 0.5;
+  }
+  return {
+    sampleRate,
+    channelData: [left, right],
+    numberOfChannels: 2,
+    length,
+    duration: length / sampleRate
+  };
+}
 
-    const result = await analyze(audio, mockFeature);
+const decoder = {
+  name: 'test-decoder',
+  async decode(): Promise<AudioData> {
+    return createAudioData(1, 16000);
+  }
+};
 
-    expect(result).toBe(42);
-    expect(mockFeature).toHaveBeenCalledWith(audio);
-    expect(mockFeature).toHaveBeenCalledTimes(1);
-  });
-
-  it('should handle synchronous feature functions', async () => {
-    const audio = createTestAudioData();
-    const mockFeature: Feature<string> = vi.fn().mockReturnValue('sync result');
-
-    const result = await analyze(audio, mockFeature);
-
-    expect(result).toBe('sync result');
-    expect(mockFeature).toHaveBeenCalledWith(audio);
-  });
-
-  it('should validate AudioData before executing feature', async () => {
-    const invalidAudio = null as any;
-    const mockFeature: Feature<number> = vi.fn();
-
-    await expect(analyze(invalidAudio, mockFeature)).rejects.toThrow(AudioInspectError);
-
-    expect(mockFeature).not.toHaveBeenCalled();
-  });
-
-  describe('AudioData validation', () => {
-    it('should reject null or undefined audio', async () => {
-      const mockFeature: Feature<number> = vi.fn();
-
-      await expect(analyze(null as any, mockFeature)).rejects.toThrow('AudioData is invalid');
-
-      await expect(analyze(undefined as any, mockFeature)).rejects.toThrow('AudioData is invalid');
-    });
-
-    it('should reject invalid sampleRate', async () => {
-      const mockFeature: Feature<number> = vi.fn();
-
-      const invalidAudio: AudioData = {
-        sampleRate: 0,
-        channelData: [new Float32Array(1000)],
-        duration: 1,
-        numberOfChannels: 1,
-        length: 1000
-      };
-
-      await expect(analyze(invalidAudio, mockFeature)).rejects.toThrow('Sample rate is invalid');
-
-      const negativeAudio: AudioData = {
-        sampleRate: -44100,
-        channelData: [new Float32Array(1000)],
-        duration: 1,
-        numberOfChannels: 1,
-        length: 1000
-      };
-
-      await expect(analyze(negativeAudio, mockFeature)).rejects.toThrow('Sample rate is invalid');
-    });
-
-    it('should reject invalid channelData', async () => {
-      const mockFeature: Feature<number> = vi.fn();
-
-      const noChannels: AudioData = {
-        sampleRate: 44100,
-        channelData: [],
-        duration: 1,
-        numberOfChannels: 0,
-        length: 1000
-      };
-
-      await expect(analyze(noChannels, mockFeature)).rejects.toThrow('Channel data is invalid');
-
-      const nonArrayChannels: AudioData = {
-        sampleRate: 44100,
-        channelData: null as any,
-        duration: 1,
-        numberOfChannels: 1,
-        length: 1000
-      };
-
-      await expect(analyze(nonArrayChannels, mockFeature)).rejects.toThrow(
-        'Channel data is invalid'
-      );
-    });
-
-    it('should reject mismatched numberOfChannels', async () => {
-      const mockFeature: Feature<number> = vi.fn();
-
-      const mismatchedAudio: AudioData = {
-        sampleRate: 44100,
-        channelData: [new Float32Array(1000), new Float32Array(1000)],
-        duration: 1,
-        numberOfChannels: 1, // Should be 2
-        length: 1000
-      };
-
-      await expect(analyze(mismatchedAudio, mockFeature)).rejects.toThrow(
-        'Number of channels does not match'
-      );
-    });
-
-    it('should reject invalid length', async () => {
-      const mockFeature: Feature<number> = vi.fn();
-
-      const zeroLength: AudioData = {
-        sampleRate: 44100,
-        channelData: [new Float32Array(1000)],
-        duration: 1,
-        numberOfChannels: 1,
-        length: 0
-      };
-
-      await expect(analyze(zeroLength, mockFeature)).rejects.toThrow('Data length is invalid');
-
-      const negativeLength: AudioData = {
-        sampleRate: 44100,
-        channelData: [new Float32Array(1000)],
-        duration: 1,
-        numberOfChannels: 1,
-        length: -100
-      };
-
-      await expect(analyze(negativeLength, mockFeature)).rejects.toThrow('Data length is invalid');
-    });
-
-    it('should reject invalid duration', async () => {
-      const mockFeature: Feature<number> = vi.fn();
-
-      const zeroDuration: AudioData = {
-        sampleRate: 44100,
-        channelData: [new Float32Array(1000)],
-        duration: 0,
-        numberOfChannels: 1,
-        length: 1000
-      };
-
-      await expect(analyze(zeroDuration, mockFeature)).rejects.toThrow('Audio duration is invalid');
-
-      const negativeDuration: AudioData = {
-        sampleRate: 44100,
-        channelData: [new Float32Array(1000)],
-        duration: -1,
-        numberOfChannels: 1,
-        length: 1000
-      };
-
-      await expect(analyze(negativeDuration, mockFeature)).rejects.toThrow(
-        'Audio duration is invalid'
-      );
-    });
-
-    it('should reject non-Float32Array channel data', async () => {
-      const mockFeature: Feature<number> = vi.fn();
-
-      const invalidChannelData = createTestAudioData({
-        channelData: [new Array(1000) as any] // Should be Float32Array
-      });
-
-      await expect(analyze(invalidChannelData, mockFeature)).rejects.toThrow(
-        'Channel 0 data is not a Float32Array'
-      );
-    });
-
-    it('should reject mismatched channel data lengths', async () => {
-      const mockFeature: Feature<number> = vi.fn();
-
-      const mismatchedLengths = createTestAudioData({
-        channelData: [
-          new Float32Array(1000),
-          new Float32Array(500) // Different length
-        ],
-        numberOfChannels: 2
-      });
-
-      await expect(analyze(mismatchedLengths, mockFeature)).rejects.toThrow(
-        'Channel 1 data length does not match'
-      );
-    });
-  });
-
-  describe('error handling', () => {
-    it('should wrap feature function errors in AudioInspectError', async () => {
-      const audio = createTestAudioData();
-      const originalError = new Error('Feature failed');
-      const mockFeature: Feature<number> = vi.fn().mockRejectedValue(originalError);
-
-      await expect(analyze(audio, mockFeature)).rejects.toThrow(AudioInspectError);
-
-      try {
-        await analyze(audio, mockFeature);
-      } catch (error) {
-        expect(error).toBeInstanceOf(AudioInspectError);
-        expect((error as AudioInspectError).code).toBe('PROCESSING_ERROR');
-        expect((error as AudioInspectError).message).toContain('Feature extraction failed');
-        expect((error as AudioInspectError).cause).toBe(originalError);
+describe('core/analyze', () => {
+  it('analyzes object-style feature selection with typed result map', async () => {
+    const audio = createAudioData();
+    const result = await analyze(audio, {
+      features: {
+        rms: { asDB: false },
+        peak: true
       }
     });
 
-    it('should handle feature function throwing non-Error values', async () => {
-      const audio = createTestAudioData();
-      const mockFeature: Feature<number> = vi.fn().mockRejectedValue('string error');
-
-      await expect(analyze(audio, mockFeature)).rejects.toThrow(AudioInspectError);
-
-      try {
-        await analyze(audio, mockFeature);
-      } catch (error) {
-        expect(error).toBeInstanceOf(AudioInspectError);
-        expect((error as AudioInspectError).message).toContain('Unknown error');
-      }
-    });
+    expect(typeof result.results.rms).toBe('number');
+    expect(typeof result.results.peak).toBe('number');
+    expect(result.errors).toEqual({});
+    expect(result.meta.channels).toBe(1);
   });
 
-  describe('complex AudioData validation', () => {
-    it('should accept valid multi-channel audio', async () => {
-      const audio = createTestAudioData({
-        channelData: [new Float32Array(1000), new Float32Array(1000)],
-        numberOfChannels: 2,
-        length: 1000
+  it('supports array shorthand for default feature options', async () => {
+    const audio = createAudioData();
+    const result = await analyze(audio, {
+      features: ['rms', 'zeroCrossing']
+    });
+
+    expect(typeof result.results.rms).toBe('number');
+    expect(typeof result.results.zeroCrossing).toBe('number');
+  });
+
+  it('supports range analysis and progress callbacks', async () => {
+    const audio = createAudioData(2);
+    const onProgress = vi.fn();
+
+    const result = await analyze(audio, {
+      features: { rms: true, peak: true },
+      range: { start: 0.25, end: 1.25 },
+      onProgress
+    });
+
+    expect(result.meta.range.start).toBe(0.25);
+    expect(result.meta.range.end).toBe(1.25);
+    expect(onProgress).toHaveBeenCalledTimes(2);
+    expect(result.meta.length).toBeGreaterThan(0);
+  });
+
+  it('inspect performs load + analyze in one call', async () => {
+    const audio = createAudioData();
+    const result = await inspect(audio, {
+      features: { rms: true }
+    });
+
+    expect(typeof result.results.rms).toBe('number');
+    expect(result.meta.loadElapsedMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('supports AbortSignal in analyze (ABORTED)', async () => {
+    const audio = createAudioData();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      analyze(audio, {
+        features: { rms: true },
+        signal: controller.signal
+      })
+    ).rejects.toMatchObject({ code: 'ABORTED' });
+  });
+
+  it('supports AbortSignal in inspect (ABORTED)', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      inspect(createAudioData(), {
+        features: { rms: true },
+        signal: controller.signal
+      })
+    ).rejects.toMatchObject({ code: 'ABORTED' });
+  });
+
+  it('supports inspect with Blob source (non-AudioLike)', async () => {
+    const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'audio/wav' });
+    const result = await inspect(blob, {
+      load: { decoder },
+      features: { rms: true }
+    });
+
+    expect(typeof result.results.rms).toBe('number');
+  });
+
+  it('supports inspect with URL source (non-AudioLike)', async () => {
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 }));
+    const result = await inspect(new URL('https://example.com/audio.wav'), {
+      load: { decoder, fetch: fetchMock },
+      features: { rms: true }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(typeof result.results.rms).toBe('number');
+  });
+
+  it('supports inspect with string file-path source (non-AudioLike)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'audio-inspect-test-'));
+    const filePath = join(dir, 'fixture.raw');
+    await writeFile(filePath, new Uint8Array([10, 20, 30, 40]));
+
+    try {
+      const result = await inspect(filePath, {
+        load: { decoder },
+        features: { rms: true }
       });
+      expect(typeof result.results.rms).toBe('number');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 
-      const mockFeature: Feature<number> = vi.fn().mockResolvedValue(123);
-
-      const result = await analyze(audio, mockFeature);
-      expect(result).toBe(123);
-      expect(mockFeature).toHaveBeenCalledWith(audio);
-    });
-
-    it('should accept audio with different sample rates', async () => {
-      const sampleRates = [8000, 16000, 22050, 44100, 48000, 96000];
-      const mockFeature: Feature<number> = vi.fn().mockResolvedValue(1);
-
-      for (const sampleRate of sampleRates) {
-        const audio = createTestAudioData({ sampleRate });
-        const result = await analyze(audio, mockFeature);
-        expect(result).toBe(1);
+  it('supports ChannelSelector: mix / all / number[]', async () => {
+    const audio = createStereoAudioData();
+    const result = await analyze(audio, {
+      features: {
+        rms: { channel: 'mix' },
+        peak: { channel: 'all' },
+        zeroCrossing: { channel: [0, 1] }
       }
-
-      expect(mockFeature).toHaveBeenCalledTimes(sampleRates.length);
     });
+
+    expect(typeof result.results.rms).toBe('number');
+    expect(typeof result.results.peak).toBe('number');
+    expect(typeof result.results.zeroCrossing).toBe('number');
+  });
+
+  it('covers missing features: mfccWithDelta, stereo, timeVaryingStereo', async () => {
+    const audio = createStereoAudioData(1.5, 16000);
+    const result = await analyze(audio, {
+      continueOnError: true,
+      features: {
+        mfccWithDelta: { numMfccCoeffs: 13, computeDelta: true, computeDeltaDelta: true },
+        stereo: true,
+        timeVaryingStereo: true
+      }
+    });
+
+    expect(result.results.mfccWithDelta?.mfcc.length).toBeGreaterThan(0);
+    expect(result.results.mfccWithDelta?.delta?.length).toBeGreaterThan(0);
+    expect(result.results.stereo?.correlation).toBeTypeOf('number');
+    expect(result.errors.timeVaryingStereo?.code).toBe('UNSUPPORTED_FORMAT');
+  });
+
+  it('returns INSUFFICIENT_DATA for too-short MFCC input when continueOnError=true', async () => {
+    const tinyAudio: AudioData = {
+      sampleRate: 16000,
+      channelData: [new Float32Array([0.1, 0.2])],
+      numberOfChannels: 1,
+      length: 2,
+      duration: 2 / 16000
+    };
+
+    const result = await analyze(tinyAudio, {
+      continueOnError: true,
+      features: { mfcc: true }
+    });
+
+    expect(result.errors.mfcc).toBeInstanceOf(AudioInspectError);
+    expect(result.errors.mfcc?.code).toBe('INSUFFICIENT_DATA');
   });
 });

@@ -2,6 +2,7 @@ import {
   AudioData,
   AmplitudeOptions,
   AudioInspectError,
+  type ChannelSelector,
   WaveformAnalysisResult,
   PeaksAnalysisResult,
   RMSAnalysisResult,
@@ -25,8 +26,8 @@ export interface PeaksOptions {
   count?: number;
   /** ピーク検出の閾値（0-1、デフォルト: 0.1） */
   threshold?: number;
-  /** 解析するチャンネル（デフォルト: 0、-1で全チャンネルの平均） */
-  channel?: number;
+  /** 解析するチャンネル（デフォルト: 0） */
+  channel?: ChannelSelector;
   /** 最小ピーク間距離（サンプル数、デフォルト: サンプルレート/100） */
   minDistance?: number;
 }
@@ -303,7 +304,7 @@ export { getPeakAmplitude as getPeak };
 /**
  * ゼロクロッシング率を計算
  */
-export function getZeroCrossing(audio: AudioData, channel = 0): number {
+export function getZeroCrossing(audio: AudioData, channel: ChannelSelector = 0): number {
   const channelData = getChannelData(audio, channel);
 
   if (channelData.length < 2) {
@@ -330,8 +331,8 @@ export function getZeroCrossing(audio: AudioData, channel = 0): number {
 export interface WaveformOptions {
   /** 1秒あたりのサンプル数（解像度、デフォルト: 60） */
   framesPerSecond?: number;
-  /** 解析するチャンネル（デフォルト: 0、-1で全チャンネルの平均） */
-  channel?: number;
+  /** 解析するチャンネル（デフォルト: 0） */
+  channel?: ChannelSelector;
   /** 振幅の計算方法（デフォルト: 'rms'） */
   method?: 'rms' | 'peak' | 'average';
 }
@@ -481,8 +482,8 @@ function calculateAverageAmplitude(frameData: Float32Array): number {
 export interface WaveformAnalysisOptions extends ProgressOptions {
   /** 1秒あたりのサンプル数（解像度、デフォルト: 60） */
   framesPerSecond?: number;
-  /** 解析するチャンネル（デフォルト: 0、-1で全チャンネルの平均） */
-  channel?: number;
+  /** 解析するチャンネル（デフォルト: 0） */
+  channel?: ChannelSelector;
   /** 振幅の計算方法（デフォルト: 'rms'） */
   method?: 'rms' | 'peak' | 'average';
 }
@@ -495,8 +496,8 @@ export interface PeaksAnalysisOptions extends ProgressOptions {
   count?: number;
   /** ピーク検出の閾値（0-1、デフォルト: 0.1） */
   threshold?: number;
-  /** 解析するチャンネル（デフォルト: 0、-1で全チャンネルの平均） */
-  channel?: number;
+  /** 解析するチャンネル（デフォルト: 0） */
+  channel?: ChannelSelector;
   /** 最小ピーク間距離（サンプル数、デフォルト: サンプルレート/100） */
   minDistance?: number;
 }
@@ -505,7 +506,7 @@ export interface PeaksAnalysisOptions extends ProgressOptions {
  * 新しいRMS解析オプション（プログレス通知対応）
  */
 export interface RMSAnalysisOptions extends ProgressOptions {
-  channel?: number;
+  channel?: ChannelSelector;
   asDB?: boolean;
   reference?: number;
 }
@@ -745,6 +746,7 @@ export function getRMSAnalysis(
 ): RMSAnalysisResult {
   const startTime = getPerformanceNow();
   const { channel = 0, asDB = false, reference = 1.0, onProgress } = options;
+  const reportChannel = typeof channel === 'number' ? channel : -1;
 
   onProgress?.(0, 'RMS解析を開始');
 
@@ -754,7 +756,7 @@ export function getRMSAnalysis(
     const value = asDB ? -Infinity : 0;
     return {
       value,
-      channel,
+      channel: reportChannel,
       sampleRate: audio.sampleRate,
       duration: audio.duration,
       processingTime: getPerformanceNow() - startTime
@@ -783,7 +785,7 @@ export function getRMSAnalysis(
     if (asDB) {
       return {
         value,
-        channel,
+        channel: reportChannel,
         sampleRate: audio.sampleRate,
         duration: audio.duration,
         processingTime
@@ -793,7 +795,7 @@ export function getRMSAnalysis(
     return {
       value,
       valueDB: -Infinity,
-      channel,
+      channel: reportChannel,
       sampleRate: audio.sampleRate,
       duration: audio.duration,
       processingTime
@@ -808,7 +810,7 @@ export function getRMSAnalysis(
   if (asDB) {
     return {
       value: amplitudeToDecibels(rmsValue, reference),
-      channel,
+      channel: reportChannel,
       sampleRate: audio.sampleRate,
       duration: audio.duration,
       processingTime
@@ -817,7 +819,7 @@ export function getRMSAnalysis(
     return {
       value: rmsValue,
       valueDB: amplitudeToDecibels(rmsValue, reference),
-      channel,
+      channel: reportChannel,
       sampleRate: audio.sampleRate,
       duration: audio.duration,
       processingTime

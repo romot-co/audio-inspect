@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.6] - 2026-02-07
+
+### Changed
+
+- **Major API redesign (vNext draft aligned)**:
+  - Standardized high-level public API around `load`, `analyze`, `inspect`, `monitor`, `prepareWorklet`
+  - Updated typing model with `FeatureInput`, `SelectedFeatureIds`, and improved generic inference
+  - Added `ChannelSelector` (`'mix' | 'all' | number[] | number`) support across analysis options
+  - Added/normalized `FeatureRegistry` aliases (`RMSOptions`, `FFTResult`, `SpectrumResult`, `MFCCWithDeltaOptions`, `StereoOptions`, etc.)
+- **Realtime API cleanup**:
+  - Removed non-spec `provider` option from `monitor()` options
+  - Removed legacy `MonitorDataEvent` export alias in favor of `MonitorFrame`
+  - Clarified monitor lifecycle behavior (`close()` terminal, `INVALID_STATE` on post-close mutation)
+- **Error model alignment**:
+  - Removed `FFT_PROVIDER_ERROR`; provider init failures now use `INITIALIZATION_FAILED`
+  - Simplified `AudioInspectError` shape to spec-aligned fields (`code`, `details`, `cause`)
+- **Examples overhaul**:
+  - Consolidated HTML demos into a single unified page (`examples/index.html`) covering mic + file workflows
+  - Removed legacy/duplicated demo pages and obsolete demo scripts
+
+### Removed
+
+- Legacy internal surfaces and obsolete artifacts no longer used by vNext API path:
+  - `src/core/stream.ts`, `src/core/batch.ts`
+  - old E2E page/type scaffolding (`test/e2e/test-page.html`, `test/e2e/global.d.ts`)
+  - old stream test (`test/core/stream.test.ts`)
+
+### Fixed
+
+- `getFFT()` now validates non-power-of-two FFT size up front and returns clear `INVALID_INPUT`
+- Lint/type safety issues around channel selector handling in core utils
+- Browser worklet URL resolution path for realtime module loading in current build flow
+
+### Tests
+
+- Added missing coverage for previously untested core scenarios:
+  - Features: `mfccWithDelta`, `stereo`, `timeVaryingStereo`
+  - Error codes: `ABORTED`, `INVALID_STATE`, `DECODE_BACKEND_MISSING`,
+    `INITIALIZATION_FAILED`, `WORKLET_NOT_SUPPORTED`, `MODULE_LOAD_FAILED`,
+    `INSUFFICIENT_DATA`, `MEMORY_ERROR`
+  - `AbortSignal` behavior in `load`, `analyze`, `inspect`
+  - `inspect()` with non-`AudioLike` sources (`Blob`, `URL`, file-path string)
+  - `ChannelSelector` paths (`'mix'`, `'all'`, `number[]`)
+
 ## [0.0.4] - 2025-08-07
 
 ### Fixed

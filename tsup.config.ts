@@ -1,5 +1,5 @@
 import { defineConfig } from 'tsup';
-import { copyFileSync, existsSync, mkdirSync, unlinkSync, readdirSync, readFileSync, writeFileSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, unlinkSync, readdirSync } from 'fs';
 import { join, dirname } from 'path';
 
 // 開発時のみソースマップを有効化
@@ -29,30 +29,6 @@ const cleanupDuplicateTypes = () => {
   cleanup('');
 };
 
-// E2Eテストページをコピーするヘルパー関数
-const copyE2ETestPage = () => {
-  const testPageSrc = join('test', 'e2e', 'test-page.html');
-  const testPageDest = join('dist', 'test-page.html');
-  
-  if (existsSync(testPageSrc)) {
-    let content = readFileSync(testPageSrc, 'utf-8');
-    
-    // E2Eテスト時はimportmapを削除（バンドルされたライブラリを使用）
-    if (isE2ETest) {
-      content = content.replace(
-        /<script type="importmap">[\s\S]*?<\/script>\s*/g,
-        ''
-      );
-      console.log('✓ Removed importmap from test-page.html for bundled version');
-    }
-    
-    writeFileSync(testPageDest, content);
-    console.log('✓ Copied test-page.html to dist/ for E2E testing');
-  } else {
-    console.warn('⚠ test-page.html not found at', testPageSrc);
-  }
-};
-
 export default defineConfig([
   // メインエントリーポイント
   {
@@ -75,11 +51,6 @@ export default defineConfig([
     onSuccess: async () => {
       // 重複する型定義ファイルを削除
       cleanupDuplicateTypes();
-      
-      // E2Eテスト時またはdevelopment時にtest-page.htmlをコピー
-      if (isE2ETest || isDev) {
-        copyE2ETestPage();
-      }
     }
   },
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { load } from '../../src/core/load.js';
-import type { AudioData } from '../../src/types.js';
+import { AudioInspectError, type AudioData } from '../../src/types.js';
 
 // テスト用のAudioDataを作成するヘルパー
 function createTestAudioData(data: Float32Array, sampleRate = 44100): AudioData {
@@ -260,18 +260,13 @@ describe('load', () => {
       }
     });
 
-    it('should throw error when OfflineAudioContext is not available and resampling is needed', async () => {
-      if (isOfflineAudioContextAvailable()) {
-        console.log('OfflineAudioContextが利用可能な環境のため、このテストをスキップします');
-        return;
-      }
-
+    it('should resample without relying on OfflineAudioContext', async () => {
       const originalSignal = createSineWave(1000, 1.0, 44100, 0.5);
       const originalAudio = createTestAudioData(originalSignal, 44100);
 
-      await expect(load(originalAudio, { sampleRate: 48000 })).rejects.toThrow(
-        'この環境ではサンプルレート変換がサポートされていません'
-      );
+      const result = await load(originalAudio, { sampleRate: 48000 });
+      expect(result.sampleRate).toBe(48000);
+      expect(result.length).toBeGreaterThan(0);
     });
   });
 
@@ -304,6 +299,34 @@ describe('load', () => {
       expect(result.numberOfChannels).toBe(1);
       expect(result.channelData.length).toBe(1);
       expect(result.length).toBe(0);
+    });
+
+    it('should throw ABORTED when signal is pre-aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        load(createTestAudioData(createSineWave(440, 0.2)), { signal: controller.signal })
+      ).rejects.toMatchObject({ code: 'ABORTED' });
+    });
+
+    it('should throw DECODE_BACKEND_MISSING when decoder is required in Node runtime', async () => {
+      await expect(load(new Uint8Array([1, 2, 3, 4]).buffer)).rejects.toMatchObject({
+        code: 'DECODE_BACKEND_MISSING'
+      });
+    });
+
+    it('should propagate MEMORY_ERROR from decoder backend', async () => {
+      const decoder = {
+        name: 'memory-failing-decoder',
+        async decode() {
+          throw new AudioInspectError('MEMORY_ERROR', 'Out of memory while decoding');
+        }
+      };
+
+      await expect(
+        load(new Uint8Array([1, 2, 3, 4]).buffer, { decoder })
+      ).rejects.toMatchObject({ code: 'MEMORY_ERROR' });
     });
   });
 });

@@ -1,381 +1,145 @@
 # audio-inspect
 
-A lightweight yet powerful audio analysis library for web and Node.js environments
+TypeScript-first audio analysis library for offline and realtime use.
 
-[![npm version](https://img.shields.io/npm/v/audio-inspect.svg)](https://www.npmjs.com/package/audio-inspect)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
-
-## Features
-
-- **Time Domain Analysis**: Peak detection, RMS calculation, zero-crossing rate, waveform extraction
-- **Frequency Domain Analysis**: FFT analysis, spectrum analysis, spectrogram generation
-- **Advanced Audio Features**: LUFS loudness, spectral features, voice activity detection (VAD)
-- **Real-time Processing**: AudioWorklet-based real-time analysis with custom AudioNode
-- **Enhanced Audio Analysis**: A-weighted crest factor, True Peak detection, MFCC, spectral entropy/crest
-- **High Performance**: Float32Array-based results, parallel batch processing
-- **TypeScript Ready**: Full type definitions with comprehensive error handling
-- **Tree-shaking Support**: Import only what you need for optimal bundle size
-
-## Installation
+## Install
 
 ```bash
-# Install the latest version
-npm install audio-inspect
-
-# Or from GitHub
-npm install github:romot-co/audio-inspect
+npm i audio-inspect
 ```
 
-## Quick Start
+## Public API
 
-### Basic Usage
+`audio-inspect` exports only these top-level APIs:
 
-```typescript
-import { load, getPeaksAnalysis, getSpectrum } from 'audio-inspect';
+- `load(source, options?)`
+- `analyze(audio, request)`
+- `inspect(source, request)` (`load + analyze` convenience)
+- `monitor(options)` (realtime session)
+- `prepareWorklet(context, options?)` (optional preload)
+- `FEATURES`
+- `AudioInspectError`, `isAudioInspectError`
 
-// Load audio file
-const audio = await load('path/to/audio.mp3');
+## Quick Start (Offline)
 
-// Enhanced peak analysis with Float32Array results
-const peaks = getPeaksAnalysis(audio, {
-  count: 50,
-  threshold: 0.1,
-  onProgress: (percent, message) => console.log(`${percent}%: ${message}`)
+```ts
+import { inspect } from 'audio-inspect';
+
+const result = await inspect('audio.mp3', {
+  load: { normalize: true, sampleRate: 48000 },
+  features: {
+    rms: { asDB: true },
+    spectrum: { fftSize: 2048 }
+  }
 });
 
-// Spectrum analysis with frequency filtering
-const spectrum = await getSpectrum(audio, {
-  fftSize: 2048,
-  minFrequency: 80,
-  maxFrequency: 8000
-});
-
-console.log(peaks.positions);    // Float32Array of peak positions
-console.log(peaks.amplitudes);  // Float32Array of peak amplitudes
+console.log(result.results.rms);
+console.log(result.results.spectrum?.frequencies.length);
 ```
 
-### Real-time Audio Analysis
+## Decode Once, Analyze Many
 
-```typescript
-import { createAudioInspectNode } from 'audio-inspect';
+```ts
+import { load, analyze } from 'audio-inspect';
 
-const audioContext = new AudioContext();
-const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-const sourceNode = audioContext.createMediaStreamSource(mediaStream);
+const audio = await load(file);
 
-// Create AudioInspectNode
-const inspectNode = await createAudioInspectNode(audioContext, {
-  featureName: 'getRMS',
-  bufferSize: 1024,
-  hopSize: 512
+const pass1 = await analyze(audio, {
+  features: { rms: true, peak: true }
 });
 
-// Set up event handlers
-inspectNode.onresult = (event) => {
-  console.log('RMS:', event.data, 'at', event.timestamp);
-};
-
-// Connect to Web Audio API graph
-sourceNode.connect(inspectNode);
-
-// Update analysis in real-time
-inspectNode.updateOptions({
-  featureName: 'getPeaks',
-  featureOptions: { count: 5, threshold: 0.5 }
+const pass2 = await analyze(audio, {
+  range: { start: 30, end: 45 },
+  features: { lufs: true, spectralFeatures: true }
 });
 ```
 
-## Enhanced Audio Analysis Features
+## Realtime Monitor
 
-### 1. Weighted Crest Factor (A-Weighted Crest Factor)
-IEC 61672-1:2013 compliant A-weighting filter for perceptual crest factor measurement.
+```ts
+import { monitor } from 'audio-inspect';
 
-```typescript
-import { getCrestFactor } from 'audio-inspect/features/dynamics';
-
-const audio = await load('audio.mp3');
-
-// Traditional crest factor (unweighted)
-const simpleCF = getCrestFactor(audio, { method: 'simple' });
-
-// A-weighted crest factor for perceptual analysis
-const weightedCF = getCrestFactor(audio, { method: 'weighted' });
-
-console.log(`Crest Factor: ${simpleCF.crestFactor} dB`);
-console.log(`A-weighted CF: ${weightedCF.crestFactor} dB`);
-console.log(`Peak: ${simpleCF.peak}, RMS: ${simpleCF.rms}`);
-
-// Time-varying crest factor analysis
-const timeVaryingCF = getCrestFactor(audio, {
-  method: 'weighted',
-  windowSize: 0.1,  // 100ms analysis window
-  hopSize: 0.05     // 50ms hop size
+const session = await monitor({
+  context: audioContext,
+  source: micStream,
+  features: {
+    rms: { asDB: true },
+    peak: { asDB: true }
+  },
+  emit: 'raf'
 });
 
-if (timeVaryingCF.timeVarying) {
-  console.log(`Time-varying analysis: ${timeVaryingCF.timeVarying.values.length} frames`);
-  console.log(`Max CF: ${Math.max(...timeVaryingCF.timeVarying.values)} dB`);
+function loop() {
+  const frame = session.read();
+  if (frame) {
+    renderMeters(frame.results.rms, frame.results.peak);
+  }
+  requestAnimationFrame(loop);
 }
 
-// Real-time crest factor monitoring
-import { createAudioInspectNode } from 'audio-inspect';
-const audioContext = new AudioContext();
-const crestNode = await createAudioInspectNode(audioContext, {
-  featureName: 'getCrestFactor',
-  featureOptions: { method: 'weighted' },
-  bufferSize: 2048,
-  hopSize: 1024
-});
-
-crestNode.onresult = (event) => {
-  console.log(`Real-time Crest Factor: ${event.data.crestFactor} dB`);
-};
+loop();
 ```
 
-### 2. True Peak Detection (Inter-Sample Peak Detection)
-Oversampling-based inter-sample peak detection to prevent digital clipping.
+## Dynamic Realtime Features
 
-```typescript
-import { getPeakAmplitude } from 'audio-inspect/features/time';
-
-const audio = await load('audio.mp3');
-
-// True Peak with 4x oversampling and cubic interpolation
-const truePeak = getPeakAmplitude(audio, { 
-  truePeak: true,
-  oversamplingFactor: 4,
-  interpolation: 'cubic'
-});
-
-console.log(`True Peak: ${truePeak} dB`);
+```ts
+await session.setFeature('spectrum', { fftSize: 2048 });
+await session.removeFeature('rms');
+await session.setFeatures({ lufs: true, vad: { method: 'adaptive' } });
 ```
 
-### 3. MFCC (Mel-Frequency Cepstral Coefficients)
-Comprehensive MFCC implementation for machine learning and speech analysis.
+## Worklet Strategy
 
-```typescript
-import { getMFCC, getMFCCWithDelta } from 'audio-inspect/features/spectral';
+- Default: `engine: 'auto'` (tries worklet, falls back to main-thread)
+- Strict worklet: `engine: 'worklet'`
+- Force fallback: `engine: 'main-thread'`
 
-const audio = await load('speech.wav');
+Optional preload:
 
-// Basic MFCC
-const mfcc = await getMFCC(audio, {
-  frameSizeMs: 25,
-  hopSizeMs: 10,
-  numMfccCoeffs: 13,
-  numMelFilters: 40
-});
+```ts
+import { prepareWorklet } from 'audio-inspect';
 
-// MFCC with delta and delta-delta coefficients
-const mfccWithDelta = await getMFCCWithDelta(audio, {
-  computeDelta: true,
-  computeDeltaDelta: true
-});
-
-console.log(`MFCC: ${mfcc.mfcc.length} frames × ${mfcc.frameInfo.numCoeffs} coefficients`);
-```
-
-### 4. Spectral Entropy & Crest Factor
-Measure spectral randomness and peak-to-average ratio in frequency domain.
-
-```typescript
-import { getSpectralEntropy, getSpectralCrest } from 'audio-inspect/features/spectral';
-
-const audio = await load('audio.mp3');
-
-// Spectral entropy (noise vs. tonal content)
-const entropy = await getSpectralEntropy(audio, {
-  fftSize: 2048,
-  minFrequency: 20,
-  maxFrequency: 20000
-});
-
-// Spectral crest factor (harmonic vs. noise content)
-const spectralCrest = await getSpectralCrest(audio, {
-  fftSize: 2048,
-  asDB: true
-});
-
-console.log(`Spectral Entropy: ${entropy.entropy} bits (${entropy.entropyNorm} normalized)`);
-console.log(`Spectral Crest Factor: ${spectralCrest.crestDB} dB`);
-```
-
-## Core API
-
-### Audio Loading
-```typescript
-const audio = await load(source, {
-  sampleRate: 44100,    // Target sample rate
-  channels: 'mono',     // Channel configuration
-  normalize: false      // Normalize amplitude
+await prepareWorklet(audioContext, {
+  moduleUrl: '/worklets/audio-inspect-processor.js'
 });
 ```
 
-### Time Domain Analysis
-```typescript
-// Enhanced waveform analysis
-const waveform = getWaveformAnalysis(audio, {
-  frameCount: 3600,     // 1 minute at 60 FPS
-  channel: 0,
-  onProgress: (percent, message) => console.log(`${percent}%: ${message}`)
-});
+## Node.js Offline Decode
 
-// Peak detection
-const peaks = getPeaksAnalysis(audio, {
-  count: 100,
-  threshold: 0.1,
-  channel: 0
-});
+In Node.js, compressed/container decoding requires decoder injection:
 
-// RMS analysis
-const rms = getRMSAnalysis(audio, {
-  channel: 0,
-  asDB: true
-});
-```
+```ts
+import { load } from 'audio-inspect';
 
-### Frequency Domain Analysis
-```typescript
-// FFT analysis
-const fft = await getFFT(audio, {
-  fftSize: 2048,
-  windowFunction: 'hann',
-  provider: 'webfft'    // Fast WASM implementation
-});
-
-// Spectrum analysis
-const spectrum = await getSpectrum(audio, {
-  fftSize: 2048,
-  minFrequency: 20,
-  maxFrequency: 20000,
-  timeFrames: 100       // Generate spectrogram
-});
-```
-
-### Audio Features
-
-#### LUFS Loudness Measurement (ITU-R BS.1770-5 Compliant)
-```typescript
-import { getLUFS } from 'audio-inspect/features/loudness';
-
-const audio = await load('audio.mp3');
-
-// Basic integrated loudness
-const basicLoudness = getLUFS(audio);
-console.log(`Integrated Loudness: ${basicLoudness.integrated} LUFS`);
-
-// Comprehensive loudness analysis
-const loudness = getLUFS(audio, {
-  channelMode: 'stereo',        // 'mono' | 'stereo'
-  gated: true,                  // ITU-R BS.1770 gating
-  calculateShortTerm: true,     // 3-second short-term loudness
-  calculateMomentary: true,     // 400ms momentary loudness
-  calculateLoudnessRange: true, // LRA calculation
-  calculateTruePeak: true       // True peak per channel (dBTP)
-});
-
-console.log(`Integrated: ${loudness.integrated} LUFS`);
-console.log(`Loudness Range: ${loudness.loudnessRange} LU`);
-console.log(`True Peak: ${loudness.truePeak?.map(tp => `${tp.toFixed(1)} dBTP`).join(', ')}`);
-
-// Real-time loudness monitoring
-import { createAudioInspectNode } from 'audio-inspect';
-const audioContext = new AudioContext();
-const loudnessNode = await createAudioInspectNode(audioContext, {
-  featureName: 'getLUFS',
-  featureOptions: { gated: true, calculateMomentary: true },
-  bufferSize: 1024,
-  hopSize: 512
-});
-
-loudnessNode.onresult = (event) => {
-  const result = event.data;
-  console.log(`Real-time LUFS: ${result.integrated}`);
-};
-```
-
-#### Voice Activity Detection
-```typescript
-const vad = getVAD(audio, {
-  method: 'adaptive',
-  energyThreshold: 0.01,
-  frameSizeMs: 25
-});
-```
-
-#### Spectral Features
-```typescript
-const spectral = getSpectralFeatures(audio, {
-  fftSize: 2048,
-  features: ['centroid', 'bandwidth', 'rolloff', 'flatness']
-});
-```
-
-### Batch Processing
-```typescript
-import { analyzeAll } from 'audio-inspect/core/batch';
-
-const results = await analyzeAll(audio, {
-  waveform: { frameCount: 1000 },
-  peaks: { count: 50, threshold: 0.1 },
-  rms: { channel: 0 },
-  spectrum: { fftSize: 2048 },
-  onProgress: (percent, currentTask) => {
-    console.log(`Processing: ${percent}% (${currentTask})`);
+const audio = await load(buffer, {
+  decoder: {
+    name: 'my-decoder',
+    async decode(input) {
+      // return AudioData
+      return decodedAudioData;
+    }
   }
 });
 ```
 
-## Tree-shaking Support
+If decode backend is missing, `load()` throws `DECODE_BACKEND_MISSING`.
 
-Import only the features you need:
+## Error Handling
 
-```typescript
-// Time domain only
-import { getPeaksAnalysis, getWaveformAnalysis } from 'audio-inspect/features/time';
+All public failures throw `AudioInspectError`.
 
-// Frequency domain only
-import { getFFT, getSpectrum } from 'audio-inspect/features/frequency';
+```ts
+import { isAudioInspectError } from 'audio-inspect';
 
-// Audio features only
-import { getLUFS } from 'audio-inspect/features/loudness';
-import { getVAD } from 'audio-inspect/features/vad';
+try {
+  // ...
+} catch (error) {
+  if (isAudioInspectError(error)) {
+    console.error(error.code, error.message);
+  }
+}
 ```
-
-## Browser Compatibility
-
-- Chrome 66+ (WebAssembly support for WebFFT)
-- Firefox 60+ (WebAssembly support)
-- Safari 12+ (WebAssembly support)
-- Edge 79+ (WebAssembly support)
-
-## Development
-
-```bash
-# Install dependencies
-npm install
-
-# Run tests
-npm test
-
-# Run E2E tests
-npm run test:e2e
-
-# Build library
-npm run build
-
-# Run local demo server (includes build)
-npm run demo
-
-# Quality checks
-npm run format && npm run lint && npm run type-check
-```
-
-When the server is running, open:
-- `http://127.0.0.1:4173/examples/index.html`
-- `http://127.0.0.1:4173/examples/offline-analyzer.html`
 
 ## License
 
-MIT License - see the [LICENSE](LICENSE) file for details.
+MIT

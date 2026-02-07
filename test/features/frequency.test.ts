@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { getFFT, getSpectrum } from '../../src/features/frequency.js';
 import type { AudioData } from '../../src/types.js';
+import { FFTProviderFactory } from '../../src/core/fft-provider.js';
 
 // テスト用のAudioDataを作成するヘルパー
 function createTestAudioData(data: Float32Array, sampleRate = 44100): AudioData {
@@ -354,5 +355,21 @@ describe('error handling', () => {
     const audio = createTestAudioData(sineWave);
 
     await expect(getFFT(audio, { channel: 5 })).rejects.toThrow('Invalid channel number');
+  });
+
+  it('returns INITIALIZATION_FAILED when FFT provider creation fails', async () => {
+    const sineWave = createSineWave(440, 0.1);
+    const audio = createTestAudioData(sineWave);
+    const spy = vi
+      .spyOn(FFTProviderFactory, 'createProvider')
+      .mockRejectedValue(new Error('provider init failed'));
+
+    try {
+      await expect(getFFT(audio, { provider: 'native' })).rejects.toMatchObject({
+        code: 'INITIALIZATION_FAILED'
+      });
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

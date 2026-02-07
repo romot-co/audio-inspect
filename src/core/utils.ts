@@ -1,4 +1,9 @@
-import { AudioInspectError, type AudioData, type BiquadCoeffs } from '../types.js';
+import {
+  AudioInspectError,
+  type AudioData,
+  type BiquadCoeffs,
+  type ChannelSelector
+} from '../types.js';
 // 専用フィルタファイルからインポート
 import {
   getAWeightingCoeffs as getAWeightingCoeffsImpl,
@@ -24,54 +29,68 @@ export function getPerformanceNow(): number {
   return Date.now();
 }
 
+function isChannelArray(value: ChannelSelector): value is readonly number[] {
+  return Array.isArray(value);
+}
+
 /**
  * Safely get channel data common function
  * @param audio - AudioData object
- * @param channel - Channel number (-1 for average of all channels)
+ * @param channel - Channel selector
  * @returns Data of the specified channel
  * @throws AudioInspectError if channel is invalid
  */
-export function getChannelData(audio: AudioData, channel = 0): Float32Array {
-  if (channel === -1) {
-    // Calculate average across all channels
-    if (audio.numberOfChannels === 0) {
-      throw new AudioInspectError('INVALID_INPUT', 'No channels available');
-    }
+export function getChannelData(audio: AudioData, channel: ChannelSelector = 0): Float32Array {
+  if (audio.numberOfChannels <= 0) {
+    throw new AudioInspectError('INVALID_INPUT', 'No channels available');
+  }
 
-    // Check if any channel is undefined
-    for (let ch = 0; ch < audio.numberOfChannels; ch++) {
-      if (!audio.channelData[ch]) {
-        throw new AudioInspectError(
-          'INVALID_INPUT',
-          `Channel ${ch} data does not exist for averaging`
-        );
+  const allChannels = Array.from({ length: audio.numberOfChannels }, (_, idx) => idx);
+
+  let selectedChannels: number[];
+  if (channel === 'mix' || channel === 'all' || channel === -1) {
+    selectedChannels = allChannels;
+  } else if (isChannelArray(channel)) {
+    if (channel.length === 0) {
+      throw new AudioInspectError('INVALID_INPUT', 'Channel selection array cannot be empty');
+    }
+    selectedChannels = channel.slice();
+  } else if (typeof channel === 'number') {
+    if (!Number.isInteger(channel)) {
+      throw new AudioInspectError('INVALID_INPUT', `Invalid channel number: ${channel}`);
+    }
+    selectedChannels = [channel];
+  } else {
+    throw new AudioInspectError('INVALID_INPUT', `Invalid channel selector: ${String(channel)}`);
+  }
+
+  for (const ch of selectedChannels) {
+    if (ch < 0 || ch >= audio.numberOfChannels) {
+      throw new AudioInspectError('INVALID_INPUT', `Invalid channel number: ${ch}`);
+    }
+    if (!audio.channelData[ch]) {
+      throw new AudioInspectError('INVALID_INPUT', `Channel ${ch} data does not exist`);
+    }
+  }
+
+  if (selectedChannels.length === 1) {
+    const ch = selectedChannels[0]!;
+    return audio.channelData[ch]!;
+  }
+
+  const averageData = new Float32Array(audio.length);
+  for (let i = 0; i < audio.length; i++) {
+    let sum = 0;
+    for (const ch of selectedChannels) {
+      const channelData = audio.channelData[ch];
+      if (channelData && i < channelData.length) {
+        sum += channelData[i] ?? 0;
       }
     }
-
-    const averageData = new Float32Array(audio.length);
-    for (let i = 0; i < audio.length; i++) {
-      let sum = 0;
-      for (let ch = 0; ch < audio.numberOfChannels; ch++) {
-        const channelData = audio.channelData[ch];
-        if (channelData && i < channelData.length) {
-          sum += channelData[i] ?? 0;
-        }
-      }
-      averageData[i] = sum / audio.numberOfChannels;
-    }
-    return averageData;
+    averageData[i] = sum / selectedChannels.length;
   }
 
-  if (channel < -1 || channel >= audio.numberOfChannels) {
-    throw new AudioInspectError('INVALID_INPUT', `Invalid channel number: ${channel}`);
-  }
-
-  const channelData = audio.channelData[channel];
-  if (!channelData) {
-    throw new AudioInspectError('INVALID_INPUT', `Channel ${channel} data does not exist`);
-  }
-
-  return channelData;
+  return averageData;
 }
 
 /**

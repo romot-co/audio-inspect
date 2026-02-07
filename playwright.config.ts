@@ -24,9 +24,9 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npx http-server dist -p 8080 -c-1',
+    command: 'node scripts/serve-demo.mjs 8080',
     port: 8080,
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
   },
-}); 
+});
