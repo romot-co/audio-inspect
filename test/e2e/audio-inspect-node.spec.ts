@@ -22,7 +22,6 @@ test.describe('Realtime monitor API', () => {
       const session = await AudioInspect.monitor({
         context,
         source: gain,
-        engine: 'main-thread',
         emit: 'hop',
         features: { rms: true }
       });

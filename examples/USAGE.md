@@ -2,6 +2,17 @@
 
 This project uses the vNext API only.
 
+## Run This Repository Demo
+
+From the repository root:
+
+```bash
+npm run build
+npm run demo:serve
+```
+
+Open `http://127.0.0.1:4173/examples/index.html`.
+
 ## Top-Level Functions
 
 - `load(source, options?)`
@@ -72,12 +83,12 @@ await session.setFeatures({ lufs: true, vad: { method: 'adaptive' } });
 import { prepareWorklet } from 'audio-inspect';
 
 await prepareWorklet(audioContext, {
-  moduleUrl: '/worklets/audio-inspect-processor.js'
+  moduleUrl: '/dist/core/realtime/processor.js'
 });
 ```
 
 ## Notes
 
-- Realtime can run with `engine: 'auto' | 'worklet' | 'main-thread'`.
+- `monitor()` is AudioWorklet-only. If AudioWorklet is unavailable, it throws `WORKLET_NOT_SUPPORTED`.
 - `inspect` is for convenience; `load + analyze` is better for repeated analysis.
 - In Node.js, inject a decode backend via `LoadOptions.decoder` when decoding compressed audio.

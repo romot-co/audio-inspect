@@ -1,6 +1,6 @@
 {
   "name": "audio-inspect",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Lightweight yet powerful audio analysis library",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -34,8 +34,8 @@
     "build": "NODE_ENV=production tsup",
     "build:dev": "NODE_ENV=development tsup",
     "build:e2e": "E2E_TEST=true NODE_ENV=development tsup",
-    "demo": "npm run build && node scripts/serve-demo.mjs",
-    "demo:serve": "node scripts/serve-demo.mjs",
+    "demo": "npm run build && node examples/serve-demo.mjs",
+    "demo:serve": "node examples/serve-demo.mjs",
     "dev": "tsup --watch",
     "test": "vitest --run --coverage",
     "test:watch": "vitest --coverage",

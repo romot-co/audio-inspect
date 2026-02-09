@@ -1,35 +1,34 @@
 import { AudioData, type ChannelSelector } from '../types.js';
-import { getChannelData, ensureValidSample } from '../core/utils.js';
+import { getChannelData } from '../core/utils.js';
+import { powToDb } from '../core/dsp/db.js';
+import { forEachFrame } from '../core/dsp/frame-iterator.js';
 
+// Voice activity detection options.
 export interface VADOptions {
   channel?: ChannelSelector;
   frameSizeMs?: number;
   hopSizeMs?: number;
   method?: 'energy' | 'zcr' | 'combined' | 'adaptive';
 
-  // 閾値パラメータ
-  energyThreshold?: number; // 固定エネルギー閾値
-  zcrThresholdLow?: number; // ZCR下限（有声音）
-  zcrThresholdHigh?: number; // ZCR上限（無声音）
+  energyThreshold?: number;
+  zcrThresholdLow?: number;
+  zcrThresholdHigh?: number;
 
-  // 適応的閾値用パラメータ
-  adaptiveAlpha?: number; // 適応率 (0-1)
-  noiseFactor?: number; // ノイズレベルに対する倍率
+  adaptiveAlpha?: number;
+  noiseFactor?: number;
 
-  // 時間制約
   minSilenceDurationMs?: number;
   minSpeechDurationMs?: number;
 
-  // 追加オプション
-  preEmphasis?: boolean; // プリエンファシスフィルタ
-  smoothing?: boolean; // 判定結果の平滑化
+  preEmphasis?: boolean;
+  smoothing?: boolean;
 }
 
 export interface VADSegment {
   start: number;
   end: number;
   type: 'speech' | 'silence';
-  confidence?: number; // 判定の信頼度 (0-1)
+  confidence?: number;
 }
 
 export interface VADResult {
@@ -38,30 +37,27 @@ export interface VADResult {
   features?: {
     energies: Float32Array;
     zcrs: Float32Array;
-    decisions: Float32Array; // 0-1の連続値
+    decisions: Float32Array;
     times: Float32Array;
   };
 }
 
-/**
- * プリエンファシスフィルタ
- */
+// Standard pre-emphasis filter for speech processing.
 function applyPreEmphasis(data: Float32Array, alpha: number = 0.97): Float32Array {
   const filtered = new Float32Array(data.length);
-  filtered[0] = data[0] || 0;
+  if (data.length === 0) {
+    return filtered;
+  }
+  filtered[0] = data[0]!;
 
   for (let i = 1; i < data.length; i++) {
-    const current = ensureValidSample(data[i] ?? 0);
-    const previous = ensureValidSample(data[i - 1] ?? 0);
-    filtered[i] = current - alpha * previous;
+    filtered[i] = data[i]! - alpha * data[i - 1]!;
   }
 
   return filtered;
 }
 
-/**
- * フレームエネルギー計算
- */
+// Compute per-frame energy and timestamps.
 function calculateFrameEnergies(
   channelData: Float32Array,
   frameSizeSamples: number,
@@ -69,86 +65,78 @@ function calculateFrameEnergies(
   sampleRate: number,
   useLogEnergy: boolean = false
 ): { energies: Float32Array; times: Float32Array } {
-  const dataLength = channelData.length;
+  const energies: number[] = [];
+  const times: number[] = [];
 
-  if (dataLength < frameSizeSamples) {
+  if (channelData.length === 0) {
     return { energies: new Float32Array(0), times: new Float32Array(0) };
   }
 
-  const frameCount = Math.floor((dataLength - frameSizeSamples) / hopSizeSamples) + 1;
-  const energies = new Float32Array(frameCount);
-  const times = new Float32Array(frameCount);
-
-  for (let i = 0; i < frameCount; i++) {
-    const start = i * hopSizeSamples;
-    const end = Math.min(start + frameSizeSamples, dataLength);
-
-    let energy = 0;
-    let validSamples = 0;
-
-    for (let j = start; j < end; j++) {
-      const sample = ensureValidSample(channelData[j] ?? 0);
-      energy += sample * sample;
-      validSamples++;
+  forEachFrame(
+    {
+      samples: channelData,
+      frameSize: frameSizeSamples,
+      hopSize: hopSizeSamples,
+      sampleRate,
+      padEnd: true
+    },
+    ({ frame, timeSec }) => {
+      let energy = 0;
+      for (let i = 0; i < frame.length; i++) {
+        const sample = frame[i]!;
+        energy += sample * sample;
+      }
+      energy /= frame.length;
+      energies.push(useLogEnergy ? powToDb(energy, 1, -100) : energy);
+      times.push(timeSec);
     }
+  );
 
-    energy = validSamples > 0 ? energy / validSamples : 0; // 正規化
-
-    if (useLogEnergy) {
-      energies[i] = energy > 1e-10 ? 10 * Math.log10(energy) : -100;
-    } else {
-      energies[i] = energy;
-    }
-
-    times[i] = (start + frameSizeSamples / 2) / sampleRate;
-  }
-
-  return { energies, times };
+  return {
+    energies: new Float32Array(energies),
+    times: new Float32Array(times)
+  };
 }
 
-/**
- * フレームZCR計算
- */
+// Compute zero-crossing rate per frame.
 function calculateFrameZCRs(
   channelData: Float32Array,
   frameSizeSamples: number,
   hopSizeSamples: number,
   normalize: boolean = true
 ): Float32Array {
-  const dataLength = channelData.length;
+  const zcrs: number[] = [];
 
-  if (dataLength < frameSizeSamples) {
+  if (channelData.length === 0) {
     return new Float32Array(0);
   }
 
-  const frameCount = Math.floor((dataLength - frameSizeSamples) / hopSizeSamples) + 1;
-  const zcrs = new Float32Array(frameCount);
-
-  for (let i = 0; i < frameCount; i++) {
-    const start = i * hopSizeSamples;
-    const end = Math.min(start + frameSizeSamples, dataLength);
-
-    let crossings = 0;
-    let prevSign = Math.sign(ensureValidSample(channelData[start] ?? 0));
-
-    for (let j = start + 1; j < end; j++) {
-      const sample = ensureValidSample(channelData[j] ?? 0);
-      const currentSign = Math.sign(sample);
-      if (prevSign !== currentSign && prevSign !== 0 && currentSign !== 0) {
-        crossings++;
+  forEachFrame(
+    {
+      samples: channelData,
+      frameSize: frameSizeSamples,
+      hopSize: hopSizeSamples,
+      sampleRate: 1,
+      padEnd: true
+    },
+    ({ frame }) => {
+      let crossings = 0;
+      let prevSign = Math.sign(frame[0] ?? 0);
+      for (let i = 1; i < frame.length; i++) {
+        const sign = Math.sign(frame[i] ?? 0);
+        if (prevSign !== sign && prevSign !== 0 && sign !== 0) {
+          crossings += 1;
+        }
+        prevSign = sign;
       }
-      prevSign = currentSign;
+      zcrs.push(normalize ? crossings / Math.max(1, frame.length - 1) : crossings);
     }
+  );
 
-    zcrs[i] = normalize ? crossings / Math.max(1, end - start - 1) : crossings;
-  }
-
-  return zcrs;
+  return new Float32Array(zcrs);
 }
 
-/**
- * 適応的閾値の計算
- */
+// Track an adaptive threshold from low-energy frames.
 function calculateAdaptiveThreshold(
   values: Float32Array,
   alpha: number,
@@ -157,32 +145,21 @@ function calculateAdaptiveThreshold(
 ): Float32Array {
   const thresholds = new Float32Array(values.length);
 
-  // 初期ノイズレベルの推定（最初のフレームから）
   let noiseLevel = 0;
   const noiseFrames = Math.min(initialFrames, values.length);
 
   for (let i = 0; i < noiseFrames; i++) {
-    const value = values[i] ?? 0;
-    if (value !== undefined) {
-      noiseLevel += value;
-    }
+    noiseLevel += values[i]!;
   }
   noiseLevel = noiseFrames > 0 ? noiseLevel / noiseFrames : 0;
 
-  // 適応的閾値の計算
   for (let i = 0; i < values.length; i++) {
-    const value = values[i] ?? 0;
-    if (value === undefined) {
-      thresholds[i] =
-        i > 0 ? (thresholds[i - 1] ?? noiseLevel * noiseFactor) : noiseLevel * noiseFactor;
-      continue;
-    }
+    const value = values[i]!;
 
     if (i === 0) {
       thresholds[i] = noiseLevel * noiseFactor;
     } else {
       const prevThreshold = thresholds[i - 1];
-      // 指数移動平均によるノイズレベルの更新
       if (prevThreshold !== undefined && value < prevThreshold) {
         noiseLevel = alpha * noiseLevel + (1 - alpha) * value;
       }
@@ -193,9 +170,7 @@ function calculateAdaptiveThreshold(
   return thresholds;
 }
 
-/**
- * 判定結果の平滑化（メディアンフィルタ）
- */
+// Smooth binary-like decisions via median filtering.
 function smoothDecisions(decisions: Float32Array, windowSize: number = 5): Float32Array {
   const smoothed = new Float32Array(decisions.length);
   const halfWindow = Math.floor(windowSize / 2);
@@ -204,21 +179,15 @@ function smoothDecisions(decisions: Float32Array, windowSize: number = 5): Float
     const start = Math.max(0, i - halfWindow);
     const end = Math.min(decisions.length, i + halfWindow + 1);
 
-    // 窓内の値を収集してソート
     const windowValues: number[] = [];
     for (let j = start; j < end; j++) {
-      const value = decisions[j] ?? 0;
-      if (value !== undefined) {
-        windowValues.push(value);
-      }
+      windowValues.push(decisions[j]!);
     }
     windowValues.sort((a, b) => a - b);
 
-    // メディアン値を取得
     if (windowValues.length > 0) {
       const medianIdx = Math.floor(windowValues.length / 2);
-      const medianValue = windowValues[medianIdx];
-      smoothed[i] = medianValue ?? 0;
+      smoothed[i] = windowValues[medianIdx]!;
     } else {
       smoothed[i] = 0;
     }
@@ -227,9 +196,7 @@ function smoothDecisions(decisions: Float32Array, windowSize: number = 5): Float
   return smoothed;
 }
 
-/**
- * セグメント化（連続値から）
- */
+// Convert frame decisions into speech/silence time segments.
 function createSegmentsFromContinuous(
   decisions: Float32Array,
   times: Float32Array,
@@ -241,9 +208,8 @@ function createSegmentsFromContinuous(
   let currentSegment: VADSegment | null = null;
 
   for (let i = 0; i < decisions.length; i++) {
-    const decision = decisions[i] ?? 0;
-    const time = times[i] ?? 0;
-    if (decision === undefined || time === undefined) continue;
+    const decision = decisions[i]!;
+    const time = times[i]!;
 
     const isSpeech = decision >= threshold;
 
@@ -258,12 +224,10 @@ function createSegmentsFromContinuous(
       (isSpeech && currentSegment.type === 'speech') ||
       (!isSpeech && currentSegment.type === 'silence')
     ) {
-      // 同じタイプのセグメントを延長
       currentSegment.end = time;
       const conf = Math.abs(decision - 0.5) * 2;
       currentSegment.confidence = Math.max(currentSegment.confidence || 0, conf);
     } else {
-      // タイプが変わった場合
       segments.push(currentSegment);
       currentSegment = {
         start: time,
@@ -278,13 +242,10 @@ function createSegmentsFromContinuous(
     segments.push(currentSegment);
   }
 
-  // 短いセグメントのフィルタリング
   return filterShortSegments(segments, minSpeechSec, minSilenceSec);
 }
 
-/**
- * 短いセグメントのフィルタリング
- */
+// Remove short segments and merge compatible neighbors.
 function filterShortSegments(
   segments: VADSegment[],
   minSpeechSec: number,
@@ -308,24 +269,20 @@ function filterShortSegments(
       (current.type === 'speech' && duration >= minSpeechSec) ||
       (current.type === 'silence' && duration >= minSilenceSec)
     ) {
-      // セグメントを保持
       filtered.push(current);
       i++;
     } else {
-      // 短いセグメントの処理
       if (filtered.length > 0 && i + 1 < segments.length) {
         const prev = filtered[filtered.length - 1];
         const next = segments[i + 1];
 
         if (prev && next && prev.type === next.type) {
-          // 前後が同じタイプなら統合
           prev.end = next.end;
-          i += 2; // 現在と次のセグメントをスキップ
+          i += 2;
           continue;
         }
       }
 
-      // 統合できない場合はタイプを変更
       if (filtered.length > 0) {
         const lastFiltered = filtered[filtered.length - 1];
         if (lastFiltered) {
@@ -339,14 +296,12 @@ function filterShortSegments(
   return filtered;
 }
 
-/**
- * VAD（音声区間検出）を実行
- */
+// Perform VAD and return segments with optional intermediate features.
 export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
   const {
-    channel = 0,
-    frameSizeMs = 30, // 30msフレーム
-    hopSizeMs = 10, // 10msホップ
+    channel = 'mix',
+    frameSizeMs = 30,
+    hopSizeMs = 10,
     method = 'combined',
     energyThreshold = 0.02,
     zcrThresholdLow = 0.05,
@@ -361,7 +316,6 @@ export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
 
   let channelData = getChannelData(audio, channel);
 
-  // プリエンファシス（オプション）
   if (preEmphasis) {
     channelData = applyPreEmphasis(channelData);
   }
@@ -374,7 +328,6 @@ export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
     return { segments: [], speechRatio: 0 };
   }
 
-  // 特徴量の計算
   const { energies, times } = calculateFrameEnergies(
     channelData,
     frameSizeSamples,
@@ -389,13 +342,13 @@ export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
     return { segments: [], speechRatio: 0 };
   }
 
-  // VAD判定
+  // Frame-level speech decision score (0..1).
   const decisions = new Float32Array(energies.length);
 
   switch (method) {
     case 'energy': {
       for (let i = 0; i < energies.length; i++) {
-        const energy = energies[i] ?? 0;
+        const energy = energies[i]!;
         decisions[i] = energy > energyThreshold ? 1 : 0;
       }
       break;
@@ -403,7 +356,7 @@ export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
 
     case 'zcr': {
       for (let i = 0; i < zcrs.length; i++) {
-        const zcr = zcrs[i] ?? 0;
+        const zcr = zcrs[i]!;
         decisions[i] = zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 1 : 0;
       }
       break;
@@ -411,8 +364,8 @@ export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
 
     case 'combined': {
       for (let i = 0; i < energies.length; i++) {
-        const energy = energies[i] ?? 0;
-        const zcr = zcrs[i] ?? 0;
+        const energy = energies[i]!;
+        const zcr = zcrs[i]!;
 
         const energyScore = energy > energyThreshold ? 1 : 0;
         const zcrScore = zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 1 : 0;
@@ -422,13 +375,13 @@ export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
     }
 
     case 'adaptive': {
-      // 適応的閾値の計算
+      // Adaptive mode updates threshold from estimated noise floor.
       const adaptiveThreshold = calculateAdaptiveThreshold(energies, adaptiveAlpha, noiseFactor);
 
       for (let i = 0; i < energies.length; i++) {
-        const energy = energies[i] ?? 0;
-        const zcr = zcrs[i] ?? 0;
-        const threshold = adaptiveThreshold[i] ?? 0;
+        const energy = energies[i]!;
+        const zcr = zcrs[i]!;
+        const threshold = adaptiveThreshold[i]!;
 
         const energyScore = energy > threshold ? 1 : 0;
         const zcrScore = zcr > zcrThresholdLow && zcr < zcrThresholdHigh ? 0.5 : 0;
@@ -438,10 +391,10 @@ export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
     }
   }
 
-  // 平滑化（オプション）
+  // Optional median smoothing to reduce flicker.
   const finalDecisions = smoothing ? smoothDecisions(decisions, 5) : decisions;
 
-  // セグメント化
+  // Convert millisecond constraints into seconds for segment filtering.
   const minSpeechSec = minSpeechDurationMs / 1000;
   const minSilenceSec = minSilenceDurationMs / 1000;
 
@@ -453,7 +406,7 @@ export function getVAD(audio: AudioData, options: VADOptions = {}): VADResult {
     minSilenceSec
   );
 
-  // 音声区間の割合計算
+  // Summarize total speech duration.
   let totalSpeechDuration = 0;
   for (const seg of segments) {
     if (seg.type === 'speech') {

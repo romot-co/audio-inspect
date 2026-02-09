@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { prepareWorklet } from '../../src/core/realtime-worklet.js';
+import { prepareWorklet } from '../../src/core/realtime/worklet.js';
 
 describe('core/realtime-worklet', () => {
   it('throws WORKLET_NOT_SUPPORTED when context has no audioWorklet', async () => {
@@ -23,4 +23,3 @@ describe('core/realtime-worklet', () => {
     });
   });
 });
-

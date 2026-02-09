@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { load } from '../../src/core/load.js';
 import { AudioInspectError, type AudioData } from '../../src/types.js';
 
-// テスト用のAudioDataを作成するヘルパー
 function createTestAudioData(data: Float32Array, sampleRate = 44100): AudioData {
   return {
     sampleRate,
@@ -13,7 +12,6 @@ function createTestAudioData(data: Float32Array, sampleRate = 44100): AudioData 
   };
 }
 
-// テスト信号を生成するヘルパー関数
 function createSineWave(
   frequency: number,
   duration: number,
@@ -65,12 +63,11 @@ describe('load', () => {
     });
 
     it('should handle normalization', async () => {
-      const signal = createSineWave(440, 1.0, 44100, 0.3); // 振幅0.3
+      const signal = createSineWave(440, 1.0, 44100, 0.3);
       const audio = createTestAudioData(signal);
 
       const result = await load(audio, { normalize: true });
 
-      // 正規化により最大振幅が1.0になる
       let maxAmplitude = 0;
       const channelData = result.channelData[0];
       if (channelData) {
@@ -89,7 +86,7 @@ describe('load', () => {
 
     it('should resample from 44.1kHz to 48kHz', async () => {
       if (!isOfflineAudioContextAvailable()) {
-        console.log('OfflineAudioContextが利用できない環境のため、このテストをスキップします');
+        console.log('OfflineAudioContext is unavailable in this environment, skipping this test');
         return;
       }
 
@@ -100,14 +97,14 @@ describe('load', () => {
 
       expect(result.sampleRate).toBe(48000);
       expect(result.numberOfChannels).toBe(1);
-      // リサンプリング後の長さは比例的に変化
+
       expect(result.length).toBeCloseTo((originalAudio.length * 48000) / 44100, 100);
-      expect(result.duration).toBeCloseTo(1.0, 2); // 時間は保持される
+      expect(result.duration).toBeCloseTo(1.0, 2);
     });
 
     it('should resample from 48kHz to 44.1kHz', async () => {
       if (!isOfflineAudioContextAvailable()) {
-        console.log('OfflineAudioContextが利用できない環境のため、このテストをスキップします');
+        console.log('OfflineAudioContext is unavailable in this environment, skipping this test');
         return;
       }
 
@@ -123,7 +120,7 @@ describe('load', () => {
 
     it('should handle downsampling to lower rates', async () => {
       if (!isOfflineAudioContextAvailable()) {
-        console.log('OfflineAudioContextが利用できない環境のため、このテストをスキップします');
+        console.log('OfflineAudioContext is unavailable in this environment, skipping this test');
         return;
       }
 
@@ -139,7 +136,7 @@ describe('load', () => {
 
     it('should handle upsampling to higher rates', async () => {
       if (!isOfflineAudioContextAvailable()) {
-        console.log('OfflineAudioContextが利用できない環境のため、このテストをスキップします');
+        console.log('OfflineAudioContext is unavailable in this environment, skipping this test');
         return;
       }
 
@@ -155,7 +152,7 @@ describe('load', () => {
 
     it('should resample stereo audio correctly', async () => {
       if (!isOfflineAudioContextAvailable()) {
-        console.log('OfflineAudioContextが利用できない環境のため、このテストをスキップします');
+        console.log('OfflineAudioContext is unavailable in this environment, skipping this test');
         return;
       }
 
@@ -180,7 +177,7 @@ describe('load', () => {
 
     it('should combine resampling with other options', async () => {
       if (!isOfflineAudioContextAvailable()) {
-        console.log('OfflineAudioContextが利用できない環境のため、このテストをスキップします');
+        console.log('OfflineAudioContext is unavailable in this environment, skipping this test');
         return;
       }
 
@@ -205,7 +202,6 @@ describe('load', () => {
       expect(result.numberOfChannels).toBe(1);
       expect(result.length).toBeCloseTo((stereoAudio.length * 44100) / 48000, 100);
 
-      // 正規化の確認
       let maxAmplitude = 0;
       const channelData = result.channelData[0];
       if (channelData) {
@@ -218,29 +214,26 @@ describe('load', () => {
 
     it('should preserve audio quality during resampling', async () => {
       if (!isOfflineAudioContextAvailable()) {
-        console.log('OfflineAudioContextが利用できない環境のため、このテストをスキップします');
+        console.log('OfflineAudioContext is unavailable in this environment, skipping this test');
         return;
       }
 
-      // 低周波数のシンプルな信号でテスト
       const originalSignal = createSineWave(220, 1.0, 44100, 1.0);
       const originalAudio = createTestAudioData(originalSignal, 44100);
 
       const result = await load(originalAudio, { sampleRate: 48000 });
 
-      // リサンプリング後も信号の特性が保持されることを確認
       const channelData = result.channelData[0];
       expect(channelData).toBeDefined();
       if (channelData) {
         expect(channelData.length).toBeGreaterThan(0);
 
-        // 振幅の範囲が合理的であることを確認
         let maxAmplitude = 0;
         for (const sample of channelData) {
           maxAmplitude = Math.max(maxAmplitude, Math.abs(sample));
         }
-        expect(maxAmplitude).toBeGreaterThan(0.5); // 元の信号に近い振幅
-        expect(maxAmplitude).toBeLessThan(1.5); // 過度な増幅がない
+        expect(maxAmplitude).toBeGreaterThan(0.5);
+        expect(maxAmplitude).toBeLessThan(1.5);
       }
     });
 
@@ -250,7 +243,6 @@ describe('load', () => {
 
       const result = await load(originalAudio, { sampleRate: 44100 });
 
-      // サンプルレートが同じ場合、変更されない
       expect(result.sampleRate).toBe(44100);
       expect(result.length).toBe(originalAudio.length);
       const resultChannel = result.channelData[0];
@@ -274,7 +266,6 @@ describe('load', () => {
     it('should handle empty audio data', async () => {
       const emptyAudio = createTestAudioData(new Float32Array(0));
 
-      // サンプルレート変換なしでテスト
       const result = await load(emptyAudio);
 
       expect(result.length).toBe(0);
@@ -291,7 +282,6 @@ describe('load', () => {
         length: 0
       };
 
-      // サンプルレート変換なし、正規化のみでテスト
       const result = await load(emptyAudio, {
         normalize: true
       });
@@ -324,9 +314,9 @@ describe('load', () => {
         }
       };
 
-      await expect(
-        load(new Uint8Array([1, 2, 3, 4]).buffer, { decoder })
-      ).rejects.toMatchObject({ code: 'MEMORY_ERROR' });
+      await expect(load(new Uint8Array([1, 2, 3, 4]).buffer, { decoder })).rejects.toMatchObject({
+        code: 'MEMORY_ERROR'
+      });
     });
   });
 });

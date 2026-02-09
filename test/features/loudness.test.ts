@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { getLUFS, getLUFSRealtime } from '../../src/features/loudness.js';
 import type { AudioData } from '../../src/types.js';
 
-// テスト用のAudioDataを作成するヘルパー
 function createTestAudioData(data: Float32Array[], sampleRate = 48000): AudioData {
   return {
     sampleRate,
@@ -13,7 +12,6 @@ function createTestAudioData(data: Float32Array[], sampleRate = 48000): AudioDat
   };
 }
 
-// テスト信号を生成するヘルパー関数
 function createSineWave(
   frequency: number,
   duration: number,
@@ -64,15 +62,15 @@ function createPinkNoise(length: number, amplitude = 1): Float32Array {
 describe('getLUFS', () => {
   describe('basic functionality', () => {
     it('should calculate LUFS for sine wave', () => {
-      const sineWave = createSineWave(1000, 5.0, 48000, 0.1); // 5秒、低振幅
+      const sineWave = createSineWave(1000, 5.0, 48000, 0.1);
       const audio = createTestAudioData([sineWave]);
 
       const result = getLUFS(audio);
 
       expect(result.integrated).toBeDefined();
       expect(result.integrated).toBeTypeOf('number');
-      expect(result.integrated).toBeLessThan(0); // LUFS値は通常負の値
-      expect(result.integrated).toBeGreaterThan(-100); // 合理的な範囲
+      expect(result.integrated).toBeLessThan(0);
+      expect(result.integrated).toBeGreaterThan(-100);
     });
 
     it('should handle stereo audio', () => {
@@ -98,13 +96,13 @@ describe('getLUFS', () => {
     });
 
     it('should handle silent audio', () => {
-      const silence = new Float32Array(48000 * 5); // 5秒の無音
+      const silence = new Float32Array(48000 * 5);
       const audio = createTestAudioData([silence]);
 
       const result = getLUFS(audio);
 
       expect(result.integrated).toBeDefined();
-      expect(result.integrated).toBeLessThan(-50); // 非常に小さな値
+      expect(result.integrated).toBeLessThan(-50);
     });
   });
 
@@ -118,7 +116,6 @@ describe('getLUFS', () => {
 
       expect(gated.integrated).toBeDefined();
       expect(ungated.integrated).toBeDefined();
-      // ゲートありとなしで結果が異なることがある
     });
 
     it('should make ungated loudness lower when long silence is included', () => {
@@ -127,7 +124,6 @@ describe('getLUFS', () => {
       const length = Math.floor(sampleRate * duration);
       const signal = new Float32Array(length);
 
-      // 先頭8秒は無音、後半2秒のみ有音
       const tone = createSineWave(1000, 2.0, sampleRate, 0.2);
       signal.set(tone, Math.floor(8 * sampleRate));
 
@@ -168,7 +164,7 @@ describe('getLUFS', () => {
     });
 
     it('should calculate loudness range when requested', () => {
-      const signal = createPinkNoise(48000 * 10, 0.1); // 10秒のピンクノイズ
+      const signal = createPinkNoise(48000 * 10, 0.1);
       const audio = createTestAudioData([signal]);
 
       const result = getLUFS(audio, { calculateLoudnessRange: true });
@@ -176,7 +172,7 @@ describe('getLUFS', () => {
       expect(result.loudnessRange).toBeDefined();
       expect(result.loudnessRange).toBeTypeOf('number');
       expect(result.loudnessRange).toBeGreaterThan(0);
-      // calculateShortTermを指定していないため、時系列は返さない
+
       expect(result.shortTerm).toBeUndefined();
     });
 
@@ -189,7 +185,7 @@ describe('getLUFS', () => {
       expect(result.truePeak).toBeDefined();
       if (result.truePeak) {
         expect(result.truePeak).toBeInstanceOf(Array);
-        expect(result.truePeak.length).toBe(1); // モノラル信号
+        expect(result.truePeak.length).toBe(1);
         expect(result.truePeak[0]).toBeTypeOf('number');
       }
     });
@@ -222,6 +218,21 @@ describe('getLUFS', () => {
       expect(result.loudnessRange).toBeDefined();
       expect(result.loudnessRange).toBeGreaterThan(0);
     });
+
+    it('should collect short-term and momentary series with fine time resolution', () => {
+      const signal = createSineWave(1000, 10.0, 48000, 0.1);
+      const audio = createTestAudioData([signal]);
+
+      const result = getLUFS(audio, {
+        calculateShortTerm: true,
+        calculateMomentary: true
+      });
+
+      expect(result.shortTerm).toBeDefined();
+      expect(result.momentary).toBeDefined();
+      expect(result.shortTerm?.length ?? 0).toBeGreaterThan(40);
+      expect(result.momentary?.length ?? 0).toBeGreaterThan(40);
+    });
   });
 
   describe('multi-channel support', () => {
@@ -237,7 +248,7 @@ describe('getLUFS', () => {
 
       expect(result.truePeak).toBeDefined();
       if (result.truePeak) {
-        expect(result.truePeak.length).toBe(2); // ステレオ信号
+        expect(result.truePeak.length).toBe(2);
         expect(result.truePeak[0]).toBeTypeOf('number');
         expect(result.truePeak[1]).toBeTypeOf('number');
       }
@@ -275,14 +286,13 @@ describe('getLUFS', () => {
         length: 0
       };
 
-      expect(() => getLUFS(invalidAudio)).toThrow('処理可能なチャンネルがありません');
+      expect(() => getLUFS(invalidAudio)).toThrow('No processable channels available');
     });
 
     it('should handle very short audio', () => {
       const shortSignal = createSineWave(1000, 0.1, 48000, 0.1); // 100ms
       const audio = createTestAudioData([shortSignal]);
 
-      // 短すぎる信号でもエラーにならずに処理される
       expect(() => getLUFS(audio)).not.toThrow();
     });
   });
@@ -324,7 +334,6 @@ describe('getLUFS', () => {
     });
 
     it('should handle complex signals', () => {
-      // 複数の周波数成分を持つ信号
       const signal = new Float32Array(48000 * 5);
       for (let i = 0; i < signal.length; i++) {
         const t = i / 48000;
@@ -345,7 +354,7 @@ describe('getLUFS', () => {
 
   describe('comprehensive measurement', () => {
     it('should calculate all measurements together', () => {
-      const signal = createPinkNoise(48000 * 10, 0.1); // 10秒
+      const signal = createPinkNoise(48000 * 10, 0.1);
       const audio = createTestAudioData([signal]);
 
       const result = getLUFS(audio, {
@@ -363,7 +372,6 @@ describe('getLUFS', () => {
       expect(result.truePeak).toBeDefined();
       expect(result.statistics).toBeDefined();
 
-      // すべての値が合理的な範囲内にある
       expect(result.integrated).toBeLessThan(0);
       if (result.loudnessRange !== undefined) {
         expect(result.loudnessRange).toBeGreaterThan(0);
@@ -378,7 +386,6 @@ describe('getLUFS', () => {
     it('should process audio chunks in real-time', () => {
       const processor = getLUFSRealtime(48000, { channelMode: 'mono' });
 
-      // 100msのチャンクを処理
       const chunkSize = 4800; // 100ms
       const blockSize = Math.floor(0.4 * 48000); // 400ms = 19200 samples
 
@@ -386,8 +393,6 @@ describe('getLUFS', () => {
         const chunk = createSineWave(1000, chunkSize / 48000, 48000, 0.1);
         const result = processor.process([chunk]);
 
-        // 最初のブロックが完成するまではデータがない
-        // 400ms必要なので、100msチャンクなら4つ以上必要
         const samplesProcessed = (i + 1) * chunkSize;
         if (samplesProcessed < blockSize) {
           expect(result.integrated).toBe(-Infinity);
@@ -410,7 +415,6 @@ describe('getLUFS', () => {
         const result = processor.process([left, right]);
 
         if (i > 10) {
-          // 十分なデータが蓄積された後
           expect(result.integrated).toBeTypeOf('number');
           expect(result.integrated).toBeLessThan(0);
         }
@@ -420,13 +424,11 @@ describe('getLUFS', () => {
     it('should calculate momentary loudness correctly', () => {
       const processor = getLUFSRealtime(48000, { channelMode: 'mono' });
 
-      // 400msのチャンクを処理
       const chunkSize = 19200; // 400ms
       const signal = createSineWave(1000, chunkSize / 48000, 48000, 0.1);
 
       const result = processor.process([signal]);
 
-      // 400msのデータがあればmomentaryが計算される
       expect(result.momentary).toBeTypeOf('number');
       expect(result.momentary).toBeLessThan(0);
     });
@@ -434,17 +436,14 @@ describe('getLUFS', () => {
     it('should calculate short-term loudness correctly', () => {
       const processor = getLUFSRealtime(48000, { channelMode: 'mono' });
 
-      // 3秒分のデータを100msずつ処理
       const chunkSize = 4800; // 100ms
       let lastResult;
 
       for (let i = 0; i < 30; i++) {
-        // 3秒
         const chunk = createSineWave(1000, chunkSize / 48000, 48000, 0.1);
         lastResult = processor.process([chunk]);
       }
 
-      // 3秒のデータがあればshortTermが計算される
       expect(lastResult!.shortTerm).toBeTypeOf('number');
       expect(lastResult!.shortTerm).toBeLessThan(0);
     });
@@ -452,18 +451,15 @@ describe('getLUFS', () => {
     it('should reset state correctly', () => {
       const processor = getLUFSRealtime(48000, { channelMode: 'mono' });
 
-      // 500ms (0.5秒) のチャンクを処理 - これは1ブロック以上
       const chunk = createSineWave(1000, 0.5, 48000, 0.1);
       processor.process([chunk]);
 
       expect(processor.getBufferSize()).toBeGreaterThan(0);
 
-      // リセット
       processor.reset();
 
       expect(processor.getBufferSize()).toBe(0);
 
-      // リセット後の最初の処理 - 100msのチャンクを使用
       const smallChunk = createSineWave(1000, 0.1, 48000, 0.1);
       const result = processor.process([smallChunk]);
       expect(result.integrated).toBe(-Infinity);
@@ -473,27 +469,23 @@ describe('getLUFS', () => {
       const processor = getLUFSRealtime(48000, {
         channelMode: 'mono',
         maxDurationMs: 5000
-      }); // 5秒の最大バッファ
+      });
 
-      // 10秒分のデータを処理
       const chunkSize = 4800; // 100ms
       for (let i = 0; i < 100; i++) {
         const chunk = createSineWave(1000, chunkSize / 48000, 48000, 0.1);
         processor.process([chunk]);
       }
 
-      // バッファサイズが制限内に収まっている
-      const expectedMaxBlocks = Math.ceil(5000 / 100); // 5秒 / 100ms hop
+      const expectedMaxBlocks = Math.ceil(5000 / 100);
       expect(processor.getBufferSize()).toBeLessThanOrEqual(expectedMaxBlocks);
     });
 
     it('should produce consistent results with batch processing', () => {
-      // バッチ処理
       const signal = createSineWave(1000, 5.0, 48000, 0.1);
       const audio = createTestAudioData([signal]);
       const batchResult = getLUFS(audio, { calculateMomentary: true });
 
-      // リアルタイム処理
       const processor = getLUFSRealtime(48000, { channelMode: 'mono' });
       const chunkSize = 4800; // 100ms
       let realtimeResult;
@@ -503,8 +495,7 @@ describe('getLUFS', () => {
         realtimeResult = processor.process([new Float32Array(chunk)]);
       }
 
-      // 結果が近似的に一致する（完全一致は期待しない）
-      expect(Math.abs(realtimeResult!.integrated - batchResult.integrated)).toBeLessThan(1); // 1 LU以内
+      expect(Math.abs(realtimeResult!.integrated - batchResult.integrated)).toBeLessThan(1);
     });
   });
 });

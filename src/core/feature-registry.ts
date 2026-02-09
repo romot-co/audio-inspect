@@ -10,12 +10,18 @@ import {
 } from '../features/frequency.js';
 import { getLUFS, type LUFSOptions, type LUFSResult } from '../features/loudness.js';
 import {
+  getCQT,
   getMFCC,
   getMFCCWithDelta,
+  getMelSpectrogram,
   getSpectralCrest,
   getSpectralEntropy,
   getSpectralFeatures,
   getTimeVaryingSpectralFeatures,
+  type CQTOptions,
+  type CQTResult,
+  type MelSpectrogramOptions,
+  type MelSpectrogramResult,
   type MFCCDeltaOptions,
   type MFCCDeltaResult,
   type MFCCOptions,
@@ -38,11 +44,17 @@ import {
 import {
   getPeakAmplitude,
   getPeaks,
+  getPeaksAnalysis,
   getRMS,
+  getRMSAnalysis,
   getWaveform,
+  getWaveformAnalysis,
   getZeroCrossing,
+  type PeaksAnalysisOptions,
   type PeaksOptions,
   type PeaksResult,
+  type RMSAnalysisOptions,
+  type WaveformAnalysisOptions,
   type WaveformOptions,
   type WaveformResult
 } from '../features/time.js';
@@ -52,6 +64,9 @@ import {
   type CrestFactorOptions,
   type CrestFactorResult
 } from '../features/dynamics.js';
+import type { FFTProviderCache } from './dsp/fft-runtime.js';
+import { RealtimeLUFSExecutor } from './realtime/lufs-executor.js';
+import type { WindowCache } from './dsp/window.js';
 
 export interface ZeroCrossingOptions {
   channel?: ChannelSelector;
@@ -78,9 +93,15 @@ export type StereoResult = StereoAnalysisResult;
 
 export interface FeatureRegistry {
   rms: { options: RMSOptions; result: RMSResult };
+  rmsAnalysis: { options: RMSAnalysisOptions; result: ReturnType<typeof getRMSAnalysis> };
   peak: { options: PeakOptions; result: PeakResult };
   peaks: { options: PeaksOptions; result: PeaksResult };
+  peaksAnalysis: { options: PeaksAnalysisOptions; result: ReturnType<typeof getPeaksAnalysis> };
   waveform: { options: WaveformOptions; result: WaveformResult };
+  waveformAnalysis: {
+    options: WaveformAnalysisOptions;
+    result: ReturnType<typeof getWaveformAnalysis>;
+  };
 
   zeroCrossing: { options: ZeroCrossingOptions; result: ZeroCrossingResult };
   energy: { options: EnergyOptions; result: EnergyResult };
@@ -96,6 +117,9 @@ export interface FeatureRegistry {
 
   spectralEntropy: { options: SpectralEntropyOptions; result: SpectralEntropyResult };
   spectralCrest: { options: SpectralCrestOptions; result: SpectralCrestResult };
+
+  melSpectrogram: { options: MelSpectrogramOptions; result: MelSpectrogramResult };
+  cqt: { options: CQTOptions; result: CQTResult };
 
   mfcc: { options: MFCCOptions; result: MFCCResult };
   mfccWithDelta: { options: MFCCWithDeltaOptions; result: MFCCWithDeltaResult };
@@ -118,18 +142,20 @@ export type FeatureSelection<T extends FeatureId = FeatureId> = {
   [K in T]?: FeatureOptions<K> | true;
 };
 
-export type FeatureInput<T extends FeatureId = FeatureId> =
-  | FeatureSelection<T>
-  | readonly T[];
+export type FeatureInput<T extends FeatureId = FeatureId> = FeatureSelection<T> | readonly T[];
 
-export type SelectedFeatureIds<F> =
-  F extends readonly (infer I)[] ? Extract<I, FeatureId> : Extract<keyof F, FeatureId>;
+export type SelectedFeatureIds<F> = F extends readonly (infer I)[]
+  ? Extract<I, FeatureId>
+  : Extract<keyof F, FeatureId>;
 
 export const FEATURES: readonly FeatureId[] = Object.freeze([
   'rms',
+  'rmsAnalysis',
   'peak',
   'peaks',
+  'peaksAnalysis',
   'waveform',
+  'waveformAnalysis',
   'zeroCrossing',
   'energy',
   'fft',
@@ -138,6 +164,8 @@ export const FEATURES: readonly FeatureId[] = Object.freeze([
   'timeVaryingSpectralFeatures',
   'spectralEntropy',
   'spectralCrest',
+  'melSpectrogram',
+  'cqt',
   'mfcc',
   'mfccWithDelta',
   'lufs',
@@ -149,76 +177,220 @@ export const FEATURES: readonly FeatureId[] = Object.freeze([
 
 type FeatureExecutor<K extends FeatureId> = (
   audio: AudioData,
-  options?: FeatureOptions<K>
+  options?: FeatureOptions<K>,
+  runtime?: FeatureExecutionRuntime
 ) => FeatureResult<K> | Promise<FeatureResult<K>>;
 
-const FEATURE_EXECUTORS: { [K in FeatureId]: FeatureExecutor<K> } = {
-  rms: (audio, options) => getRMS(audio, options ?? {}),
-  peak: (audio, options) => getPeakAmplitude(audio, options ?? {}),
-  peaks: (audio, options) => getPeaks(audio, options ?? {}),
-  waveform: (audio, options) => getWaveform(audio, options ?? {}),
-
-  zeroCrossing: (audio, options) => getZeroCrossing(audio, options?.channel ?? 0),
-  energy: (audio, options) => getEnergy(audio, options ?? {}),
-
-  fft: async (audio, options) => getFFT(audio, options ?? {}),
-  spectrum: async (audio, options) => getSpectrum(audio, options ?? {}),
-
-  spectralFeatures: async (audio, options) => getSpectralFeatures(audio, options ?? {}),
-  timeVaryingSpectralFeatures: async (audio, options) =>
-    getTimeVaryingSpectralFeatures(audio, options ?? {}),
-
-  spectralEntropy: async (audio, options) => getSpectralEntropy(audio, options ?? {}),
-  spectralCrest: async (audio, options) => getSpectralCrest(audio, options ?? {}),
-
-  mfcc: async (audio, options) => getMFCC(audio, options ?? {}),
-  mfccWithDelta: async (audio, options) => getMFCCWithDelta(audio, options ?? {}),
-
-  lufs: (audio, options) => getLUFS(audio, options ?? {}),
-  vad: (audio, options) => getVAD(audio, options ?? {}),
-
-  crestFactor: (audio, options) => getCrestFactor(audio, options ?? {}),
-
-  stereo: async (audio, options) => getStereoAnalysis(audio, options ?? {}),
-  timeVaryingStereo: async (audio, options) => getTimeVaryingStereoAnalysis(audio, options ?? {})
-};
-
-const FEATURE_FUNCTION_NAMES: { [K in FeatureId]: string } = {
-  rms: 'getRMS',
-  peak: 'getPeakAmplitude',
-  peaks: 'getPeaks',
-  waveform: 'getWaveform',
-  zeroCrossing: 'getZeroCrossing',
-  energy: 'getEnergy',
-  fft: 'getFFT',
-  spectrum: 'getSpectrum',
-  spectralFeatures: 'getSpectralFeatures',
-  timeVaryingSpectralFeatures: 'getTimeVaryingSpectralFeatures',
-  spectralEntropy: 'getSpectralEntropy',
-  spectralCrest: 'getSpectralCrest',
-  mfcc: 'getMFCC',
-  mfccWithDelta: 'getMFCCWithDelta',
-  lufs: 'getLUFS',
-  vad: 'getVAD',
-  crestFactor: 'getCrestFactor',
-  stereo: 'getStereoAnalysis',
-  timeVaryingStereo: 'getTimeVaryingStereoAnalysis'
-};
-
-export function getFeatureFunctionName(feature: FeatureId): string {
-  return FEATURE_FUNCTION_NAMES[feature];
+export interface FeatureExecutionRuntime {
+  fftProviderCache?: FFTProviderCache;
+  windowCache?: WindowCache;
+  spectralCache?: Map<string, unknown>;
+  realtimeLUFS?: RealtimeLUFSExecutor;
 }
+
+export interface FeatureDef<K extends FeatureId = FeatureId> {
+  id: K;
+  realtime: boolean;
+  needsFFT?: boolean;
+  exec: FeatureExecutor<K>;
+}
+
+const FFT_POWERED_FEATURES: ReadonlySet<FeatureId> = new Set<FeatureId>([
+  'fft',
+  'spectrum',
+  'spectralFeatures',
+  'timeVaryingSpectralFeatures',
+  'spectralEntropy',
+  'spectralCrest',
+  'melSpectrogram',
+  'cqt',
+  'mfcc',
+  'mfccWithDelta',
+  'stereo'
+]);
+
+function withRuntimeOptions<K extends FeatureId>(
+  feature: K,
+  options: FeatureOptions<K> | undefined,
+  runtime: FeatureExecutionRuntime | undefined
+): FeatureOptions<K> | undefined {
+  if (!runtime?.fftProviderCache) {
+    return options;
+  }
+
+  if (!FFT_POWERED_FEATURES.has(feature)) {
+    return options;
+  }
+
+  const optionRecord =
+    options && typeof options === 'object' && !Array.isArray(options)
+      ? (options as Record<string, unknown>)
+      : {};
+
+  return {
+    ...optionRecord,
+    providerCache: runtime.fftProviderCache
+  } as FeatureOptions<K>;
+}
+
+export const FEATURE_DEFS: { [K in FeatureId]: FeatureDef<K> } = {
+  rms: { id: 'rms', realtime: true, exec: (audio, options) => getRMS(audio, options ?? {}) },
+  rmsAnalysis: {
+    id: 'rmsAnalysis',
+    realtime: true,
+    exec: (audio, options) => getRMSAnalysis(audio, options ?? {})
+  },
+  peak: {
+    id: 'peak',
+    realtime: true,
+    exec: (audio, options) => getPeakAmplitude(audio, options ?? {})
+  },
+  peaks: { id: 'peaks', realtime: true, exec: (audio, options) => getPeaks(audio, options ?? {}) },
+  peaksAnalysis: {
+    id: 'peaksAnalysis',
+    realtime: true,
+    exec: (audio, options) => getPeaksAnalysis(audio, options ?? {})
+  },
+  waveform: {
+    id: 'waveform',
+    realtime: true,
+    exec: (audio, options) => getWaveform(audio, options ?? {})
+  },
+  waveformAnalysis: {
+    id: 'waveformAnalysis',
+    realtime: true,
+    exec: (audio, options) => getWaveformAnalysis(audio, options ?? {})
+  },
+
+  zeroCrossing: {
+    id: 'zeroCrossing',
+    realtime: true,
+    exec: (audio, options) => getZeroCrossing(audio, options?.channel ?? 'mix')
+  },
+  energy: {
+    id: 'energy',
+    realtime: true,
+    exec: (audio, options) => getEnergy(audio, options ?? {})
+  },
+
+  fft: {
+    id: 'fft',
+    realtime: true,
+    needsFFT: true,
+    exec: (audio, options, runtime) =>
+      getFFT(audio, withRuntimeOptions('fft', options, runtime) ?? {})
+  },
+  spectrum: {
+    id: 'spectrum',
+    realtime: true,
+    needsFFT: true,
+    exec: (audio, options, runtime) =>
+      getSpectrum(audio, withRuntimeOptions('spectrum', options, runtime) ?? {})
+  },
+  spectralFeatures: {
+    id: 'spectralFeatures',
+    realtime: true,
+    needsFFT: true,
+    exec: (audio, options, runtime) =>
+      getSpectralFeatures(audio, withRuntimeOptions('spectralFeatures', options, runtime) ?? {})
+  },
+  timeVaryingSpectralFeatures: {
+    id: 'timeVaryingSpectralFeatures',
+    realtime: true,
+    needsFFT: true,
+    exec: (audio, options, runtime) =>
+      getTimeVaryingSpectralFeatures(
+        audio,
+        withRuntimeOptions('timeVaryingSpectralFeatures', options, runtime) ?? {}
+      )
+  },
+  spectralEntropy: {
+    id: 'spectralEntropy',
+    realtime: true,
+    needsFFT: true,
+    exec: (audio, options, runtime) =>
+      getSpectralEntropy(audio, withRuntimeOptions('spectralEntropy', options, runtime) ?? {})
+  },
+  spectralCrest: {
+    id: 'spectralCrest',
+    realtime: true,
+    needsFFT: true,
+    exec: (audio, options, runtime) =>
+      getSpectralCrest(audio, withRuntimeOptions('spectralCrest', options, runtime) ?? {})
+  },
+  melSpectrogram: {
+    id: 'melSpectrogram',
+    realtime: true,
+    needsFFT: true,
+    exec: (audio, options, runtime) =>
+      getMelSpectrogram(audio, withRuntimeOptions('melSpectrogram', options, runtime) ?? {})
+  },
+  cqt: {
+    id: 'cqt',
+    realtime: true,
+    needsFFT: true,
+    exec: (audio, options, runtime) =>
+      getCQT(audio, withRuntimeOptions('cqt', options, runtime) ?? {})
+  },
+
+  mfcc: {
+    id: 'mfcc',
+    realtime: true,
+    needsFFT: true,
+    exec: (audio, options, runtime) =>
+      getMFCC(audio, withRuntimeOptions('mfcc', options, runtime) ?? {})
+  },
+  mfccWithDelta: {
+    id: 'mfccWithDelta',
+    realtime: true,
+    needsFFT: true,
+    exec: (audio, options, runtime) =>
+      getMFCCWithDelta(audio, withRuntimeOptions('mfccWithDelta', options, runtime) ?? {})
+  },
+
+  lufs: {
+    id: 'lufs',
+    realtime: true,
+    exec: (audio, options, runtime) => {
+      if (runtime?.realtimeLUFS) {
+        return runtime.realtimeLUFS.process(audio, options ?? {});
+      }
+      return getLUFS(audio, options ?? {});
+    }
+  },
+  vad: { id: 'vad', realtime: true, exec: (audio, options) => getVAD(audio, options ?? {}) },
+  crestFactor: {
+    id: 'crestFactor',
+    realtime: true,
+    exec: (audio, options) => getCrestFactor(audio, options ?? {})
+  },
+  stereo: {
+    id: 'stereo',
+    realtime: true,
+    needsFFT: true,
+    exec: (audio, options, runtime) =>
+      getStereoAnalysis(audio, withRuntimeOptions('stereo', options, runtime) ?? {})
+  },
+  timeVaryingStereo: {
+    id: 'timeVaryingStereo',
+    realtime: true,
+    exec: (audio, options) => getTimeVaryingStereoAnalysis(audio, options ?? {})
+  }
+};
 
 export async function executeFeature<K extends FeatureId>(
   feature: K,
   audio: AudioData,
-  options?: FeatureOptions<K>
+  options?: FeatureOptions<K>,
+  runtime?: FeatureExecutionRuntime
 ): Promise<FeatureResult<K>> {
-  const executor = FEATURE_EXECUTORS[feature] as FeatureExecutor<K>;
-  return executor(audio, options);
+  const definition = FEATURE_DEFS[feature] as FeatureDef<K>;
+  return definition.exec(audio, options, runtime);
 }
 
-export function normalizeFeatureInput<F extends FeatureInput>(features: F): FeatureSelection<SelectedFeatureIds<F>> {
+export function normalizeFeatureInput<F extends FeatureInput>(
+  features: F
+): FeatureSelection<SelectedFeatureIds<F>> {
   if (Array.isArray(features)) {
     const selection: Partial<Record<FeatureId, true>> = {};
     for (const feature of features) {

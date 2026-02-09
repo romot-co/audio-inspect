@@ -245,6 +245,7 @@
     let fileFrameCount = 0;
     let currentFile = null;
     let currentFileUrl = null;
+    const demoWorklet = { moduleUrl: '/dist/core/realtime/processor.js' };
 
     const micCtx = ui.micCanvas.getContext('2d');
     const fileCtx = ui.fileCanvas.getContext('2d');
@@ -337,7 +338,7 @@
         micSession = await monitor({
           context: ctx,
           source: micStream,
-          engine: 'auto',
+          worklet: demoWorklet,
           emit: 'raf',
           features: {
             rms: { asDB: true },
@@ -437,7 +438,7 @@
         fileSession = await monitor({
           context: ctx,
           source: ui.player,
-          engine: 'auto',
+          worklet: demoWorklet,
           emit: 'raf',
           features: {
             rms: { asDB: true },

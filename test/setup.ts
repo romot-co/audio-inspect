@@ -1,7 +1,7 @@
-// Vitestのグローバル設定
+// Vitest global settings
 import { beforeEach } from 'vitest';
 
-// テスト前のクリーンアップ
+// Cleanup before each test
 beforeEach(() => {
-  // 必要に応じてクリーンアップ処理を追加
+  // Add cleanup logic as needed
 }); 

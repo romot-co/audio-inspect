@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { getEnergy } from '../../src/features/energy.js';
 import type { AudioData } from '../../src/types.js';
 
-// テスト用のAudioDataを作成するヘルパー
 function createTestAudioData(data: Float32Array, sampleRate = 44100): AudioData {
   return {
     sampleRate,
@@ -13,7 +12,6 @@ function createTestAudioData(data: Float32Array, sampleRate = 44100): AudioData 
   };
 }
 
-// テスト信号を生成するヘルパー関数
 function createSineWave(
   frequency: number,
   duration: number,
@@ -67,7 +65,7 @@ describe('getEnergy', () => {
       const result = getEnergy(audio);
 
       expect(result.totalEnergy).toBeGreaterThan(0);
-      // 実際のフレームエネルギーは約250なので、それに合わせる
+
       expect(result.statistics.mean).toBeCloseTo(250, 10);
       expect(result.statistics.max).toBeCloseTo(250, 10);
       expect(result.statistics.min).toBeCloseTo(250, 10);
@@ -81,7 +79,6 @@ describe('getEnergy', () => {
 
       const result = getEnergy(audio);
 
-      // デフォルト設定で複数のフレームがあるはず
       expect(result.times.length).toBeGreaterThan(1);
       expect(result.energies.length).toBeGreaterThan(1);
     });
@@ -93,7 +90,6 @@ describe('getEnergy', () => {
       const smallFrames = getEnergy(audio, { frameSize: 512 });
       const largeFrames = getEnergy(audio, { frameSize: 2048 });
 
-      // 小さなフレームの方が多くのフレーム数になるはず
       expect(smallFrames.times.length).toBeGreaterThan(largeFrames.times.length);
     });
 
@@ -104,7 +100,6 @@ describe('getEnergy', () => {
       const smallHop = getEnergy(audio, { hopSize: 256 });
       const largeHop = getEnergy(audio, { hopSize: 1024 });
 
-      // 小さなホップサイズの方が多くのフレーム数になるはず
       expect(smallHop.times.length).toBeGreaterThan(largeHop.times.length);
     });
   });
@@ -127,12 +122,12 @@ describe('getEnergy', () => {
       const result1 = getEnergy(audio, { channel: 1 });
 
       expect(result0.totalEnergy).not.toEqual(result1.totalEnergy);
-      // DC信号のフレームエネルギー計算: 実際の値に合わせる（250-280の範囲）
+
       expect(result1.statistics.mean).toBeGreaterThan(240);
       expect(result1.statistics.mean).toBeLessThan(280);
     });
 
-    it('should average all channels when channel is -1', () => {
+    it("should average all channels when channel is 'mix'", () => {
       const channel0 = new Float32Array(1000);
       channel0.fill(1.0);
       const channel1 = new Float32Array(1000);
@@ -146,9 +141,8 @@ describe('getEnergy', () => {
         length: 1000
       };
 
-      const result = getEnergy(audio, { channel: -1 });
+      const result = getEnergy(audio, { channel: 'mix' });
 
-      // 平均は0.5のDC信号のフレームエネルギー
       expect(result.statistics.mean).toBeCloseTo(250, 10);
     });
   });
@@ -166,7 +160,6 @@ describe('getEnergy', () => {
       expect(hann.totalEnergy).toBeGreaterThan(0);
       expect(hamming.totalEnergy).toBeGreaterThan(0);
 
-      // 窓関数により結果が変わるはず
       expect(rectangular.totalEnergy).not.toEqual(hann.totalEnergy);
     });
 
@@ -209,7 +202,6 @@ describe('getEnergy', () => {
         const audio = createTestAudioData(sineWave);
         const result = getEnergy(audio);
 
-        // エネルギーは振幅の二乗に比例する
         expect(result.totalEnergy).toBeGreaterThan(0);
         expect(result.statistics.mean).toBeGreaterThan(0);
       }
@@ -294,13 +286,12 @@ describe('getEnergy', () => {
     });
 
     it('should have zero standard deviation for constant energy', () => {
-      const dcSignal = new Float32Array(2000); // 十分長いDC信号
+      const dcSignal = new Float32Array(2000);
       dcSignal.fill(0.5);
       const audio = createTestAudioData(dcSignal);
 
       const result = getEnergy(audio, { frameSize: 100, hopSize: 100 });
 
-      // DC信号なので全フレームで同じエネルギー
       expect(result.statistics.std).toBeCloseTo(0, 3);
     });
   });

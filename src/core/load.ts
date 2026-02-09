@@ -5,6 +5,9 @@ import {
   AudioInspectError,
   type LoadOptions
 } from '../types.js';
+import { ensureStereo, normalizePeak, resampleLinear, toMono } from './dsp/transform.js';
+
+let sharedDecodeContext: AudioContext | null = null;
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
@@ -39,7 +42,6 @@ function audioBufferToAudioData(buffer: AudioBuffer): AudioData {
   for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
     channelData.push(buffer.getChannelData(channel));
   }
-
   return {
     sampleRate: buffer.sampleRate,
     channelData,
@@ -56,121 +58,6 @@ function cloneAudioData(audio: AudioData): AudioData {
     duration: audio.duration,
     length: audio.length,
     channelData: audio.channelData.map((channel) => channel.slice())
-  };
-}
-
-function toMono(audio: AudioData): AudioData {
-  if (audio.numberOfChannels <= 1) {
-    return audio;
-  }
-
-  const mono = new Float32Array(audio.length);
-  for (let i = 0; i < audio.length; i++) {
-    let sum = 0;
-    for (let channel = 0; channel < audio.numberOfChannels; channel++) {
-      sum += audio.channelData[channel]?.[i] ?? 0;
-    }
-    mono[i] = sum / audio.numberOfChannels;
-  }
-
-  return {
-    sampleRate: audio.sampleRate,
-    numberOfChannels: 1,
-    length: audio.length,
-    duration: audio.duration,
-    channelData: [mono]
-  };
-}
-
-function ensureStereo(audio: AudioData): AudioData {
-  if (audio.numberOfChannels === 2) {
-    return audio;
-  }
-
-  if (audio.numberOfChannels === 1) {
-    const channel = audio.channelData[0] ?? new Float32Array(audio.length);
-    return {
-      sampleRate: audio.sampleRate,
-      numberOfChannels: 2,
-      length: audio.length,
-      duration: audio.duration,
-      channelData: [channel.slice(), channel.slice()]
-    };
-  }
-
-  const left = audio.channelData[0] ?? new Float32Array(audio.length);
-  const right = audio.channelData[1] ?? left;
-
-  return {
-    sampleRate: audio.sampleRate,
-    numberOfChannels: 2,
-    length: audio.length,
-    duration: audio.duration,
-    channelData: [left.slice(), right.slice()]
-  };
-}
-
-function normalizePeak(audio: AudioData): AudioData {
-  let maxAbs = 0;
-  for (const channel of audio.channelData) {
-    for (let i = 0; i < channel.length; i++) {
-      const abs = Math.abs(channel[i] ?? 0);
-      if (abs > maxAbs) {
-        maxAbs = abs;
-      }
-    }
-  }
-
-  if (maxAbs <= 0 || maxAbs === 1) {
-    return audio;
-  }
-
-  const scaledChannels = audio.channelData.map((channel) => {
-    const out = new Float32Array(channel.length);
-    for (let i = 0; i < channel.length; i++) {
-      out[i] = (channel[i] ?? 0) / maxAbs;
-    }
-    return out;
-  });
-
-  return {
-    ...audio,
-    channelData: scaledChannels
-  };
-}
-
-function resampleLinear(audio: AudioData, targetSampleRate: number): AudioData {
-  if (targetSampleRate <= 0 || !Number.isFinite(targetSampleRate)) {
-    throw new AudioInspectError('INVALID_INPUT', 'sampleRate must be a positive finite number');
-  }
-
-  if (targetSampleRate === audio.sampleRate) {
-    return audio;
-  }
-
-  const newLength = Math.max(1, Math.floor((audio.length * targetSampleRate) / audio.sampleRate));
-  const ratio = audio.sampleRate / targetSampleRate;
-
-  const newChannelData = audio.channelData.map((channel) => {
-    const out = new Float32Array(newLength);
-    for (let i = 0; i < newLength; i++) {
-      const src = i * ratio;
-      const left = Math.floor(src);
-      const right = Math.min(left + 1, channel.length - 1);
-      const frac = src - left;
-      const leftValue = channel[left] ?? 0;
-      const rightValue = channel[right] ?? leftValue;
-      out[i] = leftValue + (rightValue - leftValue) * frac;
-    }
-    return out;
-  });
-
-  return {
-    sampleRate: targetSampleRate,
-    numberOfChannels: audio.numberOfChannels,
-    length: newLength,
-    duration: newLength / targetSampleRate,
-    channelData: newChannelData
   };
 }
 
@@ -206,9 +93,21 @@ function isBrowserRuntime(): boolean {
   return typeof window !== 'undefined' && typeof document !== 'undefined';
 }
 
-function getFetch(options: LoadOptions):
-  | ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>)
-  | undefined {
+function getSharedDecodeContext(): AudioContext {
+  if (typeof AudioContext === 'undefined') {
+    throw new AudioInspectError('DECODE_BACKEND_MISSING', 'AudioContext is not available');
+  }
+
+  if (!sharedDecodeContext || sharedDecodeContext.state === 'closed') {
+    sharedDecodeContext = new AudioContext();
+  }
+
+  return sharedDecodeContext;
+}
+
+function getFetch(
+  options: LoadOptions
+): ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) | undefined {
   if (options.fetch) {
     return options.fetch;
   }
@@ -231,14 +130,17 @@ async function decodeBytes(
   }
 
   if (isBrowserRuntime() && typeof AudioContext !== 'undefined') {
-    const context = new AudioContext();
+    const context = getSharedDecodeContext();
     try {
       const arrayBuffer =
         bytes instanceof ArrayBuffer
           ? bytes
           : bytes instanceof Blob
             ? await bytes.arrayBuffer()
-            : (bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+            : (bytes.buffer.slice(
+                bytes.byteOffset,
+                bytes.byteOffset + bytes.byteLength
+              ) as ArrayBuffer);
       throwIfAborted(options.signal);
       const audioBuffer = await context.decodeAudioData(arrayBuffer);
       return audioBufferToAudioData(audioBuffer);
@@ -251,8 +153,6 @@ async function decodeBytes(
         `Audio decode failed: ${error instanceof Error ? error.message : String(error)}`,
         error
       );
-    } finally {
-      void context.close().catch(() => undefined);
     }
   }
 
@@ -266,8 +166,7 @@ async function loadArrayBufferSource(
   source: ArrayBuffer | ArrayBufferView,
   options: LoadOptions
 ): Promise<AudioData> {
-  const bytes = source instanceof ArrayBuffer ? source : source;
-  return decodeBytes(bytes, options);
+  return decodeBytes(source, options);
 }
 
 async function loadUrlSource(source: URL | string, options: LoadOptions): Promise<AudioData> {
@@ -276,10 +175,12 @@ async function loadUrlSource(source: URL | string, options: LoadOptions): Promis
     throw new AudioInspectError('NETWORK_ERROR', 'Fetch is not available in this runtime');
   }
 
-  const target = source instanceof URL ? source : source;
-  const response = await fetchImpl(target);
+  const response = await fetchImpl(source);
   if (!response.ok) {
-    throw new AudioInspectError('NETWORK_ERROR', `Failed to fetch audio source: ${response.status}`);
+    throw new AudioInspectError(
+      'NETWORK_ERROR',
+      `Failed to fetch audio source: ${response.status}`
+    );
   }
 
   throwIfAborted(options.signal);
@@ -298,7 +199,10 @@ async function loadStringSource(source: string, options: LoadOptions): Promise<A
   return loadUrlSource(source, options);
 }
 
-async function loadSourceAsAudioData(source: AudioSource, options: LoadOptions): Promise<AudioData> {
+async function loadSourceAsAudioData(
+  source: AudioSource,
+  options: LoadOptions
+): Promise<AudioData> {
   if (isAudioData(source)) {
     return source;
   }
@@ -319,11 +223,7 @@ async function loadSourceAsAudioData(source: AudioSource, options: LoadOptions):
     return decodeBytes(source, options);
   }
 
-  if (source instanceof ArrayBuffer) {
-    return loadArrayBufferSource(source, options);
-  }
-
-  if (ArrayBuffer.isView(source)) {
+  if (source instanceof ArrayBuffer || ArrayBuffer.isView(source)) {
     return loadArrayBufferSource(source, options);
   }
 

@@ -24,7 +24,7 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'node scripts/serve-demo.mjs 8080',
+    command: 'node examples/serve-demo.mjs 8080',
     port: 8080,
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,

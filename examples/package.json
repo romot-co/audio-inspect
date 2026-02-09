@@ -4,10 +4,9 @@
   "description": "Audio Inspect Library Examples and Demos",
   "main": "index.html",
   "scripts": {
-    "start": "npx http-server . -p 8080 -c-1 --cors",
-    "dev": "npx http-server . -p 8080 -c-1 --cors -o",
-    "serve": "python3 -m http.server 8080",
-    "serve-py2": "python -m SimpleHTTPServer 8080"
+    "start": "node ./serve-demo.mjs 8080",
+    "dev": "node ./serve-demo.mjs 8080",
+    "serve": "node ./serve-demo.mjs 8080"
   },
   "keywords": [
     "audio",
@@ -17,8 +16,5 @@
     "demo"
   ],
   "author": "Audio Inspect Project",
-  "license": "MIT",
-  "devDependencies": {
-    "http-server": "^14.1.1"
-  }
+  "license": "MIT"
 }

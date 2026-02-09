@@ -85,7 +85,22 @@ const server = http.createServer(async (req, res) => {
       targetPath = path.join(targetPath, 'index.html');
     }
 
-    const fileInfo = await stat(targetPath).catch(() => null);
+    let fileInfo = await stat(targetPath).catch(() => null);
+
+    // Fall back to dist/ so library default paths (e.g. /core/realtime/processor.js)
+    // resolve to the built output without requiring dist/ in the URL.
+    if (!fileInfo?.isFile()) {
+      const distPath = toSafePath('/dist' + requestedPath);
+      const distRel = path.relative(projectRoot, distPath);
+      if (!distRel.startsWith('..') && !path.isAbsolute(distRel)) {
+        const distInfo = await stat(distPath).catch(() => null);
+        if (distInfo?.isFile()) {
+          targetPath = distPath;
+          fileInfo = distInfo;
+        }
+      }
+    }
+
     if (!fileInfo?.isFile()) {
       send(res, 404, 'Not Found');
       return;

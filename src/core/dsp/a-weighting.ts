@@ -1,99 +1,62 @@
-import { AudioInspectError, BiquadCoeffs } from '../types.js';
+import { AudioInspectError, BiquadCoeffs } from '../../types.js';
+import { ampToDb } from './db.js';
 
-// A-weightingフィルタの係数キャッシュ
+// Cache per-sample-rate cascaded biquad coefficients.
 const aWeightingCache = new Map<number, BiquadCoeffs[]>();
 
-/**
- * 指定されたサンプルレートに対応するA-weightingフィルタのバイカッド係数を取得します。
- * IEC 61672-1:2013に完全準拠した実装です。
- *
- * @param sampleRate サンプルレート (Hz)
- * @returns A-weightingフィルタのバイカッド係数の配列（カスケード構成）
- * @throws {AudioInspectError} 無効なサンプルレートの場合
- *
- * @remarks
- * IEC 61672-1:2013 Table 3の仕様に完全準拠した周波数応答特性を実現します。
- * 実証済みの文献に基づく高精度な設計手法を使用しています。
- */
+interface BiquadState {
+  x1: number;
+  x2: number;
+  y1: number;
+  y2: number;
+}
+
 export function getAWeightingCoeffs(sampleRate: number): BiquadCoeffs[] {
   return designAWeighting(sampleRate);
 }
 
-/**
- * サンプルレートの妥当性を検証します。
- * IEC 61672-1:2013で推奨される範囲とデジタル信号処理の制約を考慮します。
- *
- * @param sampleRate サンプルレート (Hz)
- * @throws {AudioInspectError} 無効なサンプルレートの場合
- */
 function validateSampleRate(sampleRate: number): void {
   if (sampleRate <= 0 || !isFinite(sampleRate)) {
-    throw new AudioInspectError('INVALID_INPUT', 'サンプルレートは正の有限値である必要があります');
+    throw new AudioInspectError('INVALID_INPUT', 'Sample rate must be a positive finite value');
   }
 
-  // 実用的なオーディオサンプルレート範囲
-  // IEC 61672-1:2013は特定のサンプルレートを規定していないが、
-  // ナイキスト周波数による制約を考慮
+  // Keep range constrained to typical production sample rates.
   if (sampleRate < 8000 || sampleRate > 384000) {
     throw new AudioInspectError(
       'UNSUPPORTED_FORMAT',
-      `サンプルレート ${sampleRate}Hz はサポートされていません`
+      `Sample rate ${sampleRate} Hz is not supported`
     );
   }
 }
 
-/**
- * A-weightingフィルタを設計します。
- *
- * @param sampleRate サンプルレート (Hz)
- * @returns A-weightingフィルタのバイカッド係数の配列
- *
- * @remarks
- * ### 設計仕様
- * - **規格準拠**: IEC 61672-1:2013完全準拠
- * - **精度**: Table 3の要求値に対してClass 1許容範囲内
- * - **極周波数**: f1=20.598997, f2=107.65265, f3=737.86223, f4=12194.217 Hz
- * - **デジタル変換**: 双一次変換（プリワーピング適用）
- * - **正規化**: 1kHzで0dB
- *
- * Rimell et al. (2014) "Design of digital filters for frequency weightings (A and C)
- * required for risk assessments of workers exposed to noise" の実証済み手法に基づく。
- */
 export function designAWeighting(sampleRate: number): BiquadCoeffs[] {
   validateSampleRate(sampleRate);
 
-  // キャッシュ確認（ディープコピーして返す）
   const cached = aWeightingCache.get(sampleRate);
   if (cached) {
-    return cached.map((c) => ({ ...c }));
+    return cached;
   }
 
-  // IEC 61672-1:2013 Annex E.4.1の正確な極周波数 (Hz)
+  // IEC 61672 analog A-weighting corner frequencies (Hz).
   const f1 = 20.598997;
   const f2 = 107.65265;
   const f3 = 737.86223;
   const f4 = 12194.217;
 
-  // IEC 61672-1:2013 Annex E.6 正規化定数 GA = -2.0 dB
+  // Nominal gain at 1 kHz in dB for analog prototype.
   const A1000 = 1.9997;
-
-  // アナログプロトタイプのs領域伝達関数 (IEC 61672-1:2013準拠)
-  // H(s) = (2πf4)^2 * s^4 / [(s^2 + 4πf4s + (2πf4)^2) * (s + 2πf1)^2 * (s + 2πf2) * (s + 2πf3)]
-
-  // 双一次変換を使用してデジタルフィルタ係数を計算
   const coeffs: BiquadCoeffs[] = [];
 
-  // 文献記載の実証済み設計式を使用
-  // Rimell et al. (2014) Table 1に基づく実装
+  // Bilinear pre-warping.
   const w1_prime = 2 * sampleRate * Math.tan((Math.PI * f1) / sampleRate);
   const w2_prime = 2 * sampleRate * Math.tan((Math.PI * f2) / sampleRate);
   const w3_prime = 2 * sampleRate * Math.tan((Math.PI * f3) / sampleRate);
   const w4_prime = 2 * sampleRate * Math.tan((Math.PI * f4) / sampleRate);
 
-  // 正規化正数による補正
+  // Convert dB gain to linear amplitude.
   const GA = Math.pow(10, A1000 / 20);
 
-  // Stage 1: 2次ハイパスフィルタ (f1の極対)
+  // Stage 1: second-order high-pass section near f1.
   {
     const w = w1_prime;
     const w2 = w * w;
@@ -113,7 +76,7 @@ export function designAWeighting(sampleRate: number): BiquadCoeffs[] {
     });
   }
 
-  // Stage 2: 1次ハイパスフィルタ (f2の極)
+  // Stage 2: first-order high-pass section near f2.
   {
     const w = w2_prime;
     const a0 = 2 * sampleRate + w;
@@ -129,7 +92,7 @@ export function designAWeighting(sampleRate: number): BiquadCoeffs[] {
     });
   }
 
-  // Stage 3: 1次ハイパスフィルタ (f3の極)
+  // Stage 3: first-order high-pass section near f3.
   {
     const w = w3_prime;
     const a0 = 2 * sampleRate + w;
@@ -145,7 +108,7 @@ export function designAWeighting(sampleRate: number): BiquadCoeffs[] {
     });
   }
 
-  // Stage 4: 2次ローパスフィルタ (f4の極対)
+  // Stage 4: second-order low-pass section near f4.
   {
     const w = w4_prime;
     const w2 = w * w;
@@ -165,7 +128,7 @@ export function designAWeighting(sampleRate: number): BiquadCoeffs[] {
     });
   }
 
-  // 1kHzでの基準正規化（規格要求）
+  // Normalize the cascaded response to unity at 1 kHz.
   const response1k = calculateFrequencyResponse(coeffs, 1000, sampleRate);
   const normalizeGain = 1.0 / response1k.magnitude;
 
@@ -175,7 +138,6 @@ export function designAWeighting(sampleRate: number): BiquadCoeffs[] {
     coeff.b2 *= normalizeGain;
   });
 
-  // キャッシュに保存
   aWeightingCache.set(sampleRate, coeffs);
   return coeffs;
 }
@@ -204,7 +166,7 @@ export function calculateFrequencyResponse(
 
     const den_mag_sq = den_real * den_real + den_imag * den_imag;
     if (den_mag_sq === 0) {
-      throw new AudioInspectError('INVALID_INPUT', '周波数応答計算でゼロ除算が発生しました');
+      throw new AudioInspectError('INVALID_INPUT', 'Division by zero occurred while calculating frequency response');
     }
 
     const stage_real = (num_real * den_real + num_imag * den_imag) / den_mag_sq;
@@ -223,10 +185,43 @@ export function calculateFrequencyResponse(
   return { magnitude, phase };
 }
 
+function applyBiquadInPlace(
+  samples: Float32Array,
+  coeffs: BiquadCoeffs,
+  state: BiquadState = { x1: 0, x2: 0, y1: 0, y2: 0 }
+): void {
+  let { x1, x2, y1, y2 } = state;
+
+  for (let i = 0; i < samples.length; i++) {
+    const x0 = samples[i]!;
+    const y0 = coeffs.b0 * x0 + coeffs.b1 * x1 + coeffs.b2 * x2 - coeffs.a1 * y1 - coeffs.a2 * y2;
+    samples[i] = y0;
+
+    x2 = x1;
+    x1 = x0;
+    y2 = y1;
+    y1 = y0;
+  }
+
+  state.x1 = x1;
+  state.x2 = x2;
+  state.y1 = y1;
+  state.y2 = y2;
+}
+
+export function applyAWeighting(samples: Float32Array, sampleRate: number): Float32Array {
+  const coeffs = designAWeighting(sampleRate);
+  const filtered = samples.slice();
+  for (const coeff of coeffs) {
+    applyBiquadInPlace(filtered, coeff);
+  }
+  return filtered;
+}
+
 export function validateTable3Compliance(sampleRate: number): boolean {
   const coeffs = designAWeighting(sampleRate);
 
-  // IEC 61672-1:2013 Table 3 - Class 1 許容限界
+  // IEC 61672-1 Table 3 reference points (Class 1 tolerance).
   const testPoints = [
     { freq: 31.5, expectedDb: -39.4, toleranceClass1: 2.0 },
     { freq: 63, expectedDb: -26.2, toleranceClass1: 1.5 },
@@ -246,7 +241,7 @@ export function validateTable3Compliance(sampleRate: number): boolean {
     .filter((point) => point.freq < nyquist * 0.8)
     .every(({ freq, expectedDb, toleranceClass1 }) => {
       const response = calculateFrequencyResponse(coeffs, freq, sampleRate);
-      const actualDb = 20 * Math.log10(response.magnitude);
+      const actualDb = ampToDb(response.magnitude, 1);
       const error = Math.abs(actualDb - expectedDb);
 
       return error <= toleranceClass1;

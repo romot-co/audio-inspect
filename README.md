@@ -90,9 +90,7 @@ await session.setFeatures({ lufs: true, vad: { method: 'adaptive' } });
 
 ## Worklet Strategy
 
-- Default: `engine: 'auto'` (tries worklet, falls back to main-thread)
-- Strict worklet: `engine: 'worklet'`
-- Force fallback: `engine: 'main-thread'`
+`monitor()` is AudioWorklet-only. If AudioWorklet is unavailable, it throws `WORKLET_NOT_SUPPORTED`.
 
 Optional preload:
 
@@ -100,7 +98,7 @@ Optional preload:
 import { prepareWorklet } from 'audio-inspect';
 
 await prepareWorklet(audioContext, {
-  moduleUrl: '/worklets/audio-inspect-processor.js'
+  moduleUrl: '/core/realtime/processor.js'
 });
 ```
 
@@ -140,6 +138,133 @@ try {
 }
 ```
 
-## License
+## Feature Selection Basics
+
+`features` in `analyze`, `inspect`, and `monitor` supports two forms:
+
+```ts
+// 1) Object form (recommended when setting options)
+features: {
+  rms: true,                       // true = default options
+  spectrum: { fftSize: 2048 }      // override options
+}
+
+// 2) Array form (default options only)
+features: ['rms', 'peak', 'lufs']
+```
+
+You can list all available feature IDs with `FEATURES`:
+
+```ts
+import { FEATURES } from 'audio-inspect';
+console.log(FEATURES);
+```
+
+For option types in TypeScript:
+
+```ts
+import type { FeatureOptions } from 'audio-inspect';
+type LufsOptions = FeatureOptions<'lufs'>;
+```
+
+## Feature Quick Reference
+
+### Time / Level
+
+| Feature | What it does | Common options |
+|---|---|---|
+| `rms`, `peak` | Level measurement (linear or dB) | `channel`, `asDB`, `reference`, `truePeak`, `oversamplingFactor`, `interpolation` |
+| `zeroCrossing` | Zero-crossing rate | `channel` |
+| `peaks` | Peak detection | `count`, `threshold`, `channel`, `minDistance` |
+| `waveform` | Lightweight waveform summary | `framesPerSecond`, `channel`, `method` |
+| `rmsAnalysis`, `peaksAnalysis`, `waveformAnalysis` | TypedArray-oriented analysis results | Base feature options + `onProgress` |
+| `energy` | Short-time energy over frames | `frameSize`, `hopSize`, `channel`, `normalized`, `windowFunction` |
+
+### Frequency / Spectral
+
+| Feature | What it does | Common options |
+|---|---|---|
+| `fft` | Single-frame FFT | `fftSize`, `windowFunction`, `channel`, `provider`, `enableProfiling` |
+| `spectrum` | Band-limited spectrum (optionally time-varying) | `fftSize`, `minFrequency`, `maxFrequency`, `decibels`, `timeFrames`, `overlap` |
+| `spectralFeatures` | Centroid/bandwidth/rolloff/flatness and more | `fftSize`, `windowFunction`, `minFrequency`, `maxFrequency`, `rolloffThreshold` |
+| `timeVaryingSpectralFeatures` | Time-series version of spectral features | `frameSize`, `hopSize`, `numFrames` + spectral feature options |
+| `spectralEntropy` | Spectral entropy | `fftSize`, `windowFunction`, `minFrequency`, `maxFrequency` |
+| `spectralCrest` | Spectral crest factor | `fftSize`, `windowFunction`, `minFrequency`, `maxFrequency`, `asDB` |
+
+### Mel / CQT / MFCC
+
+| Feature | What it does | Common options |
+|---|---|---|
+| `melSpectrogram` | Mel spectrogram | `frameSizeMs`, `hopSizeMs`, `fftSize`, `numMelFilters`, `minFrequency`, `maxFrequency`, `preEmphasis`, `power`, `logScale` |
+| `cqt` | CQT (FFT-based approximation) | `frameSizeMs`, `hopSizeMs`, `fftSize`, `fMin`, `binsPerOctave`, `numBins`, `preEmphasis`, `power`, `logScale` |
+| `mfcc` | MFCC coefficients | `frameSizeMs`, `hopSizeMs`, `fftSize`, `numMelFilters`, `numMfccCoeffs`, `minFrequency`, `maxFrequency`, `preEmphasis`, `lifterCoeff` |
+| `mfccWithDelta` | MFCC + delta + delta-delta | All `mfcc` options + `deltaWindowSize`, `computeDelta`, `computeDeltaDelta` |
+
+### Loudness / Voice / Dynamics
+
+| Feature | What it does | Common options |
+|---|---|---|
+| `lufs` | Integrated/momentary/short-term/LRA/true-peak loudness | `channelMode`, `gated`, `calculateMomentary`, `calculateShortTerm`, `calculateLoudnessRange`, `calculateTruePeak` |
+| `vad` | Voice activity detection | `method`, `frameSizeMs`, `hopSizeMs`, `energyThreshold`, `zcrThresholdLow`, `zcrThresholdHigh`, `adaptiveAlpha`, `noiseFactor`, `preEmphasis`, `smoothing` |
+| `crestFactor` | Crest factor analysis | `channel`, `windowSize`, `hopSize`, `method` |
+
+### Stereo
+
+| Feature | What it does | Common options |
+|---|---|---|
+| `stereo` | Correlation/width/balance/phase/ITD/ILD | `frameSize`, `hopSize`, `calculatePhase`, `calculateITD`, `calculateILD`, `provider`, `enableProfiling` |
+| `timeVaryingStereo` | Time-varying stereo metrics | `windowSize` + stereo options |
+
+## Presets (Copy/Paste)
+
+### 1) Lightweight meter
+
+```ts
+features: {
+  rms: { asDB: true },
+  peak: { asDB: true, truePeak: true }
+}
+```
+
+### 2) Spectrum visualization
+
+```ts
+features: {
+  spectrum: {
+    fftSize: 2048,
+    minFrequency: 20,
+    maxFrequency: 20000,
+    decibels: true,
+    timeFrames: 120
+  }
+}
+```
+
+### 3) Voice activity detection (VAD)
+
+```ts
+features: {
+  vad: {
+    method: 'adaptive',
+    frameSizeMs: 25,
+    hopSizeMs: 10,
+    preEmphasis: true,
+    smoothing: true
+  }
+}
+```
+
+### 4) Music-oriented bundle
+
+```ts
+features: {
+  lufs: { calculateShortTerm: true, calculateTruePeak: true },
+  spectralFeatures: true,
+  mfccWithDelta: { numMfccCoeffs: 13, computeDelta: true, computeDeltaDelta: true },
+  stereo: { calculatePhase: true }
+}
+```
+
+## LICENSE
 
 MIT

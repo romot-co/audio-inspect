@@ -1,4 +1,4 @@
-// 時間領域の特徴量
+// Time-domain features.
 export {
   getPeaks,
   getRMS,
@@ -6,8 +6,6 @@ export {
   getWaveform,
   getPeak,
   getPeakAmplitude,
-
-  // 新しい解析機能（Float32Array対応）
   getWaveformAnalysis,
   getPeaksAnalysis,
   getRMSAnalysis
@@ -19,14 +17,12 @@ export type {
   WaveformOptions,
   WaveformPoint,
   WaveformResult,
-
-  // 新しい型定義
   WaveformAnalysisOptions,
   PeaksAnalysisOptions,
   RMSAnalysisOptions
 } from './time.js';
 
-// 周波数領域の特徴量
+// Frequency-domain primitives.
 export { getFFT, getSpectrum } from './frequency.js';
 export type {
   FFTOptions,
@@ -36,16 +32,22 @@ export type {
   SpectrogramData
 } from './frequency.js';
 
-// スペクトル特徴量
+// Spectral descriptors and transforms.
 export {
+  getCQT,
   getSpectralFeatures,
   getTimeVaryingSpectralFeatures,
   getSpectralEntropy,
   getSpectralCrest,
+  getMelSpectrogram,
   getMFCC,
   getMFCCWithDelta
 } from './spectral.js';
 export type {
+  CQTOptions,
+  CQTResult,
+  MelSpectrogramOptions,
+  MelSpectrogramResult,
   SpectralFeaturesOptions,
   SpectralFeaturesResult,
   TimeVaryingSpectralOptions,
@@ -60,22 +62,20 @@ export type {
   MFCCDeltaResult
 } from './spectral.js';
 
-// エネルギー解析
+// Energy and dynamics.
 export { getEnergy } from './energy.js';
 export type { EnergyOptions, EnergyResult } from './energy.js';
 
-// ダイナミクス解析
 export { getCrestFactor } from './dynamics.js';
 export type { CrestFactorOptions, CrestFactorResult } from './dynamics.js';
 
-// ステレオ解析
+// Stereo image and VAD.
 export { getStereoAnalysis, getTimeVaryingStereoAnalysis } from './stereo.js';
 export type { StereoAnalysisOptions, StereoAnalysisResult } from './stereo.js';
 
-// VAD（音声区間検出）
 export { getVAD } from './vad.js';
 export type { VADOptions, VADSegment, VADResult } from './vad.js';
 
-// LUFS（ラウドネス測定）
+// Loudness (LUFS).
 export { getLUFS, getLUFSRealtime } from './loudness.js';
 export type { LUFSOptions, LUFSResult, RealtimeLUFSOptions } from './loudness.js';

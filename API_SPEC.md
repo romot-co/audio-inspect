@@ -18,7 +18,7 @@ Platforms: Browser (WebAudio), Node.js (offline). Realtime is WebAudio only.
 - Make realtime monitoring composable in existing WebAudio graphs.
 - Support both pull (`read`) and push (`onFrame`) for UI and streaming use.
 - Allow internal intermediate sharing (FFT, windows, frames) across multiple features.
-- Keep one mental model across worklet-capable and non-worklet runtimes.
+- Keep one mental model across offline and realtime APIs.
 - Keep extensibility safe for future feature/provider additions.
 
 ### Non-goals
@@ -45,7 +45,7 @@ Platforms: Browser (WebAudio), Node.js (offline). Realtime is WebAudio only.
 7. Tap existing node graphs without rewiring output paths.
 8. Dynamically add/remove features from UI.
 9. Integrate cleanly with Tone.js and other WebAudio wrappers.
-10. Run under worklet when available, fallback when not.
+10. Run under worklet with deterministic hop-aligned analysis.
 
 ---
 
@@ -86,10 +86,8 @@ export {
 
 ### Optional subpath exports (advanced)
 
-- `audio-inspect/features/*`: pure feature functions
-- `audio-inspect/core`: low-level frame processors
-
-Subpath exports are optional from a packaging perspective.
+- `audio-inspect/features/*`: individual feature modules
+- `audio-inspect/core/*`: low-level modules (dsp/realtime internals)
 
 ---
 
@@ -159,9 +157,12 @@ When channel selection is multi-channel (`'all'` or `number[]`), result shapes a
 ```ts
 export interface FeatureRegistry {
   rms: { options: RMSOptions; result: RMSResult };
+  rmsAnalysis: { options: RMSAnalysisOptions; result: RMSAnalysisResult };
   peak: { options: PeakOptions; result: PeakResult };
   peaks: { options: PeaksOptions; result: PeaksResult };
+  peaksAnalysis: { options: PeaksAnalysisOptions; result: PeaksAnalysisResult };
   waveform: { options: WaveformOptions; result: WaveformResult };
+  waveformAnalysis: { options: WaveformAnalysisOptions; result: WaveformAnalysisResult };
 
   zeroCrossing: { options: ZeroCrossingOptions; result: ZeroCrossingResult };
   energy: { options: EnergyOptions; result: EnergyResult };
@@ -177,6 +178,8 @@ export interface FeatureRegistry {
 
   spectralEntropy: { options: SpectralEntropyOptions; result: SpectralEntropyResult };
   spectralCrest: { options: SpectralCrestOptions; result: SpectralCrestResult };
+  melSpectrogram: { options: MelSpectrogramOptions; result: MelSpectrogramResult };
+  cqt: { options: CQTOptions; result: CQTResult };
 
   mfcc: { options: MFCCOptions; result: MFCCResult };
   mfccWithDelta: { options: MFCCWithDeltaOptions; result: MFCCWithDeltaResult };
@@ -390,7 +393,7 @@ Use `inspect` for one-shot ergonomics; use `load + analyze` for repeated analysi
 
 ### 8.1 Design Notes (normative)
 
-- Single top-level realtime API for both engines.
+- Single top-level realtime API (worklet engine only).
 - Support both pull and push delivery.
 - Push is frame-level (one callback per frame), not per-feature.
 - `MonitorSession<T>` treats `T` as the initial/specified feature snapshot; dynamic updates are runtime behavior.
@@ -411,14 +414,13 @@ export async function prepareWorklet(
 Rules:
 
 - Idempotent per `context + moduleUrl`.
-- Optional optimization. `monitor()` may auto-load internally when needed.
-- Not required for `engine: 'main-thread'`.
+- Optional optimization. `monitor()` loads the module automatically when needed.
+- When `moduleUrl` is omitted, the default is `/core/realtime/processor.js`.
 
 ### 8.3 Signatures
 
 ```ts
-export type MonitorEngine = 'worklet' | 'main-thread';
-export type MonitorEngineMode = 'auto' | MonitorEngine;
+export type MonitorEngine = 'worklet';
 
 export type MonitorSource =
   | AudioNode
@@ -433,9 +435,6 @@ export interface MonitorOptions<F extends FeatureInput = FeatureInput> {
 
   source?: MonitorSource;
   autoAttach?: boolean; // default true when source provided
-
-  engine?: MonitorEngineMode; // default 'auto'
-  fallback?: 'main-thread' | 'error'; // default 'main-thread' when engine='auto'
 
   worklet?: {
     moduleUrl?: string;
@@ -519,9 +518,7 @@ export async function monitor<const F extends FeatureInput>(
 
 ### 8.4 Runtime Semantics (normative)
 
-- `engine: 'auto'`: try worklet, then apply `fallback` policy.
-- `engine: 'worklet'`: strict mode; fail if unavailable/load fails.
-- `engine: 'main-thread'`: never attempts worklet load.
+- Worklet-only runtime: if worklet is unavailable or module load fails, `monitor()` fails with `WORKLET_NOT_SUPPORTED` / `MODULE_LOAD_FAILED`.
 - Implementations SHOULD keep analysis graph liveness internally (e.g. silent keep-alive route) so tap/attach works without forcing user output rewiring.
 - `emit` delivery policy:
   - `'hop'`: every analysis hop.
@@ -582,9 +579,9 @@ This section defines API-level contracts; algorithmic details are implementation
 
 ### Built-in feature IDs
 
-- Time: `rms`, `peak`, `peaks`, `waveform`, `zeroCrossing`, `energy`
-- Frequency: `fft`, `spectrum`
-- Spectral: `spectralFeatures`, `timeVaryingSpectralFeatures`, `spectralEntropy`, `spectralCrest`
+- Time: `rms`, `rmsAnalysis`, `peak`, `peaks`, `peaksAnalysis`, `waveform`, `waveformAnalysis`, `zeroCrossing`, `energy`
+- Frequency: `fft`, `spectrum`, `cqt`
+- Spectral: `spectralFeatures`, `timeVaryingSpectralFeatures`, `spectralEntropy`, `spectralCrest`, `melSpectrogram`
 - Speech/ML: `mfcc`, `mfccWithDelta`, `vad`
 - Loudness: `lufs`
 - Dynamics: `crestFactor`
@@ -600,7 +597,7 @@ All public failures are `AudioInspectError`.
 
 ```ts
 export class AudioInspectError extends Error {
-  code: string;
+  code: ErrorCode;
   details?: unknown;
   cause?: unknown;
 }
@@ -638,8 +635,6 @@ Offline:
 
 Realtime:
 
-- `engine: 'auto'`
-- `fallback: 'main-thread'`
 - `bufferSize: 1024`
 - `hopSize: 512`
 - `inputChannelCount: 1`
@@ -750,4 +745,4 @@ const session = await monitor({
 - Removing/renaming `FeatureId`, changing result shapes, or changing monitor contracts is semver-major.
 - Adding feature IDs is semver-minor.
 - Numeric behavior/default algorithm changes must be documented in changelog.
-- Changing realtime default behavior (`engine`, `fallback`, `emit`, output policy) is semver-major.
+- Changing realtime default behavior (`emit`, output policy, worklet contract) is semver-major.

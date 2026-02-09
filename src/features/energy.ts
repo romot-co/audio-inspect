@@ -1,12 +1,14 @@
 import { AudioData, AudioInspectError, type ChannelSelector } from '../types.js';
-import { getChannelData, ensureValidSample } from '../core/utils.js';
+import { getChannelData } from '../core/utils.js';
+import { forEachFrame } from '../core/dsp/frame-iterator.js';
+import { getWindow } from '../core/dsp/window.js';
 
 export interface EnergyOptions {
   frameSize?: number;
   hopSize?: number;
   channel?: ChannelSelector;
   normalized?: boolean;
-  windowFunction?: 'rectangular' | 'hann' | 'hamming' | 'blackman' | 'none'; // エネルギー計算用の窓関数
+  windowFunction?: 'rectangular' | 'hann' | 'hamming' | 'blackman' | 'none';
 }
 
 export interface EnergyResult {
@@ -21,74 +23,34 @@ export interface EnergyResult {
   };
 }
 
-// 窓関数の適用（エネルギー計算用）
-function applyEnergyWindow(
-  data: Float32Array,
-  windowType: string,
-  startIdx: number,
-  length: number
-): Float32Array {
-  const windowed = new Float32Array(length);
-
-  for (let i = 0; i < length && startIdx + i < data.length; i++) {
-    let windowValue = 1.0;
-
-    if (length > 1) {
-      switch (windowType) {
-        case 'hann':
-          windowValue = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (length - 1)));
-          break;
-        case 'hamming':
-          windowValue = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (length - 1));
-          break;
-        case 'blackman':
-          windowValue =
-            0.42 -
-            0.5 * Math.cos((2 * Math.PI * i) / (length - 1)) +
-            0.08 * Math.cos((4 * Math.PI * i) / (length - 1));
-          break;
-        case 'rectangular':
-        case 'none':
-        default:
-          windowValue = 1.0;
-      }
-    }
-
-    const sample = ensureValidSample(data[startIdx + i] ?? 0);
-    windowed[i] = sample * windowValue;
+function calculateFrameEnergy(frame: Float32Array, window: Float32Array | null): number {
+  let energy = 0;
+  for (let i = 0; i < frame.length; i++) {
+    const sample = frame[i]!;
+    const weighted = window ? sample * window[i]! : sample;
+    energy += weighted * weighted;
   }
-
-  return windowed;
+  return energy;
 }
 
 export function getEnergy(audio: AudioData, options: EnergyOptions = {}): EnergyResult {
   const {
-    frameSize = Math.floor(audio.sampleRate * 0.025), // 25ms
-    hopSize = Math.floor(audio.sampleRate * 0.01), // 10ms
-    channel = 0,
+    frameSize = Math.floor(audio.sampleRate * 0.025),
+    hopSize = Math.floor(audio.sampleRate * 0.01),
+    channel = 'mix',
     normalized = false,
     windowFunction = 'rectangular'
   } = options;
 
-  // パラメータの検証
-  if (frameSize <= 0 || !Number.isInteger(frameSize)) {
-    throw new AudioInspectError('INVALID_INPUT', 'frameSizeは正の整数である必要があります');
+  if (!Number.isInteger(frameSize) || frameSize <= 0) {
+    throw new AudioInspectError('INVALID_INPUT', 'frameSize must be a positive integer');
+  }
+  if (!Number.isInteger(hopSize) || hopSize <= 0) {
+    throw new AudioInspectError('INVALID_INPUT', 'hopSize must be a positive integer');
   }
 
-  if (hopSize <= 0 || !Number.isInteger(hopSize)) {
-    throw new AudioInspectError('INVALID_INPUT', 'hopSizeは正の整数である必要があります');
-  }
-
-  if (hopSize > frameSize) {
-    console.warn(
-      '[audio-inspect] hopSizeがframeSizeより大きいため、フレーム間にギャップが生じます'
-    );
-  }
-
-  const channelData = getChannelData(audio, channel);
-  const dataLength = channelData.length;
-
-  if (dataLength === 0) {
+  const samples = getChannelData(audio, channel);
+  if (samples.length === 0) {
     return {
       times: new Float32Array(0),
       energies: new Float32Array(0),
@@ -97,77 +59,56 @@ export function getEnergy(audio: AudioData, options: EnergyOptions = {}): Energy
     };
   }
 
-  // フレーム数の計算
-  const frameCount = Math.max(0, Math.floor((dataLength - frameSize) / hopSize) + 1);
-
-  if (frameCount === 0) {
-    // データが1フレーム分に満たない場合
-    const energy = calculateFrameEnergy(channelData, 0, dataLength, windowFunction);
-    return {
-      times: new Float32Array([dataLength / 2 / audio.sampleRate]),
-      energies: new Float32Array([energy]),
-      totalEnergy: energy,
-      statistics: { mean: energy, std: 0, max: energy, min: energy }
-    };
-  }
-
-  const times = new Float32Array(frameCount);
-  const energies = new Float32Array(frameCount);
+  const window =
+    windowFunction === 'rectangular' || windowFunction === 'none'
+      ? null
+      : getWindow(frameSize, windowFunction);
+  const times: number[] = [];
+  const energies: number[] = [];
   let totalEnergy = 0;
   let maxEnergy = -Infinity;
   let minEnergy = Infinity;
 
-  // 各フレームのエネルギー計算
-  for (let i = 0; i < frameCount; i++) {
-    const start = i * hopSize;
-    const windowedFrame = applyEnergyWindow(channelData, windowFunction, start, frameSize);
-
-    let frameEnergy = 0;
-    for (let j = 0; j < windowedFrame.length; j++) {
-      const sample = windowedFrame[j];
-      if (sample !== undefined) {
-        frameEnergy += sample * sample;
-      }
+  forEachFrame(
+    {
+      samples,
+      frameSize,
+      hopSize,
+      sampleRate: audio.sampleRate,
+      padEnd: true
+    },
+    ({ frame, timeSec }) => {
+      const frameEnergy = calculateFrameEnergy(frame, window);
+      times.push(timeSec);
+      energies.push(frameEnergy);
+      totalEnergy += frameEnergy;
+      maxEnergy = Math.max(maxEnergy, frameEnergy);
+      minEnergy = Math.min(minEnergy, frameEnergy);
     }
+  );
 
-    times[i] = (start + frameSize / 2) / audio.sampleRate;
-    energies[i] = frameEnergy;
-    totalEnergy += frameEnergy;
-
-    maxEnergy = Math.max(maxEnergy, frameEnergy);
-    minEnergy = Math.min(minEnergy, frameEnergy);
-  }
-
-  // 統計情報の計算
-  const meanEnergy = totalEnergy / frameCount;
+  const energyArray = new Float32Array(energies);
+  const timesArray = new Float32Array(times);
+  const frameCount = energyArray.length;
+  const mean = frameCount > 0 ? totalEnergy / frameCount : 0;
   let varianceSum = 0;
-
   for (let i = 0; i < frameCount; i++) {
-    const energy = energies[i];
-    if (energy !== undefined) {
-      const diff = energy - meanEnergy;
-      varianceSum += diff * diff;
-    }
+    const diff = energyArray[i]! - mean;
+    varianceSum += diff * diff;
   }
+  const std = frameCount > 0 ? Math.sqrt(varianceSum / frameCount) : 0;
 
-  const stdEnergy = Math.sqrt(varianceSum / frameCount);
-
-  // 正規化（オプション）
   if (normalized && totalEnergy > 1e-10) {
-    for (let i = 0; i < energies.length; i++) {
-      const currentEnergy = energies[i];
-      if (currentEnergy !== undefined) {
-        energies[i] = currentEnergy / totalEnergy;
-      }
+    for (let i = 0; i < energyArray.length; i++) {
+      energyArray[i] = energyArray[i]! / totalEnergy;
     }
-
     return {
-      times,
-      energies,
-      totalEnergy: 1.0,
+      times: timesArray,
+      energies: energyArray,
+      totalEnergy: 1,
       statistics: {
-        mean: meanEnergy / totalEnergy,
-        std: stdEnergy / totalEnergy,
+        mean: mean / totalEnergy,
+        std: std / totalEnergy,
         max: maxEnergy / totalEnergy,
         min: minEnergy / totalEnergy
       }
@@ -175,29 +116,14 @@ export function getEnergy(audio: AudioData, options: EnergyOptions = {}): Energy
   }
 
   return {
-    times,
-    energies,
+    times: timesArray,
+    energies: energyArray,
     totalEnergy,
     statistics: {
-      mean: meanEnergy,
-      std: stdEnergy,
-      max: maxEnergy,
-      min: minEnergy
+      mean,
+      std,
+      max: Number.isFinite(maxEnergy) ? maxEnergy : 0,
+      min: Number.isFinite(minEnergy) ? minEnergy : 0
     }
   };
-}
-
-// ヘルパー関数
-function calculateFrameEnergy(
-  data: Float32Array,
-  start: number,
-  length: number,
-  windowFunction: string
-): number {
-  const windowed = applyEnergyWindow(data, windowFunction, start, length);
-  let energy = 0;
-  for (const sample of windowed) {
-    energy += sample * sample;
-  }
-  return energy;
 }
