@@ -159,16 +159,13 @@ export async function analyze<const F extends FeatureInput>(
   const errors: Partial<Record<SelectedFeatureIds<F>, AudioInspectError>> = {};
 
   try {
-    const tasks = entries.map(async ([feature, rawOptions]) => {
+    for (const [feature, rawOptions] of entries) {
       throwIfAborted(request.signal);
       try {
         const options =
           rawOptions === true ? undefined : (rawOptions as FeatureOptions<typeof feature>);
         const data = await executeFeature(feature, scopedAudio, options, runtime);
-        return {
-          feature,
-          data: data as FeatureResult<typeof feature>
-        };
+        results[feature] = data as FeatureResult<typeof feature>;
       } catch (error) {
         const wrapped =
           error instanceof AudioInspectError
@@ -181,10 +178,7 @@ export async function analyze<const F extends FeatureInput>(
         if (!continueOnError) {
           throw wrapped;
         }
-        return {
-          feature,
-          error: wrapped
-        };
+        errors[feature] = wrapped;
       } finally {
         completed += 1;
         request.onProgress?.({
@@ -193,15 +187,6 @@ export async function analyze<const F extends FeatureInput>(
           total,
           feature
         });
-      }
-    });
-
-    const taskResults = await Promise.all(tasks);
-    for (const item of taskResults) {
-      if (item.error) {
-        errors[item.feature] = item.error;
-      } else {
-        results[item.feature] = item.data;
       }
     }
   } finally {

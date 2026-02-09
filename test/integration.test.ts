@@ -29,7 +29,12 @@ describe('public API integration', () => {
 
   it('load accepts AudioData and applies transforms', async () => {
     const source = createStereoAudio();
-    const loaded = await load(source, { channels: 'mono', normalize: true, sampleRate: 44100 });
+    const loaded = await load(source, {
+      channels: 'mono',
+      normalize: true,
+      sampleRate: 44100,
+      resampleQuality: 'fast'
+    });
 
     expect(loaded.sampleRate).toBe(44100);
     expect(loaded.numberOfChannels).toBe(1);

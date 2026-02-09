@@ -35,6 +35,8 @@ function calculateFrameCrestFactor(
   sampleRate: number,
   method: 'simple' | 'weighted' = 'simple'
 ): { peak: number; rms: number; cfDb: number; cfLinear: number } {
+  const epsilon = 1e-10;
+
   if (frameData.length === 0) {
     return { peak: 0, rms: 0, cfDb: -Infinity, cfLinear: 0 };
   }
@@ -63,8 +65,12 @@ function calculateFrameCrestFactor(
 
   const rmsVal = Math.sqrt(sumOfSquares / processedData.length);
 
-  if (rmsVal < 1e-10) {
-    return { peak: peakVal, rms: rmsVal, cfDb: Infinity, cfLinear: Infinity };
+  if (peakVal < epsilon && rmsVal < epsilon) {
+    return { peak: 0, rms: 0, cfDb: -Infinity, cfLinear: 0 };
+  }
+
+  if (rmsVal < epsilon) {
+    return { peak: peakVal, rms: rmsVal, cfDb: -Infinity, cfLinear: 0 };
   }
 
   const cfLinear = peakVal / rmsVal;
@@ -77,6 +83,7 @@ export function getCrestFactor(
   audio: AudioData,
   options: CrestFactorOptions = {}
 ): CrestFactorResult {
+  const epsilon = 1e-10;
   const { channel = 'mix', windowSize, hopSize, method = 'simple' } = options;
 
   let overallPeak: number;
@@ -108,8 +115,18 @@ export function getCrestFactor(
     overallRms = getRMS(audio, amplitudeOpts);
   }
 
-  const overallCfLinear = overallRms > 1e-10 ? overallPeak / overallRms : Infinity;
-  const overallCfDb = overallRms > 1e-10 ? ampToDb(overallCfLinear, 1) : Infinity;
+  let overallCfLinear: number;
+  let overallCfDb: number;
+  if (overallPeak < epsilon && overallRms < epsilon) {
+    overallCfLinear = 0;
+    overallCfDb = -Infinity;
+  } else if (overallRms < epsilon) {
+    overallCfLinear = 0;
+    overallCfDb = -Infinity;
+  } else {
+    overallCfLinear = overallPeak / overallRms;
+    overallCfDb = ampToDb(overallCfLinear, 1);
+  }
 
   let timeVaryingResult: CrestFactorResult['timeVarying'] | undefined;
 

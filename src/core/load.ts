@@ -3,9 +3,16 @@ import {
   type AudioDecoder,
   type AudioSource,
   AudioInspectError,
-  type LoadOptions
+  type LoadOptions,
+  type ResampleQuality
 } from '../types.js';
-import { ensureStereo, normalizePeak, resampleLinear, toMono } from './dsp/transform.js';
+import {
+  ensureStereo,
+  normalizePeak,
+  resampleLinear,
+  resampleWithOfflineAudioContext,
+  toMono
+} from './dsp/transform.js';
 
 let sharedDecodeContext: AudioContext | null = null;
 
@@ -61,7 +68,48 @@ function cloneAudioData(audio: AudioData): AudioData {
   };
 }
 
-function processAudioData(input: AudioData, options: LoadOptions): AudioData {
+function resolveResampleQuality(quality: LoadOptions['resampleQuality']): ResampleQuality {
+  if (quality === undefined) {
+    return 'high';
+  }
+  if (quality === 'high' || quality === 'fast') {
+    return quality;
+  }
+  throw new AudioInspectError('INVALID_INPUT', "resampleQuality must be 'high' or 'fast'");
+}
+
+async function resampleAudioData(
+  audio: AudioData,
+  targetSampleRate: number,
+  options: LoadOptions
+): Promise<AudioData> {
+  const quality = resolveResampleQuality(options.resampleQuality);
+  if (quality === 'fast') {
+    return resampleLinear(audio, targetSampleRate);
+  }
+
+  if (options.resampler) {
+    throwIfAborted(options.signal);
+    const resampled = await options.resampler(
+      audio,
+      targetSampleRate,
+      options.signal ? { signal: options.signal } : undefined
+    );
+    throwIfAborted(options.signal);
+    return resampled;
+  }
+
+  if (isBrowserRuntime() && typeof OfflineAudioContext !== 'undefined') {
+    return resampleWithOfflineAudioContext(audio, targetSampleRate, options.signal);
+  }
+
+  throw new AudioInspectError(
+    'PROCESSING_ERROR',
+    "High-quality resampling backend is unavailable in this runtime. Provide LoadOptions.resampler or set resampleQuality to 'fast'."
+  );
+}
+
+async function processAudioData(input: AudioData, options: LoadOptions): Promise<AudioData> {
   let audio = input;
 
   if (options.channels === 'mono' || options.channels === 1) {
@@ -75,14 +123,10 @@ function processAudioData(input: AudioData, options: LoadOptions): AudioData {
   }
 
   if (options.sampleRate !== undefined && options.sampleRate !== audio.sampleRate) {
-    audio = resampleLinear(audio, options.sampleRate);
+    audio = await resampleAudioData(audio, options.sampleRate, options);
   }
 
   return audio;
-}
-
-function isLikelyUrlString(value: string): boolean {
-  return /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(value);
 }
 
 function isNodeRuntime(): boolean {
@@ -175,7 +219,7 @@ async function loadUrlSource(source: URL | string, options: LoadOptions): Promis
     throw new AudioInspectError('NETWORK_ERROR', 'Fetch is not available in this runtime');
   }
 
-  const response = await fetchImpl(source);
+  const response = await fetchImpl(source, options.signal ? { signal: options.signal } : undefined);
   if (!response.ok) {
     throw new AudioInspectError(
       'NETWORK_ERROR',
@@ -189,8 +233,9 @@ async function loadUrlSource(source: URL | string, options: LoadOptions): Promis
 }
 
 async function loadStringSource(source: string, options: LoadOptions): Promise<AudioData> {
-  if (isNodeRuntime() && !isLikelyUrlString(source)) {
+  if (isNodeRuntime()) {
     const fs = await import('node:fs/promises');
+    throwIfAborted(options.signal);
     const fileBuffer = await fs.readFile(source);
     throwIfAborted(options.signal);
     return decodeBytes(fileBuffer, options);
@@ -246,7 +291,7 @@ export async function load(source: AudioSource, options: LoadOptions = {}): Prom
     }
 
     const base = isAudioData(source) ? cloneAudioData(audio) : audio;
-    return processAudioData(base, options);
+    return await processAudioData(base, options);
   } catch (error) {
     if (error instanceof AudioInspectError) {
       throw error;

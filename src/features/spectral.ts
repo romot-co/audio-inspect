@@ -650,7 +650,7 @@ export interface MelSpectrogramOptions extends FramedTransformOptions {
   minFrequency?: number;
   maxFrequency?: number;
   preEmphasis?: number;
-  power?: 1 | 2;
+  power?: number;
   logScale?: boolean;
   logEpsilon?: number;
 }
@@ -677,7 +677,7 @@ export interface CQTOptions extends FramedTransformOptions {
 
   preEmphasis?: number;
 
-  power?: 1 | 2;
+  power?: number;
 
   logScale?: boolean;
 
@@ -876,7 +876,8 @@ function resolveFrameTransformConfig(
     throw new AudioInspectError('INVALID_INPUT', 'FFT size must be a power of two');
   }
 
-  const numFrames = Math.floor((sampleLength - frameSizeSamples) / hopSizeSamples) + 1;
+  const rawFrameCount = Math.floor((sampleLength - frameSizeSamples) / hopSizeSamples) + 1;
+  const numFrames = sampleLength > 0 ? Math.max(1, rawFrameCount) : 0;
   if (numFrames <= 0) {
     throw new AudioInspectError('INSUFFICIENT_DATA', 'Invalid frame count');
   }
@@ -893,16 +894,31 @@ function resolveFrameTransformConfig(
   };
 }
 
-function computeSpectrumPower(magnitude: Float32Array, power: 1 | 2): Float32Array {
+function resolveTransformPower(power: number | undefined): number {
+  const resolved = power ?? 2;
+  if (!Number.isFinite(resolved) || resolved <= 0) {
+    throw new AudioInspectError('INVALID_INPUT', 'power must be a positive finite number');
+  }
+  return resolved;
+}
+
+function computeSpectrumPower(magnitude: Float32Array, power: number): Float32Array {
   const values = new Float32Array(magnitude.length);
   if (power === 1) {
     values.set(magnitude);
     return values;
   }
+  if (power === 2) {
+    for (let i = 0; i < magnitude.length; i++) {
+      const mag = magnitude[i]!;
+      values[i] = mag * mag;
+    }
+    return values;
+  }
 
   for (let i = 0; i < magnitude.length; i++) {
     const mag = magnitude[i]!;
-    values[i] = mag * mag;
+    values[i] = Math.pow(mag, power);
   }
 
   return values;
@@ -1002,7 +1018,7 @@ function computeCQTBandValue(
   sampleRate: number,
   fftSize: number,
   binsPerOctave: number,
-  power: 1 | 2
+  power: number
 ): number {
   const halfBinInOctaves = 1 / (2 * binsPerOctave);
   let weightedSum = 0;
@@ -1017,7 +1033,7 @@ function computeCQTBandValue(
 
     const weight = 1 - distance / halfBinInOctaves;
     const mag = magnitude[i]!;
-    const value = power === 2 ? mag * mag : mag;
+    const value = power === 1 ? mag : power === 2 ? mag * mag : Math.pow(mag, power);
     weightedSum += value * weight;
     weightSum += weight;
   }
@@ -1031,7 +1047,13 @@ function computeCQTBandValue(
     magnitude.length - 1
   );
   const nearestMag = nearest >= 0 ? magnitude[nearest]! : 0;
-  return power === 2 ? nearestMag * nearestMag : nearestMag;
+  if (power === 1) {
+    return nearestMag;
+  }
+  if (power === 2) {
+    return nearestMag * nearestMag;
+  }
+  return Math.pow(nearestMag, power);
 }
 
 function dct(input: number[], numCoeffs: number): number[] {
@@ -1080,10 +1102,11 @@ export async function getMelSpectrogram(
     provider = 'native',
     enableProfiling = false,
     providerCache,
-    power = 2,
+    power,
     logScale = true,
     logEpsilon = 1e-10
   } = options;
+  const resolvedPower = resolveTransformPower(power);
 
   const samples = getChannelData(audio, options.channel ?? 'mix');
   const emphasizedSamples = applyPreEmphasis(samples, preEmphasis);
@@ -1125,7 +1148,7 @@ export async function getMelSpectrogram(
       });
 
       const fftResult = await fftProvider.fft(windowedFrame);
-      const spectralValues = computeSpectrumPower(fftResult.magnitude, power);
+      const spectralValues = computeSpectrumPower(fftResult.magnitude, resolvedPower);
       const melValues = applyMelFilterBank(spectralValues, melFilterBank.filters, logEpsilon);
       const frame = new Array<number>(melValues.length);
 
@@ -1166,10 +1189,11 @@ export async function getCQT(audio: AudioData, options: CQTOptions = {}): Promis
     provider = 'native',
     enableProfiling = false,
     providerCache,
-    power = 2,
+    power,
     logScale = true,
     logEpsilon = 1e-10
   } = options;
+  const resolvedPower = resolveTransformPower(power);
 
   const samples = getChannelData(audio, options.channel ?? 'mix');
   const emphasizedSamples = applyPreEmphasis(samples, preEmphasis);
@@ -1221,7 +1245,7 @@ export async function getCQT(audio: AudioData, options: CQTOptions = {}): Promis
           audio.sampleRate,
           config.fftSize,
           binsPerOctave,
-          power
+          resolvedPower
         );
         frame[i] = logScale ? Math.log(Math.max(rawValue, logEpsilon)) : rawValue;
       }

@@ -2,9 +2,12 @@ import type { AmplitudeOptions, AudioData, ChannelSelector } from '../types.js';
 import { getEnergy, type EnergyOptions, type EnergyResult } from '../features/energy.js';
 import {
   getFFT,
+  getSpectrogram,
   getSpectrum,
   type FFTAnalysisResult,
   type FFTOptions,
+  type SpectrogramAnalysisResult,
+  type SpectrogramOptions,
   type SpectrumAnalysisResult,
   type SpectrumOptions
 } from '../features/frequency.js';
@@ -86,6 +89,7 @@ export type PeakResult = number;
 export type ZeroCrossingResult = number;
 export type FFTResult = FFTAnalysisResult;
 export type SpectrumResult = SpectrumAnalysisResult;
+export type SpectrogramResult = SpectrogramAnalysisResult;
 export type MFCCWithDeltaOptions = MFCCDeltaOptions;
 export type MFCCWithDeltaResult = MFCCDeltaResult;
 export type StereoOptions = StereoAnalysisOptions;
@@ -108,6 +112,7 @@ export interface FeatureRegistry {
 
   fft: { options: FFTOptions; result: FFTResult };
   spectrum: { options: SpectrumOptions; result: SpectrumResult };
+  spectrogram: { options: SpectrogramOptions; result: SpectrogramAnalysisResult };
 
   spectralFeatures: { options: SpectralFeaturesOptions; result: SpectralFeaturesResult };
   timeVaryingSpectralFeatures: {
@@ -160,6 +165,7 @@ export const FEATURES: readonly FeatureId[] = Object.freeze([
   'energy',
   'fft',
   'spectrum',
+  'spectrogram',
   'spectralFeatures',
   'timeVaryingSpectralFeatures',
   'spectralEntropy',
@@ -198,6 +204,7 @@ export interface FeatureDef<K extends FeatureId = FeatureId> {
 const FFT_POWERED_FEATURES: ReadonlySet<FeatureId> = new Set<FeatureId>([
   'fft',
   'spectrum',
+  'spectrogram',
   'spectralFeatures',
   'timeVaryingSpectralFeatures',
   'spectralEntropy',
@@ -286,6 +293,13 @@ export const FEATURE_DEFS: { [K in FeatureId]: FeatureDef<K> } = {
     needsFFT: true,
     exec: (audio, options, runtime) =>
       getSpectrum(audio, withRuntimeOptions('spectrum', options, runtime) ?? {})
+  },
+  spectrogram: {
+    id: 'spectrogram',
+    realtime: true,
+    needsFFT: true,
+    exec: (audio, options, runtime) =>
+      getSpectrogram(audio, withRuntimeOptions('spectrogram', options, runtime) ?? {})
   },
   spectralFeatures: {
     id: 'spectralFeatures',
@@ -407,10 +421,10 @@ export function getActiveFeatureEntries<F extends FeatureInput>(
 ): Array<[SelectedFeatureIds<F>, FeatureOptions<SelectedFeatureIds<F>> | true]> {
   const selection = normalizeFeatureInput(features);
   const entries = Object.entries(selection) as Array<
-    [SelectedFeatureIds<F>, FeatureOptions<SelectedFeatureIds<F>> | true | undefined]
+    [SelectedFeatureIds<F>, FeatureOptions<SelectedFeatureIds<F>> | true | false | null | undefined]
   >;
 
-  return entries.filter(([, options]) => options !== undefined) as Array<
-    [SelectedFeatureIds<F>, FeatureOptions<SelectedFeatureIds<F>> | true]
-  >;
+  return entries.filter(
+    ([, options]) => options !== undefined && options !== false && options !== null
+  ) as Array<[SelectedFeatureIds<F>, FeatureOptions<SelectedFeatureIds<F>> | true]>;
 }

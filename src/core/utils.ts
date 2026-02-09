@@ -23,11 +23,22 @@ export function getChannelData(audio: AudioData, channel: ChannelSelector = 'mix
   const allChannels = Array.from({ length: audio.numberOfChannels }, (_, idx) => idx);
   let selectedChannels: number[];
 
-  if (channel === 'mix' || channel === 'all') {
+  if (channel === 'mix') {
     selectedChannels = allChannels;
+  } else if (channel === 'all') {
+    throw new AudioInspectError(
+      'INVALID_INPUT',
+      'Channel selector "all" is not supported for scalar results; use "mix" or a single channel index'
+    );
   } else if (isChannelArray(channel)) {
     if (channel.length === 0) {
       throw new AudioInspectError('INVALID_INPUT', 'Channel selection array cannot be empty');
+    }
+    if (channel.length > 1) {
+      throw new AudioInspectError(
+        'INVALID_INPUT',
+        'Multi-channel selector arrays are not supported for scalar results; use "mix" or a single channel index'
+      );
     }
     selectedChannels = channel.slice();
   } else if (typeof channel === 'number') {

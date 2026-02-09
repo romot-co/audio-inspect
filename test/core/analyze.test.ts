@@ -175,19 +175,35 @@ describe('core/analyze', () => {
     }
   });
 
-  it('supports ChannelSelector: mix / all / number[]', async () => {
+  it('supports scalar ChannelSelector usage with mix and explicit channel index', async () => {
     const audio = createStereoAudioData();
     const result = await analyze(audio, {
       features: {
         rms: { channel: 'mix' },
-        peak: { channel: 'all' },
-        zeroCrossing: { channel: [0, 1] }
+        peak: { channel: 1 },
+        zeroCrossing: { channel: 0 }
       }
     });
 
     expect(typeof result.results.rms).toBe('number');
     expect(typeof result.results.peak).toBe('number');
     expect(typeof result.results.zeroCrossing).toBe('number');
+  });
+
+  it('returns INVALID_INPUT for unsupported scalar multi-channel selectors', async () => {
+    const audio = createStereoAudioData();
+    const result = await analyze(audio, {
+      continueOnError: true,
+      features: {
+        peak: { channel: 'all' },
+        zeroCrossing: { channel: [0, 1] }
+      }
+    });
+
+    expect(result.errors.peak).toBeInstanceOf(AudioInspectError);
+    expect(result.errors.zeroCrossing).toBeInstanceOf(AudioInspectError);
+    expect(result.errors.peak?.code).toBe('INVALID_INPUT');
+    expect(result.errors.zeroCrossing?.code).toBe('INVALID_INPUT');
   });
 
   it('covers advanced features: mfccWithDelta, stereo, timeVaryingStereo', async () => {
@@ -208,7 +224,7 @@ describe('core/analyze', () => {
     expect(result.errors.timeVaryingStereo).toBeUndefined();
   });
 
-  it('returns INSUFFICIENT_DATA for too-short MFCC input when continueOnError=true', async () => {
+  it('produces one MFCC frame for too-short input via zero-padded framing', async () => {
     const tinyAudio: AudioData = {
       sampleRate: 16000,
       channelData: [new Float32Array([0.1, 0.2])],
@@ -222,7 +238,7 @@ describe('core/analyze', () => {
       features: { mfcc: true }
     });
 
-    expect(result.errors.mfcc).toBeInstanceOf(AudioInspectError);
-    expect(result.errors.mfcc?.code).toBe('INSUFFICIENT_DATA');
+    expect(result.errors.mfcc).toBeUndefined();
+    expect(result.results.mfcc?.mfcc.length).toBe(1);
   });
 });

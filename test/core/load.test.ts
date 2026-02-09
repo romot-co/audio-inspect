@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { load } from '../../src/core/load.js';
 import { AudioInspectError, type AudioData } from '../../src/types.js';
 
@@ -27,6 +27,23 @@ function createSineWave(
   }
 
   return data;
+}
+
+function calculateToneMagnitude(
+  samples: Float32Array,
+  sampleRate: number,
+  frequency: number
+): number {
+  let real = 0;
+  let imag = 0;
+  const angularStep = (2 * Math.PI * frequency) / sampleRate;
+  for (let i = 0; i < samples.length; i++) {
+    const phase = angularStep * i;
+    const sample = samples[i] ?? 0;
+    real += sample * Math.cos(phase);
+    imag -= sample * Math.sin(phase);
+  }
+  return (2 / Math.max(1, samples.length)) * Math.hypot(real, imag);
 }
 
 describe('load', () => {
@@ -237,6 +254,44 @@ describe('load', () => {
       }
     });
 
+    it('should reduce aliasing in high-quality downsampling compared with fast mode', async () => {
+      if (!isOfflineAudioContextAvailable()) {
+        console.log('OfflineAudioContext is unavailable in this environment, skipping this test');
+        return;
+      }
+
+      const sourceSampleRate = 48000;
+      const targetSampleRate = 16000;
+      const sourceToneHz = 10000; // Above target Nyquist (8kHz), aliases to 6kHz.
+      const originalSignal = createSineWave(sourceToneHz, 1.0, sourceSampleRate, 0.8);
+      const originalAudio = createTestAudioData(originalSignal, sourceSampleRate);
+
+      const highQuality = await load(originalAudio, {
+        sampleRate: targetSampleRate,
+        resampleQuality: 'high'
+      });
+      const fastQuality = await load(originalAudio, {
+        sampleRate: targetSampleRate,
+        resampleQuality: 'fast'
+      });
+
+      const aliasFrequency = Math.abs(
+        sourceToneHz - targetSampleRate * Math.round(sourceToneHz / targetSampleRate)
+      );
+      const highMagnitude = calculateToneMagnitude(
+        highQuality.channelData[0] ?? new Float32Array(0),
+        targetSampleRate,
+        aliasFrequency
+      );
+      const fastMagnitude = calculateToneMagnitude(
+        fastQuality.channelData[0] ?? new Float32Array(0),
+        targetSampleRate,
+        aliasFrequency
+      );
+
+      expect(highMagnitude).toBeLessThan(fastMagnitude);
+    });
+
     it('should not modify audio when target sample rate matches original', async () => {
       const originalSignal = createSineWave(1000, 1.0, 44100, 0.5);
       const originalAudio = createTestAudioData(originalSignal, 44100);
@@ -252,13 +307,65 @@ describe('load', () => {
       }
     });
 
-    it('should resample without relying on OfflineAudioContext', async () => {
+    it('should resample in fast mode without relying on OfflineAudioContext', async () => {
       const originalSignal = createSineWave(1000, 1.0, 44100, 0.5);
       const originalAudio = createTestAudioData(originalSignal, 44100);
 
-      const result = await load(originalAudio, { sampleRate: 48000 });
+      const result = await load(originalAudio, {
+        sampleRate: 48000,
+        resampleQuality: 'fast'
+      });
       expect(result.sampleRate).toBe(48000);
       expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('should use injected resampler backend in high-quality mode', async () => {
+      const originalSignal = createSineWave(1000, 1.0, 44100, 0.5);
+      const originalAudio = createTestAudioData(originalSignal, 44100);
+      const resampler = vi.fn(async (audio: AudioData, sampleRate: number): Promise<AudioData> => {
+        const newLength = Math.max(1, Math.round((audio.length * sampleRate) / audio.sampleRate));
+        const channelData = audio.channelData.map((channel) => {
+          const out = new Float32Array(newLength);
+          for (let i = 0; i < newLength; i++) {
+            const sourceIndex = Math.min(
+              channel.length - 1,
+              Math.floor((i * audio.sampleRate) / sampleRate)
+            );
+            out[i] = channel[sourceIndex] ?? 0;
+          }
+          return out;
+        });
+        return {
+          sampleRate,
+          numberOfChannels: audio.numberOfChannels,
+          channelData,
+          length: newLength,
+          duration: newLength / sampleRate
+        };
+      });
+
+      const result = await load(originalAudio, {
+        sampleRate: 48000,
+        resampleQuality: 'high',
+        resampler
+      });
+
+      expect(resampler).toHaveBeenCalledTimes(1);
+      expect(result.sampleRate).toBe(48000);
+    });
+
+    it('should throw when high-quality resampling backend is unavailable', async () => {
+      const isNodeRuntime = typeof process !== 'undefined' && !!process.versions?.node;
+      if (!isNodeRuntime) {
+        return;
+      }
+
+      const originalSignal = createSineWave(1000, 1.0, 44100, 0.5);
+      const originalAudio = createTestAudioData(originalSignal, 44100);
+
+      await expect(load(originalAudio, { sampleRate: 48000 })).rejects.toMatchObject({
+        code: 'PROCESSING_ERROR'
+      });
     });
   });
 
@@ -317,6 +424,44 @@ describe('load', () => {
       await expect(load(new Uint8Array([1, 2, 3, 4]).buffer, { decoder })).rejects.toMatchObject({
         code: 'MEMORY_ERROR'
       });
+    });
+
+    it('passes AbortSignal to fetch implementation', async () => {
+      const signalController = new AbortController();
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.signal).toBe(signalController.signal);
+        return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 });
+      });
+
+      const decoder = {
+        name: 'pass-through-decoder',
+        async decode() {
+          return createTestAudioData(createSineWave(440, 0.05));
+        }
+      };
+
+      const result = await load(new URL('https://example.com/audio.wav'), {
+        signal: signalController.signal,
+        fetch: fetchMock,
+        decoder
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('treats string inputs as file paths in Node runtime', async () => {
+      const fetchMock = vi.fn(
+        async () => new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 })
+      );
+
+      await expect(
+        load('https://example.com/audio.wav', {
+          fetch: fetchMock
+        })
+      ).rejects.toBeInstanceOf(AudioInspectError);
+
+      expect(fetchMock).not.toHaveBeenCalled();
     });
   });
 });

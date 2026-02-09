@@ -28,6 +28,7 @@ export type {
   ZeroCrossingResult,
   FFTResult,
   SpectrumResult,
+  SpectrogramResult,
   MFCCWithDeltaOptions,
   MFCCWithDeltaResult,
   StereoOptions,

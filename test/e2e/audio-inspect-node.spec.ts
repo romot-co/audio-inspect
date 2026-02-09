@@ -39,11 +39,16 @@ test.describe('Realtime monitor API', () => {
       oscillator.start();
       await new Promise((resolve) => setTimeout(resolve, 240));
 
-      await session.setFeature('spectrum', { fftSize: 1024 });
+      await session.setFeature('spectrogram', {
+        fftSize: 1024,
+        frameSize: 1024,
+        hopSize: 512,
+        maxFrames: 4
+      });
       await new Promise((resolve) => setTimeout(resolve, 240));
 
       const latest = session.read();
-      const spectrum = session.readFeature('spectrum');
+      const spectrogram = session.readFeature('spectrogram');
 
       oscillator.stop();
       offFrame();
@@ -54,13 +59,15 @@ test.describe('Realtime monitor API', () => {
         frameCount,
         lastRms,
         latestHasRms: typeof latest?.results?.rms === 'number',
-        spectrumBins: spectrum?.frequencies?.length ?? 0
+        spectrogramBins: spectrogram?.frequencies?.length ?? 0,
+        spectrogramFrames: spectrogram?.frameCount ?? 0
       };
     });
 
     expect(result.frameCount).toBeGreaterThan(0);
     expect(result.lastRms).toBeGreaterThan(0);
     expect(result.latestHasRms).toBe(true);
-    expect(result.spectrumBins).toBeGreaterThan(0);
+    expect(result.spectrogramBins).toBeGreaterThan(0);
+    expect(result.spectrogramFrames).toBeGreaterThan(0);
   });
 });

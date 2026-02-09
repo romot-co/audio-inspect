@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { getFFT, getSpectrum } from '../../src/features/frequency.js';
+import { getFFT, getSpectrum, getSpectrogram } from '../../src/features/frequency.js';
 import type { AudioData } from '../../src/types.js';
 import { FFTProviderFactory } from '../../src/core/dsp/fft-provider.js';
 import { FFTProviderCacheStore } from '../../src/core/dsp/fft-runtime.js';
@@ -31,324 +31,178 @@ function createSineWave(
   return data;
 }
 
-function createComplexSignal(
-  frequencies: number[],
-  amplitudes: number[],
-  duration: number,
-  sampleRate = 44100
-): Float32Array {
-  const length = Math.floor(duration * sampleRate);
-  const data = new Float32Array(length);
-
-  for (let i = 0; i < length; i++) {
-    const t = i / sampleRate;
-    let sample = 0;
-
-    for (let j = 0; j < frequencies.length; j++) {
-      const freq = frequencies[j] || 0;
-      const amp = amplitudes[j] || 0;
-      sample += amp * Math.sin(2 * Math.PI * freq * t);
+function maxValue(values: Float32Array): number {
+  let max = -Infinity;
+  for (let i = 0; i < values.length; i++) {
+    const value = values[i] ?? -Infinity;
+    if (value > max) {
+      max = value;
     }
-
-    data[i] = sample;
   }
-
-  return data;
+  return max;
 }
 
 describe('getFFT', () => {
-  describe('basic functionality', () => {
-    it('should perform FFT analysis with WebFFT provider', async () => {
-      const sineWave = createSineWave(440, 0.1, 44100, 1.0);
-      const audio = createTestAudioData(sineWave);
+  it('performs FFT analysis with WebFFT provider', async () => {
+    const sineWave = createSineWave(440, 0.1, 44100, 1.0);
+    const audio = createTestAudioData(sineWave);
 
-      const result = await getFFT(audio, {
-        fftSize: 2048,
-        provider: 'webfft'
-      });
-
-      expect(result.fftSize).toBe(2048);
-      expect(result.providerName).toBe('WebFFT');
-      expect(result.windowFunction).toBe('hann');
-      expect(result.magnitude).toBeInstanceOf(Float32Array);
-      expect(result.frequencies).toBeInstanceOf(Float32Array);
-      expect(result.phase).toBeInstanceOf(Float32Array);
-      expect(result.complex).toBeInstanceOf(Float32Array);
-
-      const peakIndex = result.frequencies.findIndex((f) => f >= 440);
-      expect(peakIndex).toBeGreaterThan(0);
+    const result = await getFFT(audio, {
+      fftSize: 2048,
+      provider: 'webfft'
     });
 
-    it('should work with native FFT provider', async () => {
-      const sineWave = createSineWave(440, 0.1, 44100, 1.0);
-      const audio = createTestAudioData(sineWave);
-
-      const result = await getFFT(audio, {
-        fftSize: 256,
-        provider: 'native'
-      });
-
-      expect(result.fftSize).toBe(256);
-      expect(result.providerName).toBe('Native FFT (Cooley-Tukey)');
-      expect(result.magnitude).toBeInstanceOf(Float32Array);
-    });
-
-    it('should handle different window functions', async () => {
-      const sineWave = createSineWave(440, 0.1, 44100, 1.0);
-      const audio = createTestAudioData(sineWave);
-
-      const windowFunctions = ['hann', 'hamming', 'blackman', 'none'] as const;
-
-      for (const windowFunction of windowFunctions) {
-        const result = await getFFT(audio, {
-          fftSize: 1024,
-          windowFunction,
-          provider: 'native'
-        });
-
-        expect(result.windowFunction).toBe(windowFunction);
-        expect(result.magnitude.length).toBeGreaterThan(0);
-      }
-    });
+    expect(result.fftSize).toBe(2048);
+    expect(result.providerName).toBe('WebFFT');
+    expect(result.windowFunction).toBe('hann');
+    expect(result.normalization).toBe('amplitude');
+    expect(result.magnitude).toBeInstanceOf(Float32Array);
+    expect(result.frequencies).toBeInstanceOf(Float32Array);
+    expect(result.phase).toBeInstanceOf(Float32Array);
+    expect(result.complex).toBeInstanceOf(Float32Array);
   });
 
-  describe('input handling', () => {
-    it('should handle zero padding for small inputs', async () => {
-      const shortSignal = createSineWave(440, 0.01, 44100, 1.0);
-      const audio = createTestAudioData(shortSignal);
+  it('supports normalization modes', async () => {
+    const sampleRate = 8192;
+    const fftSize = 1024;
+    const sineWave = createSineWave(512, 0.5, sampleRate, 1.0);
+    const audio = createTestAudioData(sineWave, sampleRate);
 
-      const result = await getFFT(audio, {
-        fftSize: 2048,
-        provider: 'native'
-      });
-
-      expect(result.fftSize).toBe(2048);
-      expect(result.magnitude).toBeInstanceOf(Float32Array);
+    const normalized = await getFFT(audio, {
+      fftSize,
+      provider: 'native',
+      normalization: 'amplitude',
+      windowFunction: 'none'
+    });
+    const raw = await getFFT(audio, {
+      fftSize,
+      provider: 'native',
+      normalization: 'none',
+      windowFunction: 'none'
     });
 
-    it('should handle multi-channel audio', async () => {
-      const channel0 = createSineWave(440, 0.1, 44100, 1.0);
-      const channel1 = createSineWave(880, 0.1, 44100, 0.8);
+    const normalizedPeak = maxValue(normalized.magnitude);
+    const rawPeak = maxValue(raw.magnitude);
 
-      const audio: AudioData = {
-        sampleRate: 44100,
-        channelData: [channel0, channel1],
-        duration: 0.1,
-        numberOfChannels: 2,
-        length: channel0.length
-      };
-
-      const result0 = await getFFT(audio, {
-        channel: 0,
-        fftSize: 1024,
-        provider: 'native'
-      });
-      const result1 = await getFFT(audio, {
-        channel: 1,
-        fftSize: 1024,
-        provider: 'native'
-      });
-
-      expect(result0.magnitude).toBeInstanceOf(Float32Array);
-      expect(result1.magnitude).toBeInstanceOf(Float32Array);
-
-      const maxMag0 = Math.max(...Array.from(result0.magnitude));
-      const maxMag1 = Math.max(...Array.from(result1.magnitude));
-      expect(maxMag0).not.toBe(maxMag1);
-    });
+    expect(normalizedPeak).toBeGreaterThan(0.95);
+    expect(normalizedPeak).toBeLessThan(1.05);
+    expect(rawPeak).toBeGreaterThan(100);
   });
 });
 
 describe('getSpectrum', () => {
-  describe('single frame analysis', () => {
-    it('should perform spectrum analysis', async () => {
-      const complexSignal = createComplexSignal([440, 880, 1320], [1.0, 0.8, 0.6], 0.1);
-      const audio = createTestAudioData(complexSignal);
+  it('returns dBFS values by default', async () => {
+    const sampleRate = 8192;
+    const sineWave = createSineWave(1024, 0.5, sampleRate, 1.0);
+    const audio = createTestAudioData(sineWave, sampleRate);
 
-      const result = await getSpectrum(audio, {
-        fftSize: 2048,
-        timeFrames: 1,
-        provider: 'native'
-      });
-
-      expect(result.frequencies).toBeInstanceOf(Float32Array);
-      expect(result.magnitudes).toBeInstanceOf(Float32Array);
-      expect(result.decibels).toBeInstanceOf(Float32Array);
-      expect(result.spectrogram).toBeUndefined();
-
-      const freq440Index = result.frequencies.findIndex((f) => Math.abs(f - 440) < 50);
-      const freq880Index = result.frequencies.findIndex((f) => Math.abs(f - 880) < 50);
-
-      expect(freq440Index).toBeGreaterThan(-1);
-      expect(freq880Index).toBeGreaterThan(-1);
+    const result = await getSpectrum(audio, {
+      fftSize: 1024,
+      windowFunction: 'none',
+      provider: 'native'
     });
 
-    it('should filter frequency range', async () => {
-      const complexSignal = createComplexSignal([200, 800, 1600], [1.0, 1.0, 1.0], 0.1);
-      const audio = createTestAudioData(complexSignal);
-
-      const result = await getSpectrum(audio, {
-        fftSize: 2048,
-        minFrequency: 400,
-        maxFrequency: 1200,
-        timeFrames: 1,
-        provider: 'native'
-      });
-
-      expect(result.frequencies[0]).toBeGreaterThanOrEqual(400);
-      expect(result.frequencies[result.frequencies.length - 1] || 0).toBeLessThanOrEqual(1200);
-    });
+    expect(result.scale).toBe('dbfs');
+    expect(result.frequencies).toBeInstanceOf(Float32Array);
+    expect(result.values).toBeInstanceOf(Float32Array);
+    const peak = maxValue(result.values);
+    expect(peak).toBeGreaterThan(-1);
+    expect(peak).toBeLessThan(0.5);
   });
 
-  describe('spectrogram analysis', () => {
-    it('should generate spectrogram', async () => {
-      const duration = 0.5;
-      const sampleRate = 8000;
-      const length = Math.floor(duration * sampleRate);
-      const chirp = new Float32Array(length);
+  it('supports linear amplitude output', async () => {
+    const sampleRate = 8192;
+    const sineWave = createSineWave(1024, 0.5, sampleRate, 1.0);
+    const audio = createTestAudioData(sineWave, sampleRate);
 
-      for (let i = 0; i < length; i++) {
-        const t = i / sampleRate;
-        const freq = 200 + (800 * t) / duration;
-        chirp[i] = Math.sin(2 * Math.PI * freq * t);
-      }
-
-      const audio = createTestAudioData(chirp, sampleRate);
-
-      const result = await getSpectrum(audio, {
-        fftSize: 256,
-        timeFrames: 10,
-        overlap: 0.5,
-        provider: 'native'
-      });
-
-      expect(result.spectrogram).toBeDefined();
-      if (result.spectrogram) {
-        expect(result.spectrogram.times).toBeInstanceOf(Float32Array);
-        expect(result.spectrogram.frequencies).toBeInstanceOf(Float32Array);
-        expect(result.spectrogram.intensities).toBeInstanceOf(Array);
-        expect(result.spectrogram.intensities.length).toBeGreaterThan(0);
-        expect(result.spectrogram.timeFrames).toBeGreaterThan(1);
-      }
+    const result = await getSpectrum(audio, {
+      fftSize: 1024,
+      windowFunction: 'none',
+      provider: 'native',
+      scale: 'amplitude'
     });
 
-    it('should provide representative magnitudes for spectrogram mode', async () => {
-      const signal = createSineWave(440, 0.5, 8000, 1.0);
-      const audio = createTestAudioData(signal, 8000);
-
-      const result = await getSpectrum(audio, {
-        fftSize: 256,
-        timeFrames: 8,
-        overlap: 0.5,
-        decibels: true,
-        provider: 'native'
-      });
-
-      expect(result.spectrogram).toBeDefined();
-      expect(result.magnitudes.length).toBeGreaterThan(0);
-      expect(result.magnitudes.length).toBe(result.frequencies.length);
-    });
-
-    it('should reject invalid overlap values for spectrogram', async () => {
-      const signal = createSineWave(440, 0.2, 8000, 1.0);
-      const audio = createTestAudioData(signal, 8000);
-
-      const invalidOverlaps = [-0.1, 1, 1.1, Number.POSITIVE_INFINITY, Number.NaN];
-      for (const overlap of invalidOverlaps) {
-        await expect(
-          getSpectrum(audio, {
-            fftSize: 256,
-            timeFrames: 5,
-            overlap,
-            provider: 'native'
-          })
-        ).rejects.toThrow('overlap');
-      }
-    });
-
-    it('should generate strictly increasing spectrogram times for valid overlap', async () => {
-      const signal = createSineWave(440, 0.5, 8000, 1.0);
-      const audio = createTestAudioData(signal, 8000);
-
-      const result = await getSpectrum(audio, {
-        fftSize: 256,
-        timeFrames: 8,
-        overlap: 0.5,
-        provider: 'native'
-      });
-
-      expect(result.spectrogram).toBeDefined();
-      if (result.spectrogram) {
-        for (let i = 1; i < result.spectrogram.times.length; i++) {
-          expect(result.spectrogram.times[i]).toBeGreaterThan(result.spectrogram.times[i - 1] ?? 0);
-        }
-      }
-    });
+    expect(result.scale).toBe('amplitude');
+    expect(maxValue(result.values)).toBeGreaterThan(0.95);
   });
 
-  describe('spectrogram frequency filtering', () => {
-    it('should apply frequency range filtering in spectrogram', async () => {
-      const signal = createSineWave(1000, 2.0, 44100, 0.5);
-      const audio = createTestAudioData(signal);
+  it('applies frequency range filtering', async () => {
+    const signal = createSineWave(1000, 0.2, 8000, 1.0);
+    const audio = createTestAudioData(signal, 8000);
 
-      const result = await getSpectrum(audio, {
-        timeFrames: 5,
-        minFrequency: 800,
-        maxFrequency: 1200,
-        fftSize: 1024
-      });
-
-      expect(result.spectrogram).toBeDefined();
-      if (result.spectrogram) {
-        expect(result.spectrogram.frequencies[0]).toBeGreaterThanOrEqual(800);
-        expect(
-          result.spectrogram.frequencies[result.spectrogram.frequencies.length - 1]
-        ).toBeLessThanOrEqual(1200);
-
-        result.spectrogram.intensities.forEach((intensity) => {
-          expect(intensity.length).toBe(result.spectrogram?.frequencies.length);
-        });
-      }
+    const result = await getSpectrum(audio, {
+      fftSize: 512,
+      minFrequency: 800,
+      maxFrequency: 1200,
+      provider: 'native'
     });
 
-    it('should handle short audio data with proper frame calculation', async () => {
-      const shortSignal = createSineWave(440, 0.01, 44100, 0.5);
-      const audio = createTestAudioData(shortSignal);
+    expect(result.frequencies[0]).toBeGreaterThanOrEqual(800);
+    expect(result.frequencies[result.frequencies.length - 1] || 0).toBeLessThanOrEqual(1200);
+  });
+});
 
-      const result = await getSpectrum(audio, {
-        timeFrames: 3,
-        fftSize: 1024
-      });
+describe('getSpectrogram', () => {
+  it('returns a multi-frame spectrogram', async () => {
+    const signal = createSineWave(440, 1.0, 8000, 1.0);
+    const audio = createTestAudioData(signal, 8000);
 
-      expect(result.spectrogram).toBeDefined();
-      if (result.spectrogram) {
-        expect(result.spectrogram.timeFrames).toBeGreaterThanOrEqual(1);
-        expect(result.spectrogram.intensities.length).toBeGreaterThanOrEqual(1);
-        expect(result.spectrogram.times.length).toBeGreaterThanOrEqual(1);
-      }
+    const result = await getSpectrogram(audio, {
+      frameSize: 256,
+      hopSize: 128,
+      fftSize: 512,
+      maxFrames: 10,
+      scale: 'dbfs',
+      provider: 'native'
     });
 
-    it('should handle empty audio data gracefully', async () => {
-      const emptySignal = new Float32Array(0);
-      const audio = createTestAudioData(emptySignal);
+    expect(result.scale).toBe('dbfs');
+    expect(result.frameCount).toBeGreaterThan(1);
+    expect(result.frameCount).toBeLessThanOrEqual(10);
+    expect(result.times.length).toBe(result.frameCount);
+    expect(result.frames.length).toBe(result.frameCount);
+    expect(result.frequencyBins).toBe(result.frequencies.length);
+    for (const frame of result.frames) {
+      expect(frame.length).toBe(result.frequencies.length);
+    }
+    for (let i = 1; i < result.times.length; i++) {
+      expect(result.times[i]).toBeGreaterThan(result.times[i - 1] ?? 0);
+    }
+  });
 
-      const result = await getSpectrum(audio, {
-        timeFrames: 2,
-        fftSize: 512
-      });
+  it('handles short audio as a single frame', async () => {
+    const signal = createSineWave(440, 0.01, 44100, 1.0);
+    const audio = createTestAudioData(signal);
 
-      expect(result.spectrogram).toBeDefined();
-      if (result.spectrogram) {
-        expect(result.spectrogram.timeFrames).toBe(0);
-        expect(result.spectrogram.intensities.length).toBe(0);
-        expect(result.spectrogram.times.length).toBe(0);
-      }
+    const result = await getSpectrogram(audio, {
+      frameSize: 2048,
+      hopSize: 1024,
+      fftSize: 2048,
+      provider: 'native'
     });
+
+    expect(result.frameCount).toBe(1);
+    expect(result.frames.length).toBe(1);
+  });
+
+  it('returns empty output for empty audio', async () => {
+    const audio = createTestAudioData(new Float32Array(0), 44100);
+
+    const result = await getSpectrogram(audio, {
+      frameSize: 512,
+      hopSize: 256,
+      fftSize: 512,
+      provider: 'native'
+    });
+
+    expect(result.frameCount).toBe(0);
+    expect(result.frames.length).toBe(0);
+    expect(result.times.length).toBe(0);
   });
 });
 
 describe('error handling', () => {
-  it('should handle invalid FFT size', async () => {
+  it('throws for invalid FFT size', async () => {
     const sineWave = createSineWave(440, 0.1);
     const audio = createTestAudioData(sineWave);
 
@@ -357,11 +211,35 @@ describe('error handling', () => {
     );
   });
 
-  it('should handle invalid channel', async () => {
+  it('throws for invalid channel', async () => {
     const sineWave = createSineWave(440, 0.1);
     const audio = createTestAudioData(sineWave);
 
     await expect(getFFT(audio, { channel: 5 })).rejects.toThrow('Invalid channel number');
+  });
+
+  it('throws when dbfs scale is used without amplitude normalization', async () => {
+    const sineWave = createSineWave(440, 0.1);
+    const audio = createTestAudioData(sineWave);
+
+    await expect(
+      getSpectrum(audio, {
+        scale: 'dbfs',
+        normalization: 'none'
+      })
+    ).rejects.toThrow('normalization');
+  });
+
+  it('throws when frameSize is larger than fftSize', async () => {
+    const sineWave = createSineWave(440, 0.1);
+    const audio = createTestAudioData(sineWave);
+
+    await expect(
+      getSpectrogram(audio, {
+        frameSize: 2048,
+        fftSize: 1024
+      })
+    ).rejects.toThrow('frameSize must be <= fftSize');
   });
 
   it('returns INITIALIZATION_FAILED when FFT provider creation fails', async () => {

@@ -23,13 +23,16 @@ export type {
 } from './time.js';
 
 // Frequency-domain primitives.
-export { getFFT, getSpectrum } from './frequency.js';
+export { getFFT, getSpectrum, getSpectrogram } from './frequency.js';
 export type {
   FFTOptions,
   SpectrumOptions,
+  SpectrogramOptions,
   FFTAnalysisResult,
   SpectrumAnalysisResult,
-  SpectrogramData
+  SpectrogramAnalysisResult,
+  FFTNormalization,
+  SpectrumScale
 } from './frequency.js';
 
 // Spectral descriptors and transforms.

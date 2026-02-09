@@ -68,6 +68,7 @@ describe('getStereoAnalysis', () => {
       expect(avgCoherence).toBeGreaterThan(0.8);
     }
     expect(result.phaseCorrelation ?? 0).toBeGreaterThan(0.8);
+    expect(Math.abs(result.phaseDifference ?? 0)).toBeLessThan(5);
   });
 
   it('detects inverse phase correlation for anti-phase stereo', async () => {
@@ -84,6 +85,7 @@ describe('getStereoAnalysis', () => {
     });
 
     expect(result.phaseCorrelation ?? 0).toBeLessThan(-0.8);
+    expect(Math.abs(result.phaseDifference ?? 0)).toBeLessThanOrEqual(180);
   });
 });
 

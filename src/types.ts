@@ -34,9 +34,21 @@ export interface AudioDecoder {
   ): Promise<AudioData>;
 }
 
+export type ResampleQuality = 'high' | 'fast';
+
+export interface AudioResampler {
+  (
+    audio: AudioData,
+    targetSampleRate: number,
+    options?: { signal?: AbortSignal }
+  ): Promise<AudioData> | AudioData;
+}
+
 // Shared options used by load().
 export interface LoadOptions {
   sampleRate?: number;
+  resampleQuality?: ResampleQuality;
+  resampler?: AudioResampler;
   channels?: number | 'mono' | 'stereo';
   normalize?: boolean;
   signal?: AbortSignal;

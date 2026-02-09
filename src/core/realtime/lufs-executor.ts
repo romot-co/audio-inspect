@@ -4,7 +4,7 @@ import {
   type LUFSOptions,
   type LUFSResult
 } from '../../features/loudness.js';
-import { getTruePeak } from '../dsp/oversampling.js';
+import { getInterSamplePeak, getTruePeak } from '../dsp/oversampling.js';
 import { ampToDb } from '../dsp/db.js';
 
 type RealtimeProcessor = ReturnType<typeof getLUFSRealtime>;
@@ -47,30 +47,38 @@ function mapSnapshotToResult(
   };
 
   if (options.calculateMomentary) {
-    result.momentary = new Float32Array([snapshot.momentary]);
+    result.momentary = snapshot.momentary;
   }
 
   if (options.calculateShortTerm || options.calculateLoudnessRange) {
-    result.shortTerm = new Float32Array([snapshot.shortTerm]);
-  }
-
-  if (options.calculateLoudnessRange && Number.isFinite(snapshot.shortTerm)) {
-    result.loudnessRange = 0;
-    result.statistics = {
-      percentile10: snapshot.shortTerm,
-      percentile95: snapshot.shortTerm
-    };
+    result.shortTerm = snapshot.shortTerm;
   }
 
   if (options.calculateTruePeak) {
+    const truePeakMethod = options.truePeakMethod ?? 'bs1770';
     const oversamplingFactor = options.truePeakOversamplingFactor ?? 4;
     const interpolation = options.truePeakInterpolation ?? 'sinc';
+
+    if (truePeakMethod === 'bs1770' && oversamplingFactor === 8) {
+      throw new AudioInspectError(
+        'INVALID_INPUT',
+        "truePeakOversamplingFactor=8 is unsupported for truePeakMethod='bs1770'; use factor 2 or 4, or switch to interSamplePeak"
+      );
+    }
+
     result.truePeak = channels.map((channelData) => {
-      const truePeak = getTruePeak(channelData, {
-        factor: oversamplingFactor,
-        interpolation
+      if (truePeakMethod === 'interSamplePeak') {
+        const interSamplePeak = getInterSamplePeak(channelData, {
+          factor: oversamplingFactor,
+          interpolation
+        });
+        return ampToDb(interSamplePeak, 1);
+      }
+
+      const bs1770TruePeak = getTruePeak(channelData, {
+        factor: oversamplingFactor === 2 ? 2 : 4
       });
-      return ampToDb(truePeak, 1);
+      return ampToDb(bs1770TruePeak, 1);
     });
   }
 

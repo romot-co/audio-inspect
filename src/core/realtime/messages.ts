@@ -1,10 +1,13 @@
 import type { FeatureId, FeatureOptions, FeatureResult, FeatureSelection } from '../feature-registry.js';
+import type { RealtimePolicyMode } from './policy.js';
 
 export interface WorkletProcessorConfig {
   bufferSize: number;
   hopSize: number;
   inputChannelCount: number;
   features: FeatureSelection<FeatureId>;
+  realtimePolicy: RealtimePolicyMode;
+  heavyFeatureInterval: number;
 }
 
 export interface SetFeaturesMessage {

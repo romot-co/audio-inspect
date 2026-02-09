@@ -89,6 +89,26 @@ describe('utils', () => {
       expect(() => getChannelData(audio, 0)).toThrow('Channel 0 data does not exist');
     });
 
+    it('should reject channel selector all for scalar access', () => {
+      const audio = createTestAudioData({
+        channelData: [new Float32Array([1, 2, 3]), new Float32Array([4, 5, 6])],
+        numberOfChannels: 2,
+        length: 3
+      });
+
+      expect(() => getChannelData(audio, 'all')).toThrow('not supported for scalar results');
+    });
+
+    it('should reject multi-channel selector arrays for scalar access', () => {
+      const audio = createTestAudioData({
+        channelData: [new Float32Array([1, 2, 3]), new Float32Array([4, 5, 6])],
+        numberOfChannels: 2,
+        length: 3
+      });
+
+      expect(() => getChannelData(audio, [0, 1])).toThrow('not supported for scalar results');
+    });
+
     it('should extract channel data correctly', () => {
       const audioData: AudioData = {
         sampleRate: 44100,
