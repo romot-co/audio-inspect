@@ -1,5 +1,5 @@
 import { AudioData, AudioInspectError, BiquadCoeffs } from '../types.js';
-import { getTruePeak } from '../core/dsp/oversampling.js';
+import { getInterSamplePeak, getTruePeak } from '../core/dsp/oversampling.js';
 import { ampToDb, powToDb } from '../core/dsp/db.js';
 
 import { getKWeightingCoeffs as getKWeightingCoeffsImpl } from '../core/dsp/k-weighting.js';
@@ -20,16 +20,20 @@ interface BiquadState {
   y2: number;
 }
 
-// Process one biquad section and update filter state.
-function applyBiquad(
+// Process one biquad section into a reusable output buffer.
+function applyBiquadInto(
   input: Float32Array,
+  output: Float32Array,
   coeffs: BiquadCoeffs,
-  state: BiquadState = { x1: 0, x2: 0, y1: 0, y2: 0 }
-): Float32Array {
-  const output = new Float32Array(input.length);
+  state: BiquadState,
+  length: number
+): void {
+  if (length <= 0) {
+    return;
+  }
   let { x1, x2, y1, y2 } = state;
 
-  for (let i = 0; i < input.length; i++) {
+  for (let i = 0; i < length; i++) {
     const x0 = input[i]!;
 
     const y0 = coeffs.b0 * x0 + coeffs.b1 * x1 + coeffs.b2 * x2 - coeffs.a1 * y1 - coeffs.a2 * y2;
@@ -47,14 +51,15 @@ function applyBiquad(
   state.x2 = x2;
   state.y1 = y1;
   state.y2 = y2;
-
-  return output;
 }
 
 // Calculate LUFS-equivalent loudness for one weighted block.
-function calculateBlockLoudness(channels: Float32Array[]): number {
+function calculateBlockLoudness(
+  channels: Float32Array[],
+  channelCount: number = channels.length
+): number {
   let sumOfSquares = 0;
-  const numChannels = channels.length;
+  const numChannels = Math.min(channelCount, channels.length);
 
   if (numChannels === 0) return -Infinity;
 
@@ -86,21 +91,42 @@ export interface LUFSOptions {
   gated?: boolean;
   calculateShortTerm?: boolean;
   calculateMomentary?: boolean;
+  /**
+   * Collect frame series in offline analysis.
+   * - true / 'both': collect both short-term and momentary series
+   * - 'shortTerm': collect only short-term series
+   * - 'momentary': collect only momentary series
+   */
+  collectSeries?: boolean | 'shortTerm' | 'momentary' | 'both';
   calculateLoudnessRange?: boolean;
   calculateTruePeak?: boolean;
+  /**
+   * 'bs1770' uses the Annex 2 polyphase FIR true-peak estimator.
+   * 'interSamplePeak' keeps the legacy interpolation-based estimate.
+   */
+  truePeakMethod?: 'bs1770' | 'interSamplePeak';
+  /**
+   * For 'bs1770', supported values are 2 or 4.
+   * For 'interSamplePeak', 2/4/8 are supported.
+   */
   truePeakOversamplingFactor?: 2 | 4 | 8;
   truePeakInterpolation?: 'linear' | 'cubic' | 'sinc';
 }
 
 export interface LUFSResult {
   integrated: number; // Integrated loudness (LUFS)
-  shortTerm?: Float32Array; // Short-term loudness values
-  momentary?: Float32Array; // Momentary loudness values
+  shortTerm?: number; // Short-term snapshot (LUFS)
+  momentary?: number; // Momentary snapshot (LUFS)
   loudnessRange?: number; // Loudness range (LU)
-  truePeak?: number[]; // True peak per channel (dBTP)
+  truePeak?: number[]; // Peak per channel. dBTP when truePeakMethod='bs1770'.
   statistics?: {
     percentile10: number; // 10th percentile
     percentile95: number; // 95th percentile
+  };
+  series?: {
+    times: Float32Array;
+    shortTerm?: Float32Array;
+    momentary?: Float32Array;
   };
 }
 
@@ -126,8 +152,10 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
     gated = true,
     calculateShortTerm = false,
     calculateMomentary = false,
+    collectSeries = false,
     calculateLoudnessRange = false,
     calculateTruePeak = false,
+    truePeakMethod = 'bs1770',
     truePeakOversamplingFactor = 4,
     truePeakInterpolation = 'sinc'
   } = options;
@@ -174,22 +202,46 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
     chunks.push(chunk);
   }
 
+  const collectShortTermSeries =
+    collectSeries === true || collectSeries === 'both' || collectSeries === 'shortTerm';
+  const collectMomentarySeries =
+    collectSeries === true || collectSeries === 'both' || collectSeries === 'momentary';
+  const collectLraSeries = calculateLoudnessRange;
+
   // Collect optional time-series metrics while iterating.
-  const momentaryValues: number[] = [];
-  const shortTermValues: number[] = [];
-  const collectShortTerm = calculateShortTerm || calculateLoudnessRange;
+  const seriesTimes: number[] = [];
+  const momentarySeries: number[] = [];
+  const shortTermSeries: number[] = [];
+  const lraShortTermValues: number[] = [];
 
   // Run chunked analysis.
-  let finalResult;
-  for (const chunk of chunks) {
+  let finalResult: { integrated: number; momentary: number; shortTerm: number } | undefined;
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+    const chunk = chunks[chunkIndex]!;
     finalResult = processor.process(chunk);
+    const chunkEndSample = Math.min((chunkIndex + 1) * chunkSize, length);
+    const frameTimeSec = chunkEndSample / audio.sampleRate;
 
-    if (calculateMomentary && isFinite(finalResult.momentary)) {
-      momentaryValues.push(finalResult.momentary);
+    if (collectShortTermSeries || collectMomentarySeries) {
+      seriesTimes.push(frameTimeSec);
     }
 
-    if (collectShortTerm && isFinite(finalResult.shortTerm)) {
-      shortTermValues.push(finalResult.shortTerm);
+    if (collectMomentarySeries) {
+      const momentaryValue = Number.isFinite(finalResult.momentary)
+        ? finalResult.momentary
+        : -Infinity;
+      momentarySeries.push(momentaryValue);
+    }
+
+    if (collectShortTermSeries) {
+      const shortTermValue = Number.isFinite(finalResult.shortTerm)
+        ? finalResult.shortTerm
+        : -Infinity;
+      shortTermSeries.push(shortTermValue);
+    }
+
+    if (collectLraSeries) {
+      lraShortTermValues.push(finalResult.shortTerm);
     }
   }
 
@@ -197,18 +249,18 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
     integrated: finalResult?.integrated ?? -Infinity
   };
 
-  // Optional short-term and momentary outputs.
-  if (calculateShortTerm && shortTermValues.length > 0) {
-    result.shortTerm = new Float32Array(shortTermValues);
+  // Optional snapshot values.
+  if (calculateShortTerm) {
+    result.shortTerm = finalResult?.shortTerm ?? -Infinity;
   }
 
-  if (calculateMomentary && momentaryValues.length > 0) {
-    result.momentary = new Float32Array(momentaryValues);
+  if (calculateMomentary) {
+    result.momentary = finalResult?.momentary ?? -Infinity;
   }
 
   // Loudness range is derived from short-term loudness percentiles.
-  if (calculateLoudnessRange && shortTermValues.length > 0) {
-    const validValues = shortTermValues
+  if (calculateLoudnessRange && lraShortTermValues.length > 0) {
+    const validValues = lraShortTermValues
       .filter((v) => v > -70.0 && isFinite(v))
       .sort((a, b) => a - b);
 
@@ -224,14 +276,36 @@ export function getLUFS(audio: AudioData, options: LUFSOptions = {}): LUFSResult
     }
   }
 
+  // Optional offline time series for visualization/export.
+  if (collectShortTermSeries || collectMomentarySeries) {
+    result.series = {
+      times: Float32Array.from(seriesTimes),
+      ...(collectShortTermSeries ? { shortTerm: Float32Array.from(shortTermSeries) } : {}),
+      ...(collectMomentarySeries ? { momentary: Float32Array.from(momentarySeries) } : {})
+    };
+  }
+
   // Optional true-peak output per processed channel.
   if (calculateTruePeak) {
+    if (truePeakMethod === 'bs1770' && truePeakOversamplingFactor === 8) {
+      throw new AudioInspectError(
+        'INVALID_INPUT',
+        "truePeakOversamplingFactor=8 is unsupported for truePeakMethod='bs1770'; use factor 2 or 4, or switch to interSamplePeak"
+      );
+    }
     result.truePeak = channelsToProcess.map((ch) => {
-      const truePeak = getTruePeak(ch, {
-        factor: truePeakOversamplingFactor,
-        interpolation: truePeakInterpolation
+      if (truePeakMethod === 'interSamplePeak') {
+        const interSamplePeak = getInterSamplePeak(ch, {
+          factor: truePeakOversamplingFactor,
+          interpolation: truePeakInterpolation
+        });
+        return ampToDb(interSamplePeak, 1);
+      }
+
+      const bs1770TruePeak = getTruePeak(ch, {
+        factor: truePeakOversamplingFactor === 2 ? 2 : 4
       });
-      return ampToDb(truePeak, 1);
+      return ampToDb(bs1770TruePeak, 1);
     });
   }
 
@@ -247,6 +321,8 @@ class RealtimeLUFSProcessor {
   private blockBuffer: Array<[number, number]> = []; // [loudness, sampleIndex]
   private maxBlocks: number;
   private currentSamples: Float32Array[] = [];
+  private filterStage1Scratch: Float32Array[] = [];
+  private filterStage2Scratch: Float32Array[] = [];
   private sampleCount: number = 0;
   private biquadStates: BiquadState[][] = [];
   private totalSamplesProcessed: number = 0;
@@ -279,10 +355,25 @@ class RealtimeLUFSProcessor {
     const numChannels = channelMode === 'stereo' ? 2 : 1;
     for (let i = 0; i < numChannels; i++) {
       this.currentSamples.push(new Float32Array(this.blockSize));
+      this.filterStage1Scratch.push(new Float32Array(this.blockSize));
+      this.filterStage2Scratch.push(new Float32Array(this.blockSize));
       this.biquadStates.push([
         { x1: 0, x2: 0, y1: 0, y2: 0 },
         { x1: 0, x2: 0, y1: 0, y2: 0 }
       ]);
+    }
+  }
+
+  private ensureFilterScratchCapacity(requiredLength: number, numChannels: number): void {
+    for (let ch = 0; ch < numChannels; ch++) {
+      const stage1 = this.filterStage1Scratch[ch];
+      const stage2 = this.filterStage2Scratch[ch];
+      if (!stage1 || stage1.length < requiredLength) {
+        this.filterStage1Scratch[ch] = new Float32Array(requiredLength);
+      }
+      if (!stage2 || stage2.length < requiredLength) {
+        this.filterStage2Scratch[ch] = new Float32Array(requiredLength);
+      }
     }
   }
 
@@ -297,15 +388,24 @@ class RealtimeLUFSProcessor {
       return this.calculateCurrentLUFS();
     }
 
-    // Apply two-stage K-weighting to each channel.
-    const filteredChannels: Float32Array[] = [];
+    this.ensureFilterScratchCapacity(inputLength, numChannels);
+
+    // Apply two-stage K-weighting to each channel using reusable scratch buffers.
     for (let ch = 0; ch < numChannels; ch++) {
       const inputData = chunk[ch];
-      if (!inputData) continue;
+      const stage1 = this.filterStage1Scratch[ch];
+      const stage2 = this.filterStage2Scratch[ch];
+      if (!stage1 || !stage2) {
+        continue;
+      }
 
-      let filtered = applyBiquad(inputData, coeffs[0]!, this.biquadStates[ch]![0]!);
-      filtered = applyBiquad(filtered, coeffs[1]!, this.biquadStates[ch]![1]!);
-      filteredChannels.push(filtered);
+      if (!inputData) {
+        stage2.fill(0, 0, inputLength);
+        continue;
+      }
+
+      applyBiquadInto(inputData, stage1, coeffs[0]!, this.biquadStates[ch]![0]!, inputLength);
+      applyBiquadInto(stage1, stage2, coeffs[1]!, this.biquadStates[ch]![1]!, inputLength);
     }
 
     // Fill block buffers and emit overlapping blocks.
@@ -315,7 +415,7 @@ class RealtimeLUFSProcessor {
       const samplesToAdd = Math.min(inputLength - processedSamples, remainingSpace);
 
       for (let ch = 0; ch < numChannels; ch++) {
-        const filtered = filteredChannels[ch];
+        const filtered = this.filterStage2Scratch[ch];
         const currentBuffer = this.currentSamples[ch]!;
         if (filtered) {
           currentBuffer.set(
@@ -329,7 +429,7 @@ class RealtimeLUFSProcessor {
       processedSamples += samplesToAdd;
 
       if (this.sampleCount >= this.blockSize) {
-        const blockLoudness = calculateBlockLoudness(this.currentSamples.slice(0, numChannels));
+        const blockLoudness = calculateBlockLoudness(this.currentSamples, numChannels);
         if (isFinite(blockLoudness)) {
           // Use block center sample for window-based lookups.
           const blockCenterSample = this.totalSamplesProcessed + this.blockSize / 2;

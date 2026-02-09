@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { executeFeature, FEATURES } from '../../src/core/feature-registry.js';
+import {
+  executeFeature,
+  FEATURES,
+  getActiveFeatureEntries
+} from '../../src/core/feature-registry.js';
 import { RealtimeLUFSExecutor } from '../../src/core/realtime/lufs-executor.js';
 import type { AudioData } from '../../src/types.js';
 
@@ -60,5 +64,16 @@ describe('core/feature-registry', () => {
     expect(accumulated?.integrated).toBeGreaterThan(-Infinity);
     expect(stateless.integrated).toBe(-Infinity);
     realtimeRuntime.realtimeLUFS.dispose();
+  });
+
+  it('ignores null/false entries when collecting active features', () => {
+    const active = getActiveFeatureEntries({
+      rms: true,
+      peak: false as unknown as true,
+      zeroCrossing: null as unknown as true
+    });
+
+    expect(active).toHaveLength(1);
+    expect(active[0]?.[0]).toBe('rms');
   });
 });

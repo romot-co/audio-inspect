@@ -7,35 +7,35 @@ import {
 import { type FFTProviderType, type FFTResult } from '../core/dsp/fft-provider.js';
 import { acquireFFTProvider, type FFTProviderCache } from '../core/dsp/fft-runtime.js';
 import { getChannelData } from '../core/utils.js';
-import { ampToDb, dbToAmp } from '../core/dsp/db.js';
-import { fillWindowedFrameInto } from '../core/dsp/window.js';
+import { ampToDb } from '../core/dsp/db.js';
+import { fillWindowedFrameInto, getWindow } from '../core/dsp/window.js';
+
+export type FFTNormalization = 'none' | 'amplitude';
+export type SpectrumScale = 'amplitude' | 'dbfs';
 
 // FFT request parameters for single-frame analysis.
 export interface FFTOptions {
   fftSize?: number;
   windowFunction?: WindowFunction;
-  overlap?: number;
   channel?: ChannelSelector;
   provider?: FFTProviderType;
   enableProfiling?: boolean;
   providerCache?: FFTProviderCache | undefined;
+  normalization?: FFTNormalization;
 }
 
-// Spectrum request parameters for single frame or spectrogram analysis.
+// Spectrum request parameters for one frame.
 export interface SpectrumOptions extends FFTOptions {
   minFrequency?: number;
   maxFrequency?: number;
-  decibels?: boolean;
-  timeFrames?: number;
+  scale?: SpectrumScale;
 }
 
-// Spectrogram payload returned from multi-frame spectrum analysis.
-export interface SpectrogramData {
-  times: Float32Array;
-  frequencies: Float32Array;
-  intensities: Float32Array[];
-  timeFrames: number;
-  frequencyBins: number;
+// Spectrogram request parameters for frame-sequence analysis.
+export interface SpectrogramOptions extends SpectrumOptions {
+  frameSize?: number;
+  hopSize?: number;
+  maxFrames?: number;
 }
 
 // Extended FFT result with runtime metadata.
@@ -43,14 +43,25 @@ export interface FFTAnalysisResult extends FFTResult {
   fftSize: number;
   windowFunction: string;
   providerName: string;
+  normalization: FFTNormalization;
 }
 
-// Spectrum result for one frame or a representative frame from a spectrogram.
+// One-frame spectrum output with explicit unit scale.
 export interface SpectrumAnalysisResult {
   frequencies: Float32Array;
-  magnitudes: Float32Array;
-  decibels?: Float32Array;
-  spectrogram?: SpectrogramData;
+  values: Float32Array;
+  scale: SpectrumScale;
+}
+
+// Frame-sequence spectrum output for offline and realtime.
+export interface SpectrogramAnalysisResult {
+  times: Float32Array;
+  frequencies: Float32Array;
+  frames: Float32Array[];
+  frameCount: number;
+  frequencyBins: number;
+  scale: SpectrumScale;
+  latest: Float32Array;
 }
 
 // Memoize in-flight FFT computations per-audio object and option tuple.
@@ -64,7 +75,7 @@ function serializeChannelSelector(channel: ChannelSelector): string {
 }
 
 function buildFFTCacheKey(
-  options: Required<Pick<FFTOptions, 'fftSize' | 'windowFunction'>> & {
+  options: Required<Pick<FFTOptions, 'fftSize' | 'windowFunction' | 'normalization'>> & {
     channel: ChannelSelector;
     provider: FFTProviderType;
     enableProfiling: boolean;
@@ -75,159 +86,141 @@ function buildFFTCacheKey(
     options.windowFunction,
     serializeChannelSelector(options.channel),
     options.provider,
-    options.enableProfiling ? 1 : 0
+    options.enableProfiling ? 1 : 0,
+    options.normalization
   ].join('|');
 }
 
-// Vectorized helpers to keep call sites readable.
-function magnitudeArrayToDecibels(magnitude: Float32Array): Float32Array {
-  const decibels = new Float32Array(magnitude.length);
-  for (let i = 0; i < magnitude.length; i++) {
-    decibels[i] = ampToDb(magnitude[i] ?? 0, 1);
+function assertPowerOfTwo(value: number, name: string): void {
+  if (!Number.isInteger(value) || value <= 0 || (value & (value - 1)) !== 0) {
+    throw new AudioInspectError('INVALID_INPUT', `${name} must be a power of two`);
   }
-  return decibels;
 }
 
-function decibelArrayToMagnitude(decibels: Float32Array): Float32Array {
-  const magnitudes = new Float32Array(decibels.length);
-  for (let i = 0; i < decibels.length; i++) {
-    magnitudes[i] = dbToAmp(decibels[i] ?? -Infinity, 1);
+function assertPositiveInteger(value: number, name: string): void {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new AudioInspectError('INVALID_INPUT', `${name} must be a positive integer`);
   }
-  return magnitudes;
 }
 
-// Trim FFT bins to the requested frequency range.
-function filterFrequencyRange(fftResult: FFTResult, minFreq: number, maxFreq: number): FFTResult {
-  const { frequencies, magnitude, phase, complex } = fftResult;
+function assertFrequencyRange(
+  sampleRate: number,
+  minFrequency: number,
+  maxFrequency: number
+): void {
+  if (!Number.isFinite(minFrequency) || !Number.isFinite(maxFrequency) || minFrequency < 0) {
+    throw new AudioInspectError(
+      'INVALID_INPUT',
+      `Invalid frequency range: min=${minFrequency}, max=${maxFrequency}`
+    );
+  }
 
-  let startIndex = frequencies.findIndex((freq) => freq >= minFreq);
+  const nyquist = sampleRate / 2;
+  if (minFrequency >= maxFrequency || maxFrequency > nyquist) {
+    throw new AudioInspectError(
+      'INVALID_INPUT',
+      `Frequency range must satisfy 0 <= min < max <= Nyquist (${nyquist})`
+    );
+  }
+}
+
+function resolveFrequencyBounds(
+  frequencies: Float32Array,
+  minFrequency: number,
+  maxFrequency: number
+): { startIndex: number; endIndex: number } {
+  let startIndex = frequencies.findIndex((freq) => freq >= minFrequency);
   if (startIndex < 0) {
     startIndex = 0;
   }
 
-  const endIndex = frequencies.findIndex((freq) => freq > maxFreq);
-  const actualEnd = endIndex === -1 ? frequencies.length : endIndex;
-  if (startIndex >= actualEnd) {
-    return {
-      frequencies: new Float32Array(0),
-      magnitude: new Float32Array(0),
-      phase: new Float32Array(0),
-      complex: new Float32Array(0)
-    };
+  const firstOutOfRange = frequencies.findIndex((freq) => freq > maxFrequency);
+  const endIndex = firstOutOfRange === -1 ? frequencies.length : firstOutOfRange;
+  if (startIndex >= endIndex) {
+    return { startIndex: 0, endIndex: 0 };
   }
 
-  return {
-    frequencies: frequencies.slice(startIndex, actualEnd),
-    magnitude: magnitude.slice(startIndex, actualEnd),
-    phase: phase.slice(startIndex, actualEnd),
-    complex: complex.slice(startIndex * 2, actualEnd * 2)
-  };
+  return { startIndex, endIndex };
 }
 
-// For spectrograms, expose the latest frame as representative magnitudes.
-function resolveRepresentativeMagnitudes(
-  spectrogram: SpectrogramData,
-  asDecibels: boolean
+function computeCoherentGain(windowFunction: WindowFunction, frameLength: number): number {
+  if (frameLength <= 1 || windowFunction === 'none') {
+    return 1;
+  }
+
+  const window = getWindow(frameLength, windowFunction);
+  let sum = 0;
+  for (let i = 0; i < window.length; i++) {
+    sum += window[i] ?? 0;
+  }
+
+  const gain = sum / frameLength;
+  return gain > 0 ? gain : 1;
+}
+
+function normalizeMagnitudeInPlace(
+  magnitude: Float32Array,
+  normalization: FFTNormalization,
+  frameLength: number,
+  windowFunction: WindowFunction
 ): Float32Array {
-  const latest = spectrogram.intensities[spectrogram.intensities.length - 1];
-  if (!latest) {
-    return new Float32Array(spectrogram.frequencyBins);
+  if (normalization === 'none') {
+    return magnitude;
   }
-  return asDecibels ? decibelArrayToMagnitude(latest) : latest.slice();
+
+  if (frameLength <= 0 || magnitude.length === 0) {
+    magnitude.fill(0);
+    return magnitude;
+  }
+
+  const coherentGain = computeCoherentGain(windowFunction, frameLength);
+  const denominator = frameLength * coherentGain;
+  if (denominator <= 0) {
+    magnitude.fill(0);
+    return magnitude;
+  }
+
+  const edgeScale = 1 / denominator;
+  const interiorScale = edgeScale * 2;
+  const nyquistIndex = magnitude.length - 1;
+
+  for (let i = 0; i < magnitude.length; i++) {
+    const scale = i === 0 || i === nyquistIndex ? edgeScale : interiorScale;
+    magnitude[i] = (magnitude[i] ?? 0) * scale;
+  }
+
+  return magnitude;
 }
 
-interface SpectrogramOptions {
-  provider?: FFTProviderType;
-  enableProfiling?: boolean;
-  windowFunction?: WindowFunction;
-  minFrequency?: number;
-  maxFrequency?: number;
-  decibels?: boolean;
-  providerCache?: FFTProviderCache | undefined;
+function magnitudeToScale(magnitude: Float32Array, scale: SpectrumScale): Float32Array {
+  if (scale === 'amplitude') {
+    return magnitude.slice();
+  }
+
+  const values = new Float32Array(magnitude.length);
+  for (let i = 0; i < magnitude.length; i++) {
+    values[i] = ampToDb(magnitude[i] ?? 0, 1);
+  }
+  return values;
 }
 
-async function computeSpectrogram(
-  data: Float32Array,
-  sampleRate: number,
-  fftSize: number,
-  timeFrames: number,
-  overlap: number,
-  options: SpectrogramOptions
-): Promise<SpectrogramData> {
-  const hopSize = Math.floor(fftSize * (1 - overlap));
-  if (hopSize <= 0) {
-    throw new AudioInspectError('INVALID_INPUT', `Invalid overlap: ${overlap}`);
+function frameCountForLength(dataLength: number, frameSize: number, hopSize: number): number {
+  if (dataLength === 0) {
+    return 0;
   }
-
-  const numPossibleFrames =
-    data.length === 0
-      ? 0
-      : data.length < fftSize
-        ? 1
-        : Math.floor((data.length - fftSize) / hopSize) + 1;
-  const actualFrames = Math.min(timeFrames, numPossibleFrames);
-
-  const times = new Float32Array(actualFrames);
-  const intensities: Float32Array[] = [];
-  let filteredFrequencies = new Float32Array(0);
-  let frequencyStartIndex = 0;
-  let frequencyEndIndex = 0;
-  const frameBuffer = new Float32Array(fftSize);
-
-  const { provider: fftProvider, release } = await acquireFFTProvider({
-    fftSize,
-    sampleRate,
-    provider: options.provider ?? 'native',
-    enableProfiling: options.enableProfiling ?? false,
-    fallbackToNative: options.provider === 'webfft',
-    cache: options.providerCache
-  });
-
-  try {
-    for (let frame = 0; frame < actualFrames; frame++) {
-      const startSample = frame * hopSize;
-      const frameLength = Math.min(fftSize, Math.max(0, data.length - startSample));
-      fillWindowedFrameInto({
-        src: data,
-        srcStart: startSample,
-        frameLength,
-        dst: frameBuffer,
-        windowType: options.windowFunction ?? 'hann'
-      });
-
-      const fftResult = await fftProvider.fft(frameBuffer);
-      if (frame === 0) {
-        const minFreq = options.minFrequency ?? 0;
-        const maxFreq = options.maxFrequency ?? sampleRate / 2;
-        const frequencies = fftResult.frequencies;
-
-        frequencyStartIndex = frequencies.findIndex((freq) => freq >= minFreq);
-        if (frequencyStartIndex < 0) {
-          frequencyStartIndex = 0;
-        }
-
-        const firstOutOfRange = frequencies.findIndex((freq) => freq > maxFreq);
-        frequencyEndIndex = firstOutOfRange === -1 ? frequencies.length : firstOutOfRange;
-        filteredFrequencies = frequencies.slice(frequencyStartIndex, frequencyEndIndex);
-      }
-
-      const filteredMagnitude = fftResult.magnitude.slice(frequencyStartIndex, frequencyEndIndex);
-      intensities.push(
-        options.decibels ? magnitudeArrayToDecibels(filteredMagnitude) : filteredMagnitude
-      );
-      times[frame] = (startSample + fftSize / 2) / sampleRate;
-    }
-  } finally {
-    release();
+  if (dataLength < frameSize) {
+    return 1;
   }
+  return Math.floor((dataLength - frameSize) / hopSize) + 1;
+}
 
-  return {
-    times,
-    frequencies: filteredFrequencies,
-    intensities,
-    timeFrames: actualFrames,
-    frequencyBins: filteredFrequencies.length
-  };
+function assertScaleNormalizationCompatibility(
+  scale: SpectrumScale,
+  normalization: FFTNormalization
+): void {
+  if (scale === 'dbfs' && normalization !== 'amplitude') {
+    throw new AudioInspectError('INVALID_INPUT', 'scale="dbfs" requires normalization="amplitude"');
+  }
 }
 
 // Compute one FFT frame with shared provider/runtime caches.
@@ -241,19 +234,19 @@ export async function getFFT(
     channel = 'mix',
     provider = 'native',
     enableProfiling = false,
-    providerCache
+    providerCache,
+    normalization = 'amplitude'
   } = options;
 
-  if (fftSize <= 0 || (fftSize & (fftSize - 1)) !== 0) {
-    throw new AudioInspectError('INVALID_INPUT', 'FFT size must be a power of two');
-  }
+  assertPowerOfTwo(fftSize, 'FFT size');
 
   const cacheKey = buildFFTCacheKey({
     fftSize,
     windowFunction,
     channel,
     provider,
-    enableProfiling
+    enableProfiling,
+    normalization
   });
   let cacheEntry = fftResultCache.get(audio);
   if (!cacheEntry) {
@@ -269,10 +262,11 @@ export async function getFFT(
   const computation = (async () => {
     const channelData = getChannelData(audio, channel);
     const frameBuffer = new Float32Array(fftSize);
+    const frameLength = Math.min(channelData.length, fftSize);
     fillWindowedFrameInto({
       src: channelData,
       srcStart: 0,
-      frameLength: Math.min(channelData.length, fftSize),
+      frameLength,
       dst: frameBuffer,
       windowType: windowFunction
     });
@@ -288,11 +282,16 @@ export async function getFFT(
 
     try {
       const result = await fftProvider.fft(frameBuffer);
+      const magnitude = new Float32Array(result.magnitude);
+      normalizeMagnitudeInPlace(magnitude, normalization, frameLength, windowFunction);
+
       return {
         ...result,
+        magnitude,
         fftSize,
         windowFunction,
-        providerName: fftProvider.name
+        providerName: fftProvider.name,
+        normalization
       };
     } finally {
       release();
@@ -310,7 +309,7 @@ export async function getFFT(
   return computation;
 }
 
-// Compute spectrum as one frame or a multi-frame spectrogram.
+// Compute one spectrum frame with fixed output scale.
 export async function getSpectrum(
   audio: AudioData,
   options: SpectrumOptions = {}
@@ -319,75 +318,143 @@ export async function getSpectrum(
     fftSize = 2048,
     minFrequency = 0,
     maxFrequency = audio.sampleRate / 2,
-    decibels = true,
-    timeFrames = 1,
-    overlap = 0.5,
+    scale = 'dbfs',
+    normalization = 'amplitude',
     ...fftOptions
   } = options;
 
-  const channelData = getChannelData(audio, options.channel ?? 'mix');
+  assertFrequencyRange(audio.sampleRate, minFrequency, maxFrequency);
+  assertScaleNormalizationCompatibility(scale, normalization);
 
-  if (timeFrames > 1 && (!Number.isFinite(overlap) || overlap < 0 || overlap >= 1)) {
-    throw new AudioInspectError('INVALID_INPUT', 'overlap must be in [0, 1)');
-  }
-
-  if (timeFrames === 1) {
-    const fftResult = await getFFT(audio, {
-      ...fftOptions,
-      fftSize
-    });
-    const filtered = filterFrequencyRange(fftResult, minFrequency, maxFrequency);
-    const result: SpectrumAnalysisResult = {
-      frequencies: filtered.frequencies,
-      magnitudes: filtered.magnitude
-    };
-
-    if (decibels) {
-      result.decibels = magnitudeArrayToDecibels(filtered.magnitude);
-    }
-
-    return result;
-  }
-
-  const spectrogramOptions: SpectrogramOptions = {
-    minFrequency,
-    maxFrequency,
-    decibels
-  };
-  if (fftOptions.provider !== undefined) {
-    spectrogramOptions.provider = fftOptions.provider;
-  }
-  if (fftOptions.enableProfiling !== undefined) {
-    spectrogramOptions.enableProfiling = fftOptions.enableProfiling;
-  }
-  if (fftOptions.windowFunction !== undefined) {
-    spectrogramOptions.windowFunction = fftOptions.windowFunction;
-  }
-  if (fftOptions.providerCache !== undefined) {
-    spectrogramOptions.providerCache = fftOptions.providerCache;
-  }
-
-  const spectrogram = await computeSpectrogram(
-    channelData,
-    audio.sampleRate,
+  const fftResult = await getFFT(audio, {
+    ...fftOptions,
     fftSize,
-    timeFrames,
-    overlap,
-    spectrogramOptions
+    normalization
+  });
+
+  const { startIndex, endIndex } = resolveFrequencyBounds(
+    fftResult.frequencies,
+    minFrequency,
+    maxFrequency
   );
+  const filteredFrequencies = fftResult.frequencies.slice(startIndex, endIndex);
+  const filteredMagnitude = fftResult.magnitude.slice(startIndex, endIndex);
 
-  const result: SpectrumAnalysisResult = {
-    frequencies: spectrogram.frequencies,
-    magnitudes: resolveRepresentativeMagnitudes(spectrogram, decibels),
-    spectrogram
+  return {
+    frequencies: filteredFrequencies,
+    values: magnitudeToScale(filteredMagnitude, scale),
+    scale
   };
+}
 
-  if (decibels) {
-    const latestDecibels = spectrogram.intensities[spectrogram.intensities.length - 1];
-    if (latestDecibels) {
-      result.decibels = latestDecibels;
-    }
+// Compute a spectrogram from a frame sequence.
+export async function getSpectrogram(
+  audio: AudioData,
+  options: SpectrogramOptions = {}
+): Promise<SpectrogramAnalysisResult> {
+  const {
+    fftSize = 2048,
+    frameSize = fftSize,
+    hopSize = Math.max(1, Math.floor(frameSize / 2)),
+    maxFrames,
+    minFrequency = 0,
+    maxFrequency = audio.sampleRate / 2,
+    scale = 'dbfs',
+    normalization = 'amplitude',
+    windowFunction = 'hann',
+    channel = 'mix',
+    provider = 'native',
+    enableProfiling = false,
+    providerCache
+  } = options;
+
+  assertPowerOfTwo(fftSize, 'FFT size');
+  assertPositiveInteger(frameSize, 'frameSize');
+  assertPositiveInteger(hopSize, 'hopSize');
+  if (frameSize > fftSize) {
+    throw new AudioInspectError('INVALID_INPUT', 'frameSize must be <= fftSize');
+  }
+  if (maxFrames !== undefined) {
+    assertPositiveInteger(maxFrames, 'maxFrames');
   }
 
-  return result;
+  assertFrequencyRange(audio.sampleRate, minFrequency, maxFrequency);
+  assertScaleNormalizationCompatibility(scale, normalization);
+
+  const data = getChannelData(audio, channel);
+  const possibleFrameCount = frameCountForLength(data.length, frameSize, hopSize);
+  const frameCount =
+    maxFrames === undefined ? possibleFrameCount : Math.min(possibleFrameCount, maxFrames);
+
+  if (frameCount === 0) {
+    return {
+      times: new Float32Array(0),
+      frequencies: new Float32Array(0),
+      frames: [],
+      frameCount: 0,
+      frequencyBins: 0,
+      scale,
+      latest: new Float32Array(0)
+    };
+  }
+
+  const times = new Float32Array(frameCount);
+  const frames: Float32Array[] = new Array<Float32Array>(frameCount);
+  const frameBuffer = new Float32Array(fftSize);
+
+  let filteredFrequencies = new Float32Array(0);
+  let frequencyStartIndex = 0;
+  let frequencyEndIndex = 0;
+
+  const { provider: fftProvider, release } = await acquireFFTProvider({
+    fftSize,
+    sampleRate: audio.sampleRate,
+    provider,
+    enableProfiling,
+    fallbackToNative: provider === 'webfft',
+    cache: providerCache
+  });
+
+  try {
+    for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
+      const startSample = frameIndex * hopSize;
+      const frameLength = Math.min(frameSize, Math.max(0, data.length - startSample));
+      fillWindowedFrameInto({
+        src: data,
+        srcStart: startSample,
+        frameLength,
+        dst: frameBuffer,
+        windowType: windowFunction
+      });
+
+      const fftResult = await fftProvider.fft(frameBuffer);
+      const magnitude = new Float32Array(fftResult.magnitude);
+      normalizeMagnitudeInPlace(magnitude, normalization, frameLength, windowFunction);
+
+      if (frameIndex === 0) {
+        const range = resolveFrequencyBounds(fftResult.frequencies, minFrequency, maxFrequency);
+        frequencyStartIndex = range.startIndex;
+        frequencyEndIndex = range.endIndex;
+        filteredFrequencies = fftResult.frequencies.slice(frequencyStartIndex, frequencyEndIndex);
+      }
+
+      const filteredMagnitude = magnitude.slice(frequencyStartIndex, frequencyEndIndex);
+      frames[frameIndex] = magnitudeToScale(filteredMagnitude, scale);
+      times[frameIndex] = (startSample + frameSize / 2) / audio.sampleRate;
+    }
+  } finally {
+    release();
+  }
+
+  const latest = frames[frames.length - 1] ?? new Float32Array(filteredFrequencies.length);
+
+  return {
+    times,
+    frequencies: filteredFrequencies,
+    frames,
+    frameCount: frames.length,
+    frequencyBins: filteredFrequencies.length,
+    scale,
+    latest
+  };
 }

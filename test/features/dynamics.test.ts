@@ -80,8 +80,8 @@ describe('getCrestFactor', () => {
 
       const result = getCrestFactor(audio);
 
-      expect(result.crestFactorLinear).toBe(Infinity);
-      expect(result.crestFactor).toBe(Infinity);
+      expect(result.crestFactorLinear).toBe(0);
+      expect(result.crestFactor).toBe(-Infinity);
       expect(result.peak).toBe(0);
       expect(result.rms).toBe(0);
     });

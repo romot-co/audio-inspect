@@ -10,7 +10,7 @@ import {
 } from '../types.js';
 import { getChannelData, safeArrayAccess, getPerformanceNow } from '../core/utils.js';
 import { ampToDb } from '../core/dsp/db.js';
-import { getTruePeak } from '../core/dsp/oversampling.js';
+import { getInterSamplePeak } from '../core/dsp/oversampling.js';
 
 // Peak detector options.
 export interface PeaksOptions {
@@ -234,8 +234,8 @@ export function getPeakAmplitude(audio: AudioData, options: AmplitudeOptions = {
   let peak: number;
 
   if (resolvedOptions.truePeak) {
-    // True peak via interpolation-based oversampling.
-    peak = getTruePeak(channelData, {
+    // Inter-sample peak via interpolation-based oversampling.
+    peak = getInterSamplePeak(channelData, {
       factor: resolvedOptions.oversamplingFactor,
       interpolation: resolvedOptions.interpolation
     });

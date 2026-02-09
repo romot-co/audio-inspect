@@ -1,550 +1,558 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>audio-inspect Demo</title>
-  <style>
-    :root {
-      color-scheme: light;
-      --bg: #f6f8fb;
-      --panel: #ffffff;
-      --ink: #1a1f2b;
-      --muted: #64748b;
-      --accent: #0f766e;
-      --accent-2: #0ea5e9;
-      --danger: #b91c1c;
-      --border: #dbe3ef;
-    }
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>audio-inspect Demo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f8fb;
+        --panel: #ffffff;
+        --ink: #1a1f2b;
+        --muted: #64748b;
+        --accent: #0f766e;
+        --accent-2: #0ea5e9;
+        --danger: #b91c1c;
+        --border: #dbe3ef;
+      }
 
-    * {
-      box-sizing: border-box;
-    }
+      * {
+        box-sizing: border-box;
+      }
 
-    body {
-      margin: 0;
-      background: radial-gradient(circle at top right, #def7ff, var(--bg) 45%);
-      color: var(--ink);
-      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
+      body {
+        margin: 0;
+        background: radial-gradient(circle at top right, #def7ff, var(--bg) 45%);
+        color: var(--ink);
+        font-family:
+          ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+      }
 
-    main {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 20px;
-      display: grid;
-      gap: 16px;
-    }
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 20px;
+        display: grid;
+        gap: 16px;
+      }
 
-    h1, h2 {
-      margin: 0;
-    }
+      h1,
+      h2 {
+        margin: 0;
+      }
 
-    .title {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
-    }
+      .title {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+      }
 
-    .layout {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
-
-    .panel {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 14px;
-      display: grid;
-      gap: 10px;
-    }
-
-    .row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-
-    button {
-      border: none;
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 14px;
-      cursor: pointer;
-      background: var(--accent);
-      color: white;
-    }
-
-    button.secondary {
-      background: var(--accent-2);
-    }
-
-    button.danger {
-      background: var(--danger);
-    }
-
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    input[type='file'] {
-      font-size: 14px;
-    }
-
-    audio {
-      width: 100%;
-    }
-
-    .metric-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(120px, 1fr));
-      gap: 8px;
-    }
-
-    .metric {
-      background: #f8fbff;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px;
-    }
-
-    .metric b {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 2px;
-      font-weight: 600;
-    }
-
-    .metric span {
-      font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
-      font-size: 14px;
-    }
-
-    .status {
-      color: var(--muted);
-      font-size: 13px;
-      min-height: 18px;
-    }
-
-    canvas {
-      width: 100%;
-      height: 180px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: #04111c;
-      display: block;
-    }
-
-    pre {
-      margin: 0;
-      max-height: 280px;
-      overflow: auto;
-      background: #0c1220;
-      color: #d4e5ff;
-      border-radius: 8px;
-      padding: 12px;
-      font-size: 12px;
-    }
-
-    @media (max-width: 900px) {
       .layout {
-        grid-template-columns: 1fr;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
       }
-    }
-  </style>
-</head>
-<body>
-  <main>
-    <section class="title">
-      <h1>audio-inspect Unified Demo</h1>
-      <p>One page demo for microphone realtime monitoring and file offline/realtime analysis.</p>
-    </section>
 
-    <section class="layout">
-      <article class="panel">
-        <h2>Microphone (Realtime)</h2>
-        <div class="row">
-          <button id="micStart">Start Mic</button>
-          <button id="micStop" class="danger" disabled>Stop Mic</button>
-          <label><input id="micSpectrumToggle" type="checkbox" checked> Spectrum</label>
-        </div>
-        <div class="status" id="micStatus">Idle</div>
-        <div class="metric-grid">
-          <div class="metric"><b>RMS (dBFS)</b><span id="micRms">-</span></div>
-          <div class="metric"><b>Peak (dBFS)</b><span id="micPeak">-</span></div>
-          <div class="metric"><b>Dominant Hz</b><span id="micHz">-</span></div>
-          <div class="metric"><b>Frames</b><span id="micFrames">0</span></div>
-        </div>
-        <canvas id="micCanvas" width="900" height="220"></canvas>
-      </article>
-
-      <article class="panel">
-        <h2>File (Offline + Realtime)</h2>
-        <input id="fileInput" type="file" accept="audio/*">
-        <audio id="player" controls preload="metadata"></audio>
-        <div class="row">
-          <button id="fileRealtimeStart" class="secondary" disabled>Start File Monitor</button>
-          <button id="fileRealtimeStop" class="danger" disabled>Stop File Monitor</button>
-          <button id="fileOfflineRun" disabled>Run Offline Inspect</button>
-        </div>
-        <div class="status" id="fileStatus">No file selected.</div>
-        <div class="metric-grid">
-          <div class="metric"><b>RMS (dBFS)</b><span id="fileRms">-</span></div>
-          <div class="metric"><b>Peak (dBFS)</b><span id="filePeak">-</span></div>
-          <div class="metric"><b>Dominant Hz</b><span id="fileHz">-</span></div>
-          <div class="metric"><b>Frames</b><span id="fileFrames">0</span></div>
-        </div>
-        <canvas id="fileCanvas" width="900" height="220"></canvas>
-      </article>
-    </section>
-
-    <section class="panel">
-      <h2>Offline Inspect Output</h2>
-      <pre id="offlineOutput">{}</pre>
-    </section>
-  </main>
-
-  <script type="module">
-    import { inspect, monitor } from '../dist/index.js';
-
-    const ui = {
-      micStart: document.getElementById('micStart'),
-      micStop: document.getElementById('micStop'),
-      micStatus: document.getElementById('micStatus'),
-      micSpectrumToggle: document.getElementById('micSpectrumToggle'),
-      micRms: document.getElementById('micRms'),
-      micPeak: document.getElementById('micPeak'),
-      micHz: document.getElementById('micHz'),
-      micFrames: document.getElementById('micFrames'),
-      micCanvas: document.getElementById('micCanvas'),
-      fileInput: document.getElementById('fileInput'),
-      player: document.getElementById('player'),
-      fileRealtimeStart: document.getElementById('fileRealtimeStart'),
-      fileRealtimeStop: document.getElementById('fileRealtimeStop'),
-      fileOfflineRun: document.getElementById('fileOfflineRun'),
-      fileStatus: document.getElementById('fileStatus'),
-      fileRms: document.getElementById('fileRms'),
-      filePeak: document.getElementById('filePeak'),
-      fileHz: document.getElementById('fileHz'),
-      fileFrames: document.getElementById('fileFrames'),
-      fileCanvas: document.getElementById('fileCanvas'),
-      offlineOutput: document.getElementById('offlineOutput')
-    };
-
-    let context = null;
-    let micStream = null;
-    let micSession = null;
-    let fileSession = null;
-    let micFrameCount = 0;
-    let fileFrameCount = 0;
-    let currentFile = null;
-    let currentFileUrl = null;
-    const demoWorklet = { moduleUrl: '/dist/core/realtime/processor.js' };
-
-    const micCtx = ui.micCanvas.getContext('2d');
-    const fileCtx = ui.fileCanvas.getContext('2d');
-
-    const fmt = (value, digits = 2) => {
-      if (typeof value !== 'number' || !Number.isFinite(value)) {
-        return '-';
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 14px;
+        display: grid;
+        gap: 10px;
       }
-      return value.toFixed(digits);
-    };
 
-    function getContext() {
-      if (!context) {
-        context = new AudioContext();
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
       }
-      return context;
-    }
 
-    function dominantFrequency(spectrum) {
-      if (!spectrum?.frequencies || !spectrum?.magnitudes) {
-        return null;
+      button {
+        border: none;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 14px;
+        cursor: pointer;
+        background: var(--accent);
+        color: white;
       }
-      let bestIdx = -1;
-      let bestMag = -Infinity;
-      for (let i = 0; i < spectrum.magnitudes.length; i++) {
-        const mag = spectrum.magnitudes[i];
-        if (mag > bestMag) {
-          bestMag = mag;
-          bestIdx = i;
+
+      button.secondary {
+        background: var(--accent-2);
+      }
+
+      button.danger {
+        background: var(--danger);
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      input[type='file'] {
+        font-size: 14px;
+      }
+
+      audio {
+        width: 100%;
+      }
+
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
+        gap: 8px;
+      }
+
+      .metric {
+        background: #f8fbff;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px;
+      }
+
+      .metric b {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 2px;
+        font-weight: 600;
+      }
+
+      .metric span {
+        font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+        font-size: 14px;
+      }
+
+      .status {
+        color: var(--muted);
+        font-size: 13px;
+        min-height: 18px;
+      }
+
+      canvas {
+        width: 100%;
+        height: 180px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #04111c;
+        display: block;
+      }
+
+      pre {
+        margin: 0;
+        max-height: 280px;
+        overflow: auto;
+        background: #0c1220;
+        color: #d4e5ff;
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 12px;
+      }
+
+      @media (max-width: 900px) {
+        .layout {
+          grid-template-columns: 1fr;
         }
       }
-      if (bestIdx < 0) {
-        return null;
-      }
-      return spectrum.frequencies[bestIdx] ?? null;
-    }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="title">
+        <h1>audio-inspect Unified Demo</h1>
+        <p>One page demo for microphone realtime monitoring and file offline/realtime analysis.</p>
+      </section>
 
-    function drawSpectrum(ctx, spectrum) {
-      const width = ctx.canvas.width;
-      const height = ctx.canvas.height;
-      ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = '#05192a';
-      ctx.fillRect(0, 0, width, height);
+      <section class="layout">
+        <article class="panel">
+          <h2>Microphone (Realtime)</h2>
+          <div class="row">
+            <button id="micStart">Start Mic</button>
+            <button id="micStop" class="danger" disabled>Stop Mic</button>
+            <label><input id="micSpectrumToggle" type="checkbox" checked /> Spectrum</label>
+          </div>
+          <div class="status" id="micStatus">Idle</div>
+          <div class="metric-grid">
+            <div class="metric"><b>RMS (dBFS)</b><span id="micRms">-</span></div>
+            <div class="metric"><b>Peak (dBFS)</b><span id="micPeak">-</span></div>
+            <div class="metric"><b>Dominant Hz</b><span id="micHz">-</span></div>
+            <div class="metric"><b>Frames</b><span id="micFrames">0</span></div>
+          </div>
+          <canvas id="micCanvas" width="900" height="220"></canvas>
+        </article>
 
-      if (!spectrum?.magnitudes || spectrum.magnitudes.length === 0) {
-        return;
-      }
+        <article class="panel">
+          <h2>File (Offline + Realtime)</h2>
+          <input id="fileInput" type="file" accept="audio/*" />
+          <audio id="player" controls preload="metadata"></audio>
+          <div class="row">
+            <button id="fileRealtimeStart" class="secondary" disabled>Start File Monitor</button>
+            <button id="fileRealtimeStop" class="danger" disabled>Stop File Monitor</button>
+            <button id="fileOfflineRun" disabled>Run Offline Inspect</button>
+          </div>
+          <div class="status" id="fileStatus">No file selected.</div>
+          <div class="metric-grid">
+            <div class="metric"><b>RMS (dBFS)</b><span id="fileRms">-</span></div>
+            <div class="metric"><b>Peak (dBFS)</b><span id="filePeak">-</span></div>
+            <div class="metric"><b>Dominant Hz</b><span id="fileHz">-</span></div>
+            <div class="metric"><b>Frames</b><span id="fileFrames">0</span></div>
+          </div>
+          <canvas id="fileCanvas" width="900" height="220"></canvas>
+        </article>
+      </section>
 
-      const mags = spectrum.magnitudes;
-      const barStep = Math.max(1, Math.floor(mags.length / width));
-      ctx.fillStyle = '#34d399';
+      <section class="panel">
+        <h2>Offline Inspect Output</h2>
+        <pre id="offlineOutput">{}</pre>
+      </section>
+    </main>
 
-      for (let x = 0; x < width; x++) {
-        const idx = x * barStep;
-        if (idx >= mags.length) {
-          break;
+    <script type="module">
+      import { inspect, monitor } from '../dist/index.js';
+
+      const ui = {
+        micStart: document.getElementById('micStart'),
+        micStop: document.getElementById('micStop'),
+        micStatus: document.getElementById('micStatus'),
+        micSpectrumToggle: document.getElementById('micSpectrumToggle'),
+        micRms: document.getElementById('micRms'),
+        micPeak: document.getElementById('micPeak'),
+        micHz: document.getElementById('micHz'),
+        micFrames: document.getElementById('micFrames'),
+        micCanvas: document.getElementById('micCanvas'),
+        fileInput: document.getElementById('fileInput'),
+        player: document.getElementById('player'),
+        fileRealtimeStart: document.getElementById('fileRealtimeStart'),
+        fileRealtimeStop: document.getElementById('fileRealtimeStop'),
+        fileOfflineRun: document.getElementById('fileOfflineRun'),
+        fileStatus: document.getElementById('fileStatus'),
+        fileRms: document.getElementById('fileRms'),
+        filePeak: document.getElementById('filePeak'),
+        fileHz: document.getElementById('fileHz'),
+        fileFrames: document.getElementById('fileFrames'),
+        fileCanvas: document.getElementById('fileCanvas'),
+        offlineOutput: document.getElementById('offlineOutput')
+      };
+
+      let context = null;
+      let micStream = null;
+      let micSession = null;
+      let fileSession = null;
+      let micFrameCount = 0;
+      let fileFrameCount = 0;
+      let currentFile = null;
+      let currentFileUrl = null;
+      const demoWorklet = { moduleUrl: '/dist/core/realtime/processor.js' };
+
+      const micCtx = ui.micCanvas.getContext('2d');
+      const fileCtx = ui.fileCanvas.getContext('2d');
+
+      const fmt = (value, digits = 2) => {
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+          return '-';
         }
-        let mag = Math.abs(mags[idx]);
-        mag = Math.min(1, mag);
-        const barHeight = Math.max(1, Math.floor(mag * height));
-        ctx.fillRect(x, height - barHeight, 1, barHeight);
+        return value.toFixed(digits);
+      };
+
+      function getContext() {
+        if (!context) {
+          context = new AudioContext();
+        }
+        return context;
       }
-    }
 
-    function setMicStatus(text) {
-      ui.micStatus.textContent = text;
-    }
+      function dominantFrequency(spectrum) {
+        if (!spectrum?.frequencies || !spectrum?.values) {
+          return null;
+        }
+        let bestIdx = -1;
+        let bestMag = -Infinity;
+        for (let i = 0; i < spectrum.values.length; i++) {
+          const mag = spectrum.values[i];
+          if (mag > bestMag) {
+            bestMag = mag;
+            bestIdx = i;
+          }
+        }
+        if (bestIdx < 0) {
+          return null;
+        }
+        return spectrum.frequencies[bestIdx] ?? null;
+      }
 
-    function setFileStatus(text) {
-      ui.fileStatus.textContent = text;
-    }
+      function drawSpectrum(ctx, spectrum) {
+        const width = ctx.canvas.width;
+        const height = ctx.canvas.height;
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = '#05192a';
+        ctx.fillRect(0, 0, width, height);
 
-    async function startMic() {
-      try {
-        const ctx = getContext();
-        await ctx.resume();
+        if (!spectrum?.values || spectrum.values.length === 0) {
+          return;
+        }
 
+        const mags = spectrum.values;
+        const barStep = Math.max(1, Math.floor(mags.length / width));
+        ctx.fillStyle = '#34d399';
+
+        for (let x = 0; x < width; x++) {
+          const idx = x * barStep;
+          if (idx >= mags.length) {
+            break;
+          }
+          let mag = Math.abs(mags[idx]);
+          mag = Math.min(1, mag);
+          const barHeight = Math.max(1, Math.floor(mag * height));
+          ctx.fillRect(x, height - barHeight, 1, barHeight);
+        }
+      }
+
+      function setMicStatus(text) {
+        ui.micStatus.textContent = text;
+      }
+
+      function setFileStatus(text) {
+        ui.fileStatus.textContent = text;
+      }
+
+      async function startMic() {
+        try {
+          const ctx = getContext();
+          await ctx.resume();
+
+          if (micSession) {
+            await micSession.close();
+            micSession = null;
+          }
+
+          micStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+          });
+
+          micFrameCount = 0;
+          ui.micFrames.textContent = '0';
+
+          micSession = await monitor({
+            context: ctx,
+            source: micStream,
+            worklet: demoWorklet,
+            emit: 'raf',
+            features: {
+              rms: { asDB: true },
+              peak: { asDB: true },
+              spectrum: { fftSize: 2048, scale: 'amplitude' }
+            }
+          });
+
+          micSession.onFrame((frame) => {
+            micFrameCount += 1;
+            ui.micFrames.textContent = String(micFrameCount);
+            ui.micRms.textContent = fmt(frame.results.rms, 2);
+            ui.micPeak.textContent = fmt(frame.results.peak, 2);
+
+            const hz = dominantFrequency(frame.results.spectrum);
+            ui.micHz.textContent = hz == null ? '-' : fmt(hz, 1);
+            drawSpectrum(micCtx, frame.results.spectrum);
+          });
+
+          micSession.onError((event) => {
+            setMicStatus(`Error: ${event.message}`);
+          });
+
+          ui.micStart.disabled = true;
+          ui.micStop.disabled = false;
+          setMicStatus(`Running (${micSession.engine})`);
+        } catch (error) {
+          setMicStatus(`Failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      async function stopMic() {
         if (micSession) {
           await micSession.close();
           micSession = null;
         }
-
-        micStream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-        });
-
-        micFrameCount = 0;
-        ui.micFrames.textContent = '0';
-
-        micSession = await monitor({
-          context: ctx,
-          source: micStream,
-          worklet: demoWorklet,
-          emit: 'raf',
-          features: {
-            rms: { asDB: true },
-            peak: { asDB: true },
-            spectrum: { fftSize: 2048, decibels: false, timeFrames: 1 }
+        if (micStream) {
+          for (const track of micStream.getTracks()) {
+            track.stop();
           }
-        });
-
-        micSession.onFrame((frame) => {
-          micFrameCount += 1;
-          ui.micFrames.textContent = String(micFrameCount);
-          ui.micRms.textContent = fmt(frame.results.rms, 2);
-          ui.micPeak.textContent = fmt(frame.results.peak, 2);
-
-          const hz = dominantFrequency(frame.results.spectrum);
-          ui.micHz.textContent = hz == null ? '-' : fmt(hz, 1);
-          drawSpectrum(micCtx, frame.results.spectrum);
-        });
-
-        micSession.onError((event) => {
-          setMicStatus(`Error: ${event.message}`);
-        });
-
-        ui.micStart.disabled = true;
-        ui.micStop.disabled = false;
-        setMicStatus(`Running (${micSession.engine})`);
-      } catch (error) {
-        setMicStatus(`Failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-
-    async function stopMic() {
-      if (micSession) {
-        await micSession.close();
-        micSession = null;
-      }
-      if (micStream) {
-        for (const track of micStream.getTracks()) {
-          track.stop();
+          micStream = null;
         }
-        micStream = null;
-      }
-      ui.micStart.disabled = false;
-      ui.micStop.disabled = true;
-      setMicStatus('Idle');
-    }
-
-    async function onMicSpectrumToggle() {
-      if (!micSession) {
-        return;
-      }
-      if (ui.micSpectrumToggle.checked) {
-        await micSession.setFeature('spectrum', { fftSize: 2048, decibels: false, timeFrames: 1 });
-      } else {
-        await micSession.removeFeature('spectrum');
-      }
-    }
-
-    function onFileSelected(file) {
-      currentFile = file ?? null;
-      if (currentFileUrl) {
-        URL.revokeObjectURL(currentFileUrl);
-        currentFileUrl = null;
+        ui.micStart.disabled = false;
+        ui.micStop.disabled = true;
+        setMicStatus('Idle');
       }
 
-      if (!currentFile) {
-        ui.fileRealtimeStart.disabled = true;
-        ui.fileOfflineRun.disabled = true;
-        setFileStatus('No file selected.');
-        return;
+      async function onMicSpectrumToggle() {
+        if (!micSession) {
+          return;
+        }
+        if (ui.micSpectrumToggle.checked) {
+          await micSession.setFeature('spectrum', { fftSize: 2048, scale: 'amplitude' });
+        } else {
+          await micSession.removeFeature('spectrum');
+        }
       }
 
-      currentFileUrl = URL.createObjectURL(currentFile);
-      ui.player.src = currentFileUrl;
-      ui.fileRealtimeStart.disabled = false;
-      ui.fileOfflineRun.disabled = false;
-      setFileStatus(`Selected: ${currentFile.name}`);
-    }
+      function onFileSelected(file) {
+        currentFile = file ?? null;
+        if (currentFileUrl) {
+          URL.revokeObjectURL(currentFileUrl);
+          currentFileUrl = null;
+        }
 
-    async function startFileMonitor() {
-      if (!currentFile) {
-        return;
+        if (!currentFile) {
+          ui.fileRealtimeStart.disabled = true;
+          ui.fileOfflineRun.disabled = true;
+          setFileStatus('No file selected.');
+          return;
+        }
+
+        currentFileUrl = URL.createObjectURL(currentFile);
+        ui.player.src = currentFileUrl;
+        ui.fileRealtimeStart.disabled = false;
+        ui.fileOfflineRun.disabled = false;
+        setFileStatus(`Selected: ${currentFile.name}`);
       }
 
-      try {
-        const ctx = getContext();
-        await ctx.resume();
+      async function startFileMonitor() {
+        if (!currentFile) {
+          return;
+        }
 
+        try {
+          const ctx = getContext();
+          await ctx.resume();
+
+          if (fileSession) {
+            await fileSession.close();
+            fileSession = null;
+          }
+
+          fileFrameCount = 0;
+          ui.fileFrames.textContent = '0';
+
+          fileSession = await monitor({
+            context: ctx,
+            source: ui.player,
+            worklet: demoWorklet,
+            emit: 'raf',
+            features: {
+              rms: { asDB: true },
+              peak: { asDB: true },
+              spectrum: { fftSize: 2048, scale: 'amplitude' }
+            }
+          });
+
+          fileSession.onFrame((frame) => {
+            fileFrameCount += 1;
+            ui.fileFrames.textContent = String(fileFrameCount);
+            ui.fileRms.textContent = fmt(frame.results.rms, 2);
+            ui.filePeak.textContent = fmt(frame.results.peak, 2);
+
+            const hz = dominantFrequency(frame.results.spectrum);
+            ui.fileHz.textContent = hz == null ? '-' : fmt(hz, 1);
+            drawSpectrum(fileCtx, frame.results.spectrum);
+          });
+
+          fileSession.onError((event) => {
+            setFileStatus(`Error: ${event.message}`);
+          });
+
+          await ui.player.play().catch(() => undefined);
+
+          ui.fileRealtimeStart.disabled = true;
+          ui.fileRealtimeStop.disabled = false;
+          setFileStatus(`Realtime monitor running (${fileSession.engine})`);
+        } catch (error) {
+          setFileStatus(`Failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      async function stopFileMonitor() {
         if (fileSession) {
           await fileSession.close();
           fileSession = null;
         }
-
-        fileFrameCount = 0;
-        ui.fileFrames.textContent = '0';
-
-        fileSession = await monitor({
-          context: ctx,
-          source: ui.player,
-          worklet: demoWorklet,
-          emit: 'raf',
-          features: {
-            rms: { asDB: true },
-            peak: { asDB: true },
-            spectrum: { fftSize: 2048, decibels: false, timeFrames: 1 }
-          }
-        });
-
-        fileSession.onFrame((frame) => {
-          fileFrameCount += 1;
-          ui.fileFrames.textContent = String(fileFrameCount);
-          ui.fileRms.textContent = fmt(frame.results.rms, 2);
-          ui.filePeak.textContent = fmt(frame.results.peak, 2);
-
-          const hz = dominantFrequency(frame.results.spectrum);
-          ui.fileHz.textContent = hz == null ? '-' : fmt(hz, 1);
-          drawSpectrum(fileCtx, frame.results.spectrum);
-        });
-
-        fileSession.onError((event) => {
-          setFileStatus(`Error: ${event.message}`);
-        });
-
-        await ui.player.play().catch(() => undefined);
-
-        ui.fileRealtimeStart.disabled = true;
-        ui.fileRealtimeStop.disabled = false;
-        setFileStatus(`Realtime monitor running (${fileSession.engine})`);
-      } catch (error) {
-        setFileStatus(`Failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-
-    async function stopFileMonitor() {
-      if (fileSession) {
-        await fileSession.close();
-        fileSession = null;
-      }
-      ui.fileRealtimeStart.disabled = currentFile == null;
-      ui.fileRealtimeStop.disabled = true;
-      setFileStatus(currentFile ? 'Realtime monitor stopped.' : 'No file selected.');
-    }
-
-    async function runOfflineInspect() {
-      if (!currentFile) {
-        return;
+        ui.fileRealtimeStart.disabled = currentFile == null;
+        ui.fileRealtimeStop.disabled = true;
+        setFileStatus(currentFile ? 'Realtime monitor stopped.' : 'No file selected.');
       }
 
-      setFileStatus('Running offline inspect...');
-      try {
-        const result = await inspect(currentFile, {
-          load: { normalize: true },
-          features: {
-            rms: { asDB: true },
-            peak: { asDB: true },
-            spectralFeatures: { fftSize: 2048 },
-            lufs: { gated: true, calculateTruePeak: true },
-            vad: { method: 'adaptive' }
-          }
-        });
+      async function runOfflineInspect() {
+        if (!currentFile) {
+          return;
+        }
 
-        ui.offlineOutput.textContent = JSON.stringify(result, null, 2);
-        setFileStatus('Offline inspect completed.');
-      } catch (error) {
-        setFileStatus(`Offline inspect failed: ${error instanceof Error ? error.message : String(error)}`);
+        setFileStatus('Running offline inspect...');
+        try {
+          const result = await inspect(currentFile, {
+            load: { normalize: true },
+            features: {
+              rms: { asDB: true },
+              peak: { asDB: true },
+              spectralFeatures: { fftSize: 2048 },
+              lufs: { gated: true, calculateTruePeak: true },
+              vad: { method: 'adaptive' }
+            }
+          });
+
+          ui.offlineOutput.textContent = JSON.stringify(result, null, 2);
+          setFileStatus('Offline inspect completed.');
+        } catch (error) {
+          setFileStatus(
+            `Offline inspect failed: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
       }
-    }
 
-    ui.micStart.addEventListener('click', () => {
-      void startMic();
-    });
-    ui.micStop.addEventListener('click', () => {
-      void stopMic();
-    });
-    ui.micSpectrumToggle.addEventListener('change', () => {
-      void onMicSpectrumToggle();
-    });
+      ui.micStart.addEventListener('click', () => {
+        void startMic();
+      });
+      ui.micStop.addEventListener('click', () => {
+        void stopMic();
+      });
+      ui.micSpectrumToggle.addEventListener('change', () => {
+        void onMicSpectrumToggle();
+      });
 
-    ui.fileInput.addEventListener('change', (event) => {
-      const input = event.target;
-      if (!(input instanceof HTMLInputElement)) {
-        return;
-      }
-      onFileSelected(input.files?.[0] ?? null);
-    });
+      ui.fileInput.addEventListener('change', (event) => {
+        const input = event.target;
+        if (!(input instanceof HTMLInputElement)) {
+          return;
+        }
+        onFileSelected(input.files?.[0] ?? null);
+      });
 
-    ui.fileRealtimeStart.addEventListener('click', () => {
-      void startFileMonitor();
-    });
+      ui.fileRealtimeStart.addEventListener('click', () => {
+        void startFileMonitor();
+      });
 
-    ui.fileRealtimeStop.addEventListener('click', () => {
-      void stopFileMonitor();
-    });
+      ui.fileRealtimeStop.addEventListener('click', () => {
+        void stopFileMonitor();
+      });
 
-    ui.fileOfflineRun.addEventListener('click', () => {
-      void runOfflineInspect();
-    });
+      ui.fileOfflineRun.addEventListener('click', () => {
+        void runOfflineInspect();
+      });
 
-    window.addEventListener('beforeunload', () => {
-      void stopMic();
-      void stopFileMonitor();
-      if (currentFileUrl) {
-        URL.revokeObjectURL(currentFileUrl);
-        currentFileUrl = null;
-      }
-    });
-  </script>
-</body>
+      window.addEventListener('beforeunload', () => {
+        void stopMic();
+        void stopFileMonitor();
+        if (currentFileUrl) {
+          URL.revokeObjectURL(currentFileUrl);
+          currentFileUrl = null;
+        }
+      });
+    </script>
+  </body>
 </html>

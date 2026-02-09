@@ -828,6 +828,31 @@ describe('getMelSpectrogram', () => {
     expect(result.melSpectrogram[0]?.length).toBe(64);
     expect((result.melSpectrogram[0] ?? []).every((value) => value >= 0)).toBe(true);
   });
+
+  it('should support fractional power values', async () => {
+    const signal = createSineWave(880, 1.0, 44100, 0.7);
+    const audio = createTestAudioData(signal);
+
+    const result = await getMelSpectrogram(audio, {
+      numMelFilters: 32,
+      logScale: false,
+      power: 0.5
+    });
+
+    expect(result.frameInfo.numBins).toBe(32);
+    expect((result.melSpectrogram[0] ?? []).every((value) => value >= 0)).toBe(true);
+  });
+
+  it('should reject non-positive power values', async () => {
+    const signal = createSineWave(440, 0.5, 44100, 0.7);
+    const audio = createTestAudioData(signal);
+
+    await expect(
+      getMelSpectrogram(audio, {
+        power: 0
+      })
+    ).rejects.toThrow('power must be a positive finite number');
+  });
 });
 
 describe('getCQT', () => {

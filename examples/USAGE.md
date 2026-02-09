@@ -65,6 +65,7 @@ const session = await monitor({
 });
 
 session.onFrame((frame) => {
+  console.log(frame.sampleIndex);
   drawMeters(frame.results.rms, frame.results.peak);
 });
 ```
@@ -73,6 +74,12 @@ session.onFrame((frame) => {
 
 ```ts
 await session.setFeature('spectrum', { fftSize: 2048 });
+await session.setFeature('spectrogram', {
+  fftSize: 2048,
+  frameSize: 2048,
+  hopSize: 512,
+  maxFrames: 60
+});
 await session.removeFeature('peak');
 await session.setFeatures({ lufs: true, vad: { method: 'adaptive' } });
 ```

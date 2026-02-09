@@ -136,3 +136,78 @@ export function resampleLinear(audio: AudioData, targetSampleRate: number): Audi
     duration: newLength / targetSampleRate
   };
 }
+
+export async function resampleWithOfflineAudioContext(
+  audio: AudioData,
+  targetSampleRate: number,
+  signal?: AbortSignal
+): Promise<AudioData> {
+  if (!Number.isFinite(targetSampleRate) || targetSampleRate <= 0) {
+    throw new AudioInspectError('INVALID_INPUT', 'sampleRate must be positive');
+  }
+
+  if (targetSampleRate === audio.sampleRate) {
+    return audio;
+  }
+
+  if (signal?.aborted) {
+    throw new AudioInspectError('ABORTED', 'Operation aborted');
+  }
+
+  if (audio.numberOfChannels === 0 || audio.length === 0) {
+    return {
+      sampleRate: targetSampleRate,
+      numberOfChannels: audio.numberOfChannels,
+      channelData: audio.channelData.map(() => new Float32Array(0)),
+      length: 0,
+      duration: 0
+    };
+  }
+
+  if (typeof OfflineAudioContext === 'undefined') {
+    throw new AudioInspectError(
+      'PROCESSING_ERROR',
+      'OfflineAudioContext is not available for high-quality resampling'
+    );
+  }
+
+  const targetLength = Math.max(1, Math.round((audio.length * targetSampleRate) / audio.sampleRate));
+  const offlineContext = new OfflineAudioContext(
+    audio.numberOfChannels,
+    targetLength,
+    targetSampleRate
+  );
+  const sourceBuffer = offlineContext.createBuffer(
+    audio.numberOfChannels,
+    audio.length,
+    audio.sampleRate
+  );
+
+  for (let channelIndex = 0; channelIndex < audio.numberOfChannels; channelIndex++) {
+    const sourceChannel = audio.channelData[channelIndex] ?? new Float32Array(audio.length);
+    sourceBuffer.copyToChannel(sourceChannel as Float32Array<ArrayBuffer>, channelIndex, 0);
+  }
+
+  const sourceNode = offlineContext.createBufferSource();
+  sourceNode.buffer = sourceBuffer;
+  sourceNode.connect(offlineContext.destination);
+  sourceNode.start(0);
+
+  const renderedBuffer = await offlineContext.startRendering();
+  if (signal?.aborted) {
+    throw new AudioInspectError('ABORTED', 'Operation aborted');
+  }
+
+  const renderedChannels: Float32Array[] = [];
+  for (let channelIndex = 0; channelIndex < renderedBuffer.numberOfChannels; channelIndex++) {
+    renderedChannels.push(renderedBuffer.getChannelData(channelIndex).slice());
+  }
+
+  return {
+    sampleRate: renderedBuffer.sampleRate,
+    numberOfChannels: renderedBuffer.numberOfChannels,
+    channelData: renderedChannels,
+    length: renderedBuffer.length,
+    duration: renderedBuffer.duration
+  };
+}

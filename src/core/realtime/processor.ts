@@ -31,6 +31,11 @@ import type {
   WorkletInboundMessage,
   WorkletProcessorConfig
 } from './messages.js';
+import {
+  isHeavyRealtimeFeature,
+  normalizeHeavyFeatureInterval,
+  normalizeRealtimePolicyMode
+} from './policy.js';
 
 interface PendingFrame {
   sampleIndex: number;
@@ -46,6 +51,7 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
   private readonly selectedFeatures = new Map<FeatureId, FeatureOptions<FeatureId> | true>();
   private readonly pendingFrames: PendingFrame[] = [];
   private isDrainingQueue = false;
+  private processedFrameCount = 0;
 
   private readonly runtime: FeatureExecutionRuntime = {
     fftProviderCache: new FFTProviderCacheStore(),
@@ -61,12 +67,16 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
     const bufferSize = processorOptions.bufferSize ?? 1024;
     const hopSize = processorOptions.hopSize ?? 512;
     const inputChannelCount = processorOptions.inputChannelCount ?? 1;
+    const realtimePolicy = normalizeRealtimePolicyMode(processorOptions.realtimePolicy);
+    const heavyFeatureInterval = normalizeHeavyFeatureInterval(processorOptions.heavyFeatureInterval);
 
     this.config = {
       bufferSize,
       hopSize,
       inputChannelCount,
-      features: processorOptions.features ?? {}
+      features: processorOptions.features ?? {},
+      realtimePolicy,
+      heavyFeatureInterval
     };
     this.scheduler = new RealtimeFrameScheduler(bufferSize, hopSize);
     this.reinitializeRingBuffers();
@@ -79,9 +89,11 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
 
   override process(
     inputs: Float32Array[][],
-    _outputs: Float32Array[][],
+    outputs: Float32Array[][],
     _parameters: Record<string, Float32Array>
   ): boolean {
+    this.writeSilentOutput(outputs[0]);
+
     const input = inputs[0];
     const blockSize = input?.[0]?.length ?? 0;
     if (!input || blockSize === 0) {
@@ -93,11 +105,22 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
 
     const frames = this.scheduler.append(blockSize);
     for (const frame of frames) {
-      this.enqueueFrame(frame);
+      this.enqueueFrame(frame, blockSize);
     }
 
     void this.drainPendingFrames();
     return true;
+  }
+
+  private writeSilentOutput(output: Float32Array[] | undefined): void {
+    if (!output) {
+      return;
+    }
+    for (const channel of output) {
+      if (channel) {
+        channel.fill(0);
+      }
+    }
   }
 
   private handleMessage(message: WorkletInboundMessage): void {
@@ -117,12 +140,43 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
   private applyFeatureSelection(selection: FeatureSelection<FeatureId>): void {
     this.selectedFeatures.clear();
     const normalized = normalizeFeatureInput(selection);
+    this.config = {
+      ...this.config,
+      features: normalized as FeatureSelection<FeatureId>
+    };
+    const heavySelected: FeatureId[] = [];
+    const strictDropped: FeatureId[] = [];
+
     for (const [feature, value] of Object.entries(normalized) as Array<
-      [FeatureId, FeatureOptions<FeatureId> | true | undefined]
+      [FeatureId, FeatureOptions<FeatureId> | true | false | null | undefined]
     >) {
-      if (value !== undefined) {
-        this.selectedFeatures.set(feature, value);
+      if (value === undefined || value === false || value === null) {
+        continue;
       }
+      const normalizedOptions = value === true ? undefined : value;
+      const isHeavy = isHeavyRealtimeFeature(feature, normalizedOptions);
+      if (isHeavy) {
+        heavySelected.push(feature);
+      }
+      if (this.config.realtimePolicy === 'strict' && isHeavy) {
+        strictDropped.push(feature);
+        continue;
+      }
+      this.selectedFeatures.set(feature, value);
+    }
+
+    if (strictDropped.length > 0) {
+      this.postPolicyWarning(
+        `Strict realtime policy disabled heavy feature(s): ${strictDropped.join(', ')}`
+      );
+      return;
+    }
+    if (this.config.realtimePolicy === 'warn' && heavySelected.length > 0) {
+      this.postPolicyWarning(
+        `Heavy feature(s) are throttled to every ${this.config.heavyFeatureInterval} frame(s): ${heavySelected.join(
+          ', '
+        )}`
+      );
     }
   }
 
@@ -130,11 +184,15 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
     const nextBufferSize = config.bufferSize;
     const nextHopSize = config.hopSize;
     const nextInputChannelCount = config.inputChannelCount;
+    const nextRealtimePolicy = normalizeRealtimePolicyMode(config.realtimePolicy);
+    const nextHeavyFeatureInterval = normalizeHeavyFeatureInterval(config.heavyFeatureInterval);
 
     if (
       nextBufferSize === this.config.bufferSize &&
       nextHopSize === this.config.hopSize &&
-      nextInputChannelCount === this.config.inputChannelCount
+      nextInputChannelCount === this.config.inputChannelCount &&
+      nextRealtimePolicy === this.config.realtimePolicy &&
+      nextHeavyFeatureInterval === this.config.heavyFeatureInterval
     ) {
       return;
     }
@@ -143,16 +201,20 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
       ...this.config,
       bufferSize: nextBufferSize,
       hopSize: nextHopSize,
-      inputChannelCount: nextInputChannelCount
+      inputChannelCount: nextInputChannelCount,
+      realtimePolicy: nextRealtimePolicy,
+      heavyFeatureInterval: nextHeavyFeatureInterval
     };
     this.scheduler = new RealtimeFrameScheduler(this.config.bufferSize, this.config.hopSize);
     this.reinitializeRingBuffers();
     this.resetRuntimeState();
+    this.applyFeatureSelection(this.config.features);
   }
 
   private reset(): void {
     this.scheduler.reset();
     this.pendingFrames.length = 0;
+    this.processedFrameCount = 0;
     for (const buffer of this.ringBuffers) {
       buffer.fill(0);
     }
@@ -224,7 +286,7 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
     }
   }
 
-  private enqueueFrame(frame: ScheduledFrame): void {
+  private enqueueFrame(frame: ScheduledFrame, blockSize: number): void {
     const frameLength = frame.end - frame.start;
     const channelData: Float32Array[] = [];
 
@@ -240,7 +302,8 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
     }
 
     const lagSamples = this.scheduler.writeIndex - frame.end;
-    const timestamp = currentTime - lagSamples / sampleRate;
+    const blockEndTime = currentTime + blockSize / sampleRate;
+    const timestamp = blockEndTime - lagSamples / sampleRate;
 
     this.pendingFrames.push({
       sampleIndex: frame.start,
@@ -272,6 +335,7 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
     if (this.selectedFeatures.size === 0) {
       return;
     }
+    const frameOrdinal = this.processedFrameCount++;
 
     const audioData: AudioData = {
       sampleRate,
@@ -283,6 +347,9 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
     const results: Partial<{ [K in FeatureId]: FeatureResult<K> }> = {};
 
     for (const [feature, rawOptions] of this.selectedFeatures.entries()) {
+      if (!this.shouldExecuteFeature(feature, rawOptions, frameOrdinal)) {
+        continue;
+      }
       const options = rawOptions === true ? undefined : rawOptions;
       try {
         const result = await executeFeature(
@@ -314,6 +381,33 @@ class AudioInspectProcessor extends AudioWorkletProcessor {
 
   private postError(error: WorkletErrorMessage): void {
     this.port.postMessage(error);
+  }
+
+  private postPolicyWarning(message: string): void {
+    this.postError({
+      type: 'error',
+      code: 'REALTIME_POLICY_WARNING',
+      message,
+      recoverable: true
+    });
+  }
+
+  private shouldExecuteFeature(
+    feature: FeatureId,
+    rawOptions: FeatureOptions<FeatureId> | true,
+    frameOrdinal: number
+  ): boolean {
+    const options = rawOptions === true ? undefined : rawOptions;
+    if (!isHeavyRealtimeFeature(feature, options)) {
+      return true;
+    }
+    if (this.config.realtimePolicy === 'allow') {
+      return true;
+    }
+    if (this.config.realtimePolicy === 'strict') {
+      return false;
+    }
+    return frameOrdinal % this.config.heavyFeatureInterval === 0;
   }
 }
 

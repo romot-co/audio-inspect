@@ -49,6 +49,15 @@ interface StereoMetrics {
   side: Float32Array | undefined;
 }
 
+function wrapPhaseToPi(value: number): number {
+  const twoPi = 2 * Math.PI;
+  let wrapped = (value + Math.PI) % twoPi;
+  if (wrapped < 0) {
+    wrapped += twoPi;
+  }
+  return wrapped - Math.PI;
+}
+
 // Window and FFT a stereo channel frame.
 async function computeStereoFFT(
   data: Float32Array,
@@ -384,8 +393,7 @@ export async function getStereoAnalysis(
         const weight = leftMag * rightMag;
         if (weight <= 0) continue;
 
-        const phaseDiff =
-          ((leftFFT.phase[i]! - rightFFT.phase[i]! + Math.PI) % (2 * Math.PI)) - Math.PI;
+        const phaseDiff = wrapPhaseToPi(leftFFT.phase[i]! - rightFFT.phase[i]!);
 
         phaseDiffSum += phaseDiff * weight;
         phaseCorrSum += Math.cos(phaseDiff) * weight;

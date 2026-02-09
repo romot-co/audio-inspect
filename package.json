@@ -1,6 +1,6 @@
 {
   "name": "audio-inspect",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Lightweight yet powerful audio analysis library",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -38,6 +38,7 @@
     "demo:serve": "node examples/serve-demo.mjs",
     "dev": "tsup --watch",
     "test": "vitest --run --coverage",
+    "test:perf": "vitest --run test/performance.test.ts",
     "test:watch": "vitest --coverage",
     "test:e2e": "npm run build:e2e && playwright test",
     "lint": "eslint src test --ext .ts",

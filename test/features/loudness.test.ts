@@ -144,10 +144,7 @@ describe('getLUFS', () => {
       const result = getLUFS(audio, { calculateShortTerm: true });
 
       expect(result.shortTerm).toBeDefined();
-      if (result.shortTerm) {
-        expect(result.shortTerm).toBeInstanceOf(Float32Array);
-        expect(result.shortTerm.length).toBeGreaterThan(0);
-      }
+      expect(result.shortTerm).toBeTypeOf('number');
     });
 
     it('should calculate momentary loudness when requested', () => {
@@ -157,10 +154,7 @@ describe('getLUFS', () => {
       const result = getLUFS(audio, { calculateMomentary: true });
 
       expect(result.momentary).toBeDefined();
-      if (result.momentary) {
-        expect(result.momentary).toBeInstanceOf(Float32Array);
-        expect(result.momentary.length).toBeGreaterThan(0);
-      }
+      expect(result.momentary).toBeTypeOf('number');
     });
 
     it('should calculate loudness range when requested', () => {
@@ -190,6 +184,34 @@ describe('getLUFS', () => {
       }
     });
 
+    it('should support legacy inter-sample true peak mode', () => {
+      const signal = createSineWave(1000, 5.0, 48000, 0.5);
+      const audio = createTestAudioData([signal]);
+
+      const result = getLUFS(audio, {
+        calculateTruePeak: true,
+        truePeakMethod: 'interSamplePeak',
+        truePeakOversamplingFactor: 8,
+        truePeakInterpolation: 'sinc'
+      });
+
+      expect(result.truePeak).toBeDefined();
+      expect(result.truePeak?.length).toBe(1);
+    });
+
+    it('should reject unsupported bs1770 factor', () => {
+      const signal = createSineWave(1000, 1.0, 48000, 0.5);
+      const audio = createTestAudioData([signal]);
+
+      expect(() =>
+        getLUFS(audio, {
+          calculateTruePeak: true,
+          truePeakMethod: 'bs1770',
+          truePeakOversamplingFactor: 8
+        })
+      ).toThrow(/truePeakOversamplingFactor=8 is unsupported/);
+    });
+
     it('should calculate statistics when loudness range is enabled', () => {
       const signal = createPinkNoise(48000 * 10, 0.1);
       const audio = createTestAudioData([signal]);
@@ -204,7 +226,7 @@ describe('getLUFS', () => {
       ).toBeGreaterThan(0);
     });
 
-    it('should return both short-term series and LRA when both options are enabled', () => {
+    it('should return short-term snapshot and LRA when both options are enabled', () => {
       const signal = createPinkNoise(48000 * 10, 0.1);
       const audio = createTestAudioData([signal]);
 
@@ -214,7 +236,7 @@ describe('getLUFS', () => {
       });
 
       expect(result.shortTerm).toBeDefined();
-      expect(result.shortTerm?.length).toBeGreaterThan(0);
+      expect(result.shortTerm).toBeTypeOf('number');
       expect(result.loudnessRange).toBeDefined();
       expect(result.loudnessRange).toBeGreaterThan(0);
     });
@@ -225,13 +247,18 @@ describe('getLUFS', () => {
 
       const result = getLUFS(audio, {
         calculateShortTerm: true,
-        calculateMomentary: true
+        calculateMomentary: true,
+        collectSeries: 'both'
       });
 
       expect(result.shortTerm).toBeDefined();
       expect(result.momentary).toBeDefined();
-      expect(result.shortTerm?.length ?? 0).toBeGreaterThan(40);
-      expect(result.momentary?.length ?? 0).toBeGreaterThan(40);
+      expect(result.shortTerm).toBeTypeOf('number');
+      expect(result.momentary).toBeTypeOf('number');
+      expect(result.series).toBeDefined();
+      expect(result.series?.times.length ?? 0).toBeGreaterThan(40);
+      expect(result.series?.shortTerm?.length ?? 0).toBeGreaterThan(40);
+      expect(result.series?.momentary?.length ?? 0).toBeGreaterThan(40);
     });
   });
 

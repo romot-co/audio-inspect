@@ -15,6 +15,14 @@ import {
   type WorkletFrameMessage,
   type WorkletOutboundMessage
 } from './messages.js';
+import {
+  DEFAULT_HEAVY_FEATURE_INTERVAL,
+  DEFAULT_REALTIME_POLICY,
+  isHeavyRealtimeFeature,
+  normalizeHeavyFeatureInterval,
+  normalizeRealtimePolicyMode,
+  type RealtimePolicyMode
+} from './policy.js';
 
 export type MonitorSource = AudioNode | MediaStream | HTMLMediaElement;
 export type MonitorState = 'idle' | 'running' | 'suspended' | 'closed';
@@ -31,10 +39,13 @@ export interface MonitorOptions<F extends FeatureInput = FeatureInput> {
   inputChannelCount?: number;
   output?: 'none' | 'destination' | AudioNode;
   emit?: 'hop' | 'raf' | number;
+  realtimePolicy?: RealtimePolicyMode;
+  heavyFeatureInterval?: number;
 }
 
 export interface MonitorFrame<T extends FeatureId = FeatureId> {
   timestamp: number;
+  sampleIndex: number;
   results: Partial<{ [K in T]: FeatureResult<K> }>;
 }
 
@@ -111,8 +122,23 @@ export async function monitor<const F extends FeatureInput>(
     bufferSize = 1024,
     hopSize = 512,
     inputChannelCount = 1,
-    emit = 'hop'
+    emit = 'hop',
+    realtimePolicy = DEFAULT_REALTIME_POLICY,
+    heavyFeatureInterval = DEFAULT_HEAVY_FEATURE_INTERVAL
   } = options;
+
+  const normalizedRealtimePolicy = normalizeRealtimePolicyMode(realtimePolicy);
+  if (realtimePolicy !== normalizedRealtimePolicy) {
+    throw new AudioInspectError(
+      'INVALID_INPUT',
+      "realtimePolicy must be one of 'allow', 'warn', or 'strict'"
+    );
+  }
+
+  const normalizedHeavyFeatureInterval = normalizeHeavyFeatureInterval(heavyFeatureInterval);
+  if (heavyFeatureInterval !== normalizedHeavyFeatureInterval) {
+    throw new AudioInspectError('INVALID_INPUT', 'heavyFeatureInterval must be a positive integer');
+  }
 
   await prepareWorklet(context, options.worklet);
 
@@ -120,13 +146,58 @@ export async function monitor<const F extends FeatureInput>(
     throw new AudioInspectError('WORKLET_NOT_SUPPORTED', 'AudioWorkletNode is not available');
   }
 
-  const initialSelection = normalizeFeatureInput(options.features);
+  const initialPolicyWarnings: MonitorErrorEvent[] = [];
+  const isActiveFeatureOption = (
+    value: FeatureOptions<FeatureId> | true | false | null | undefined
+  ): value is FeatureOptions<FeatureId> | true =>
+    value !== undefined && value !== false && value !== null;
+  const applyRealtimePolicyToSelection = (
+    inputSelection: FeatureSelection<FeatureId>
+  ): { selection: FeatureSelection<FeatureId>; droppedFeatures: FeatureId[] } => {
+    const selection: FeatureSelection<FeatureId> = {};
+    const writableSelection = selection as Record<FeatureId, FeatureOptions<FeatureId> | true>;
+    const droppedFeatures: FeatureId[] = [];
+
+    for (const [feature, value] of Object.entries(inputSelection) as Array<
+      [FeatureId, FeatureOptions<FeatureId> | true | false | null | undefined]
+    >) {
+      if (!isActiveFeatureOption(value)) {
+        continue;
+      }
+      const normalizedOptions = value === true ? undefined : value;
+      if (
+        normalizedRealtimePolicy === 'strict' &&
+        isHeavyRealtimeFeature(feature, normalizedOptions)
+      ) {
+        droppedFeatures.push(feature);
+        continue;
+      }
+      writableSelection[feature] = value;
+    }
+
+    return { selection, droppedFeatures };
+  };
+
+  const { selection: initialSelection, droppedFeatures: initialDroppedFeatures } =
+    applyRealtimePolicyToSelection(
+      normalizeFeatureInput(options.features as FeatureInput<FeatureId>) as FeatureSelection<FeatureId>
+    );
+  if (initialDroppedFeatures.length > 0) {
+    initialPolicyWarnings.push({
+      code: 'REALTIME_POLICY_WARNING',
+      message: `The following features are disabled in strict realtime policy: ${initialDroppedFeatures.join(
+        ', '
+      )}`,
+      recoverable: true
+    });
+  }
+
   const featureConfig = new Map<FeatureId, FeatureOptions<FeatureId> | true>();
   const featureSet = new Set<FeatureId>();
   for (const [feature, value] of Object.entries(initialSelection) as Array<
     [FeatureId, FeatureOptions<FeatureId> | true | undefined]
   >) {
-    if (value !== undefined) {
+    if (isActiveFeatureOption(value)) {
       featureConfig.set(feature, value);
       featureSet.add(feature);
     }
@@ -135,12 +206,11 @@ export async function monitor<const F extends FeatureInput>(
   const inputNode = context.createGain();
   const keepAliveGain = context.createGain();
   keepAliveGain.gain.value = 0;
-  inputNode.connect(keepAliveGain);
-  keepAliveGain.connect(context.destination);
 
   const workletNode = new AudioWorkletNode(context as AudioContext, 'audio-inspect-processor', {
     numberOfInputs: 1,
-    numberOfOutputs: 0,
+    numberOfOutputs: 1,
+    outputChannelCount: [1],
     channelCount: inputChannelCount,
     channelCountMode: 'explicit',
     channelInterpretation: 'speakers',
@@ -148,9 +218,13 @@ export async function monitor<const F extends FeatureInput>(
       bufferSize,
       hopSize,
       inputChannelCount,
-      features: cloneFeatureSelection(initialSelection as FeatureSelection<FeatureId>)
+      features: cloneFeatureSelection(initialSelection as FeatureSelection<FeatureId>),
+      realtimePolicy: normalizedRealtimePolicy,
+      heavyFeatureInterval: normalizedHeavyFeatureInterval
     }
   });
+  workletNode.connect(keepAliveGain);
+  keepAliveGain.connect(context.destination);
 
   let sessionState: MonitorState = 'idle';
   let closed = false;
@@ -174,6 +248,7 @@ export async function monitor<const F extends FeatureInput>(
     }
     const frame = {
       timestamp: latestFrame.timestamp,
+      sampleIndex: latestFrame.sampleIndex,
       results: cloneResults(latestFrame.results)
     } satisfies MonitorFrame<SelectedFeatureIds<F>>;
     for (const handler of frameHandlers) {
@@ -263,6 +338,23 @@ export async function monitor<const F extends FeatureInput>(
       handler(event);
     }
   };
+  const publishPolicyWarning = (droppedFeatures: FeatureId[], contextLabel: string) => {
+    if (droppedFeatures.length === 0) {
+      return;
+    }
+    publishError({
+      code: 'REALTIME_POLICY_WARNING',
+      message: `Strict realtime policy ignored heavy feature(s) during ${contextLabel}: ${droppedFeatures.join(
+        ', '
+      )}`,
+      cause: {
+        realtimePolicy: normalizedRealtimePolicy,
+        droppedFeatures,
+        context: contextLabel
+      },
+      recoverable: true
+    });
+  };
 
   const handleWorkletMessage = (message: WorkletOutboundMessage) => {
     if (message.type === 'frame') {
@@ -276,6 +368,7 @@ export async function monitor<const F extends FeatureInput>(
 
       latestFrame = {
         timestamp: frameMessage.timestamp,
+        sampleIndex: frameMessage.sampleIndex,
         results: latestResults
       };
       scheduleEmit();
@@ -434,7 +527,7 @@ export async function monitor<const F extends FeatureInput>(
     },
 
     get features() {
-      return featureSet;
+      return new Set(featureSet);
     },
 
     get node() {
@@ -443,8 +536,19 @@ export async function monitor<const F extends FeatureInput>(
 
     setFeature(feature, optionsForFeature = true) {
       return enqueue(async () => {
-        featureConfig.set(feature, optionsForFeature as FeatureOptions<FeatureId> | true);
-        featureSet.add(feature);
+        const normalizedOptions = optionsForFeature === true ? undefined : optionsForFeature;
+        if (
+          normalizedRealtimePolicy === 'strict' &&
+          isHeavyRealtimeFeature(feature, normalizedOptions)
+        ) {
+          featureConfig.delete(feature);
+          featureSet.delete(feature);
+          delete (latestResults as Partial<Record<FeatureId, unknown>>)[feature];
+          publishPolicyWarning([feature], 'setFeature');
+        } else {
+          featureConfig.set(feature, optionsForFeature as FeatureOptions<FeatureId> | true);
+          featureSet.add(feature);
+        }
         postFeatureSelection();
         await nextMicrotask();
       });
@@ -463,13 +567,16 @@ export async function monitor<const F extends FeatureInput>(
     setFeatures(features) {
       return enqueue(async () => {
         const normalized = normalizeFeatureInput(features as FeatureInput<FeatureId>);
+        const { selection: effectiveSelection, droppedFeatures } = applyRealtimePolicyToSelection(
+          normalized as FeatureSelection<FeatureId>
+        );
         featureConfig.clear();
         featureSet.clear();
 
-        for (const [feature, value] of Object.entries(normalized) as Array<
-          [FeatureId, FeatureOptions<FeatureId> | true | undefined]
+        for (const [feature, value] of Object.entries(effectiveSelection) as Array<
+          [FeatureId, FeatureOptions<FeatureId> | true | false | null | undefined]
         >) {
-          if (value !== undefined) {
+          if (isActiveFeatureOption(value)) {
             featureConfig.set(feature, value);
             featureSet.add(feature);
           }
@@ -481,6 +588,7 @@ export async function monitor<const F extends FeatureInput>(
           }
         }
 
+        publishPolicyWarning(droppedFeatures, 'setFeatures');
         postFeatureSelection();
         await nextMicrotask();
       });
@@ -492,6 +600,7 @@ export async function monitor<const F extends FeatureInput>(
       }
       return {
         timestamp: latestFrame.timestamp,
+        sampleIndex: latestFrame.sampleIndex,
         results: cloneResults(latestFrame.results)
       };
     },
@@ -596,6 +705,14 @@ export async function monitor<const F extends FeatureInput>(
 
   if (!autoAttach) {
     setState('idle');
+  }
+
+  if (initialPolicyWarnings.length > 0) {
+    queueMicrotask(() => {
+      for (const warning of initialPolicyWarnings) {
+        publishError(warning);
+      }
+    });
   }
 
   return session;

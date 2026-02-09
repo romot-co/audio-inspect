@@ -100,8 +100,8 @@ export interface AudioData {
   sampleRate: number;
   channelData: Float32Array[]; // planar
   numberOfChannels: number;
-  length: number;              // samples per channel
-  duration: number;            // seconds
+  length: number; // samples per channel
+  duration: number; // seconds
 }
 ```
 
@@ -110,14 +110,7 @@ export interface AudioData {
 ```ts
 export type AudioLike = AudioData | AudioBuffer;
 
-export type AudioSource =
-  | AudioLike
-  | ArrayBuffer
-  | ArrayBufferView
-  | Blob
-  | File
-  | URL
-  | string;
+export type AudioSource = AudioLike | ArrayBuffer | ArrayBufferView | Blob | File | URL | string;
 ```
 
 `string` interpretation:
@@ -132,7 +125,7 @@ Use `new URL(...)` when explicit URL semantics are needed in Node.js.
 ```ts
 export interface TimeRange {
   start?: number; // seconds, default 0
-  end?: number;   // seconds, default audio.duration
+  end?: number; // seconds, default audio.duration
 }
 ```
 
@@ -140,10 +133,10 @@ export interface TimeRange {
 
 ```ts
 export type ChannelSelector =
-  | 'mix'                // default: downmix to mono
-  | number               // specific channel index
-  | 'all'                // all channels
-  | readonly number[];   // selected channels
+  | 'mix' // default: downmix to mono
+  | number // specific channel index
+  | 'all' // all channels
+  | readonly number[]; // selected channels
 ```
 
 When channel selection is multi-channel (`'all'` or `number[]`), result shapes are feature-specific and documented per feature type.
@@ -169,6 +162,7 @@ export interface FeatureRegistry {
 
   fft: { options: FFTOptions; result: FFTResult };
   spectrum: { options: SpectrumOptions; result: SpectrumResult };
+  spectrogram: { options: SpectrogramOptions; result: SpectrogramResult };
 
   spectralFeatures: { options: SpectralFeaturesOptions; result: SpectralFeaturesResult };
   timeVaryingSpectralFeatures: {
@@ -195,24 +189,19 @@ export interface FeatureRegistry {
 
 export type FeatureId = keyof FeatureRegistry & string;
 
-export type FeatureOptions<K extends FeatureId> =
-  FeatureRegistry[K]['options'];
+export type FeatureOptions<K extends FeatureId> = FeatureRegistry[K]['options'];
 
-export type FeatureResult<K extends FeatureId> =
-  FeatureRegistry[K]['result'];
+export type FeatureResult<K extends FeatureId> = FeatureRegistry[K]['result'];
 
 export type FeatureSelection<T extends FeatureId = FeatureId> = {
   [K in T]?: FeatureOptions<K> | true; // true = default options
 };
 
-export type FeatureInput<T extends FeatureId = FeatureId> =
-  | FeatureSelection<T>
-  | readonly T[];
+export type FeatureInput<T extends FeatureId = FeatureId> = FeatureSelection<T> | readonly T[];
 
-export type SelectedFeatureIds<F> =
-  F extends readonly (infer I)[]
-    ? Extract<I, FeatureId>
-    : Extract<keyof F, FeatureId>;
+export type SelectedFeatureIds<F> = F extends readonly (infer I)[]
+  ? Extract<I, FeatureId>
+  : Extract<keyof F, FeatureId>;
 ```
 
 `FeatureInput` allows both object and array shorthand. `SelectedFeatureIds<F>` derives a precise feature union from either form.
@@ -248,6 +237,12 @@ export interface AudioDecoder {
 
 export interface LoadOptions {
   sampleRate?: number;
+  resampleQuality?: 'high' | 'fast'; // default 'high' when sampleRate is set
+  resampler?: (
+    audio: AudioData,
+    targetSampleRate: number,
+    options?: { signal?: AbortSignal }
+  ) => Promise<AudioData> | AudioData;
   channels?: number | 'mono' | 'stereo';
   normalize?: boolean;
   signal?: AbortSignal;
@@ -262,10 +257,7 @@ export interface LoadOptions {
   decoder?: AudioDecoder;
 }
 
-export async function load(
-  source: AudioSource,
-  options?: LoadOptions
-): Promise<AudioData>;
+export async function load(source: AudioSource, options?: LoadOptions): Promise<AudioData>;
 ```
 
 ### 6.3 Behavior (normative)
@@ -281,29 +273,34 @@ export async function load(
   - Node.js: implementation MUST require an injected decoder for sources that need decoding.
   - If Node.js decode is required and `decoder` is missing, throw `DECODE_BACKEND_MISSING`.
 - `normalize` means peak normalization to max abs amplitude `1.0`.
+- `sampleRate` conversion:
+  - default `resampleQuality` is `'high'`.
+  - `'high'` uses runtime HQ backend (Browser: `OfflineAudioContext`, Node.js: `resampler` injection).
+  - `'fast'` uses linear interpolation and is explicitly non-HQ.
 - `signal` abort throws `AudioInspectError` code `ABORTED`.
 
 ### 6.4 Errors
 
-| Condition | Code |
-|---|---|
-| Unsupported input type | `INVALID_INPUT` |
-| Fetch failure | `NETWORK_ERROR` |
-| Decode failure | `DECODE_ERROR` |
+| Condition                               | Code                     |
+| --------------------------------------- | ------------------------ |
+| Unsupported input type                  | `INVALID_INPUT`          |
+| Fetch failure                           | `NETWORK_ERROR`          |
+| Decode failure                          | `DECODE_ERROR`           |
 | Decode backend not configured (Node.js) | `DECODE_BACKEND_MISSING` |
-| Unsupported format/codec | `UNSUPPORTED_FORMAT` |
-| Aborted | `ABORTED` |
+| Unsupported format/codec                | `UNSUPPORTED_FORMAT`     |
+| Aborted                                 | `ABORTED`                |
+| HQ resampling backend not configured    | `PROCESSING_ERROR`       |
 
 ### 6.5 Runtime Matrix (normative)
 
-| Input Source | Browser | Node.js | Notes |
-|---|---|---|---|
-| `AudioData` | Supported | Supported | No decoder required. |
-| `AudioBuffer` | Supported | Supported (if available) | No decoder required. |
-| `ArrayBuffer` / `ArrayBufferView` | Supported (default decoder) | Supported with injected `decoder` | Raw bytes must be decodable by backend. |
-| `Blob` / `File` | Supported | Supported with injected `decoder` | In Node.js, `File` availability depends on runtime/polyfill. |
-| `URL` | Supported (`fetch` + decode) | Supported (`fetch` + injected `decoder`) | `fetch` can be overridden via `LoadOptions.fetch`. |
-| `string` | Treated as URL | Treated as file path | Node.js file-path decode requires injected `decoder`. |
+| Input Source                      | Browser                      | Node.js                                  | Notes                                                        |
+| --------------------------------- | ---------------------------- | ---------------------------------------- | ------------------------------------------------------------ |
+| `AudioData`                       | Supported                    | Supported                                | No decoder required.                                         |
+| `AudioBuffer`                     | Supported                    | Supported (if available)                 | No decoder required.                                         |
+| `ArrayBuffer` / `ArrayBufferView` | Supported (default decoder)  | Supported with injected `decoder`        | Raw bytes must be decodable by backend.                      |
+| `Blob` / `File`                   | Supported                    | Supported with injected `decoder`        | In Node.js, `File` availability depends on runtime/polyfill. |
+| `URL`                             | Supported (`fetch` + decode) | Supported (`fetch` + injected `decoder`) | `fetch` can be overridden via `LoadOptions.fetch`.           |
+| `string`                          | Treated as URL               | Treated as file path                     | Node.js file-path decode requires injected `decoder`.        |
 
 Rules:
 
@@ -422,12 +419,10 @@ Rules:
 ```ts
 export type MonitorEngine = 'worklet';
 
-export type MonitorSource =
-  | AudioNode
-  | MediaStream
-  | HTMLMediaElement;
+export type MonitorSource = AudioNode | MediaStream | HTMLMediaElement;
 
 export type MonitorState = 'idle' | 'running' | 'suspended' | 'closed';
+export type RealtimePolicy = 'allow' | 'warn' | 'strict';
 
 export interface MonitorOptions<F extends FeatureInput = FeatureInput> {
   context: BaseAudioContext;
@@ -440,13 +435,16 @@ export interface MonitorOptions<F extends FeatureInput = FeatureInput> {
     moduleUrl?: string;
   };
 
-  bufferSize?: number;        // default 1024
-  hopSize?: number;           // default 512
+  bufferSize?: number; // default 1024
+  hopSize?: number; // default 512
   inputChannelCount?: number; // default 1
 
   output?: 'none' | 'destination' | AudioNode;
 
   emit?: 'hop' | 'raf' | number;
+
+  realtimePolicy?: RealtimePolicy; // default 'warn'
+  heavyFeatureInterval?: number; // default 4, positive integer
 }
 
 export interface MonitorFrame<T extends FeatureId = FeatureId> {
@@ -455,6 +453,11 @@ export interface MonitorFrame<T extends FeatureId = FeatureId> {
    * When coalescing (`emit: 'raf' | number`) this is the last completed frame time.
    */
   timestamp: number;
+  /**
+   * Absolute start sample index of the analyzed frame.
+   * This is hop-aligned and useful for stable UI/data synchronization.
+   */
+  sampleIndex: number;
   results: Partial<{ [K in T]: FeatureResult<K> }>;
 }
 
@@ -480,16 +483,11 @@ export interface MonitorSession<T extends FeatureId = FeatureId> {
 
   // Feature updates are enqueue-based.
   // Await is optional for UI usage; Promise is for deterministic sequencing/tests.
-  setFeature<K extends FeatureId>(
-    feature: K,
-    options?: FeatureOptions<K> | true
-  ): Promise<void>;
+  setFeature<K extends FeatureId>(feature: K, options?: FeatureOptions<K> | true): Promise<void>;
 
   removeFeature(feature: FeatureId): Promise<void>;
 
-  setFeatures<K extends FeatureId>(
-    features: FeatureSelection<K>
-  ): Promise<void>;
+  setFeatures<K extends FeatureId>(features: FeatureSelection<K>): Promise<void>;
 
   // Pull API
   read(): MonitorFrame<T> | null;
@@ -524,6 +522,10 @@ export async function monitor<const F extends FeatureInput>(
   - `'hop'`: every analysis hop.
   - `'raf'`: coalesced to animation frame cadence.
   - `number`: coalesced to max Hz.
+- `realtimePolicy` behavior:
+  - `'allow'`: run all selected realtime features every frame.
+  - `'warn'`: run heavy realtime features every `heavyFeatureInterval` frames.
+  - `'strict'`: skip heavy realtime features and emit `REALTIME_POLICY_WARNING`.
 
 `output` policy applies only to internally created source nodes (`MediaStream`/`HTMLMediaElement`):
 
@@ -575,12 +577,14 @@ This section defines API-level contracts; algorithmic details are implementation
 - `reference?: number` (default `1.0`)
 - `fftSize?: number` (power-of-two)
 - `windowFunction?: 'hann' | 'hamming' | 'blackman' | 'rect' | ...`
+- Spectrum-like outputs use explicit `scale` (`'amplitude' | 'dbfs'`).
+- FFT-like outputs use explicit `normalization` (`'none' | 'amplitude'`).
 - Frame params use samples (`frameSize`, `hopSize`), with `*Ms` suffix only when ms units are used.
 
 ### Built-in feature IDs
 
 - Time: `rms`, `rmsAnalysis`, `peak`, `peaks`, `peaksAnalysis`, `waveform`, `waveformAnalysis`, `zeroCrossing`, `energy`
-- Frequency: `fft`, `spectrum`, `cqt`
+- Frequency: `fft`, `spectrum`, `spectrogram`, `cqt`
 - Spectral: `spectralFeatures`, `timeVaryingSpectralFeatures`, `spectralEntropy`, `spectralCrest`, `melSpectrogram`
 - Speech/ML: `mfcc`, `mfccWithDelta`, `vad`
 - Loudness: `lufs`
@@ -639,6 +643,8 @@ Realtime:
 - `hopSize: 512`
 - `inputChannelCount: 1`
 - `emit: 'hop'`
+- `realtimePolicy: 'warn'`
+- `heavyFeatureInterval: 4`
 - `output` defaults:
   - `HTMLMediaElement`: `'destination'`
   - `MediaStream`: `'none'`

@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.8] - 2026-02-09
+
+### Added
+
+- New `getSpectrogram()` function as a dedicated frame-sequence spectrum analysis API, separated from `getSpectrum()`.
+- New types: `FFTNormalization` (`'none' | 'amplitude'`), `SpectrumScale` (`'amplitude' | 'dbfs'`), `SpectrogramOptions`, `SpectrogramAnalysisResult`.
+- `spectrogram` registered as a feature in `FeatureRegistry` (available via `analyze` / `inspect` / `monitor`).
+- `MonitorFrame.sampleIndex` field for realtime frame tracking.
+- Realtime policy system (`RealtimePolicyMode`: `'allow' | 'warn' | 'strict'`) with configurable `heavyFeatureInterval` for throttling expensive features in `monitor()`.
+- BS.1770 Annex 2 polyphase FIR true-peak estimation (`getTruePeak()`) alongside interpolation-based `getInterSamplePeak()`.
+- `resampleQuality` (`'high' | 'fast'`) and custom `resampler` options in `LoadOptions`.
+- High-quality resampling via `OfflineAudioContext` in browser environments (`resampleWithOfflineAudioContext`).
+
+### Changed
+
+- `getSpectrum()` now returns single-frame results with `values` / `scale` fields instead of `magnitudes` / `decibels`.
+- `getFFT()` now supports `normalization` option (`'none' | 'amplitude'`) with coherent gain compensation for windowed FFT.
+- `analyze()` now executes features sequentially (`for...of`) instead of `Promise.all` for deterministic progress and early abort.
+- `getActiveFeatureEntries()` now filters `false` and `null` in addition to `undefined`.
+- `monitor()` `session.features` getter returns a defensive copy (`new Set`).
+- `getChannelData()` now rejects `'all'` and multi-element `number[]` selectors with explicit error messages.
+- `load()` now uses high-quality resampling by default (was linear-only).
+- `load()` fetch path now forwards `AbortSignal` to the fetch call.
+
+### Fixed
+
+- `getCrestFactor()` now returns `cfDb: -Infinity, cfLinear: 0` for silence instead of `Infinity`.
+- `stereo` phase difference calculation now uses proper `wrapPhaseToPi()` helper to avoid modular arithmetic edge cases.
+- `loudness` K-weighting filter now uses `applyBiquadInto` (in-place) to reduce per-chunk allocations.
+- `spectral` power computation now handles arbitrary exponents via `Math.pow`.
+- `transform.ts` `copyToChannel` now uses explicit `Float32Array<ArrayBuffer>` cast for TS 5.6+ generic compatibility.
+
+### Tests
+
+- Updated and expanded test coverage for FFT normalization, spectrum scale modes, spectrogram output.
+- Added tests for realtime policy, sampleIndex, heavy feature throttling, monitor features getter.
+- Added tests for crest factor silence behavior, channel selector rejections, load resampling paths.
+- Updated E2E and integration tests for new API shapes.
+
 ## [0.0.7] - 2026-02-09
 
 ### Added
