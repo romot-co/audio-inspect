@@ -9,7 +9,7 @@ import {
 } from '../../src/features/time.js';
 import type { AudioData } from '../../src/types.js';
 
-// テスト用のAudioDataを作成するヘルパー
+// Helper to create AudioData for testing
 function createTestAudioData(data: Float32Array, sampleRate = 44100): AudioData {
   return {
     sampleRate,
@@ -20,7 +20,7 @@ function createTestAudioData(data: Float32Array, sampleRate = 44100): AudioData 
   };
 }
 
-// テスト信号を生成するヘルパー関数
+// Helper function to generate test signals
 function createSineWave(
   frequency: number,
   duration: number,
@@ -49,10 +49,10 @@ function createPeakSignal(
     if (pos < length) {
       const amplitude = peakAmplitudes[i] || 1.0;
 
-      // ピーク点とその周辺を設定してローカルマキシマを作る
+      // Set peak point and surroundings to create a local maximum
       data[pos] = amplitude;
 
-      // 前後の値を少し小さくして、確実にローカルマキシマにする
+      // Make neighboring values slightly smaller to ensure a local maximum
       if (pos > 0) {
         data[pos - 1] = Math.max(data[pos - 1] ?? 0, amplitude * 0.5);
       }
@@ -60,7 +60,7 @@ function createPeakSignal(
         data[pos + 1] = Math.max(data[pos + 1] ?? 0, amplitude * 0.5);
       }
 
-      // さらに外側も少し設定（他のピークと重ならない限り）
+      // Also set outer neighbors (unless overlapping with other peaks)
       if (pos > 1) {
         data[pos - 2] = Math.max(data[pos - 2] ?? 0, amplitude * 0.2);
       }
@@ -123,7 +123,7 @@ describe('getPeaks', () => {
 
   describe('peak timing and amplitude', () => {
     it('should calculate correct time positions', () => {
-      const sampleRate = 1000; // 簡単な計算のため
+      const sampleRate = 1000; // For simpler calculations
       const data = createPeakSignal([100, 500], [1.0, 0.8], 1000);
       const audio = createTestAudioData(data, sampleRate);
 
@@ -227,7 +227,7 @@ describe('getPeaks', () => {
       expect(resultCh1.peaks[0]?.position).toBe(200);
     });
 
-    it('should average all channels when channel is -1', () => {
+    it("should average all channels when channel is 'mix'", () => {
       const channel0 = createPeakSignal([100], [1.0], 500);
       const channel1 = createPeakSignal([100], [0.6], 500); // Same position
 
@@ -239,7 +239,7 @@ describe('getPeaks', () => {
         length: 500
       };
 
-      const result = getPeaks(audio, { channel: -1, threshold: 0.5 });
+      const result = getPeaks(audio, { channel: 'mix', threshold: 0.5 });
 
       expect(result.peaks).toHaveLength(1);
       expect(result.peaks[0]?.position).toBe(100);
@@ -333,11 +333,29 @@ describe('getRMS', () => {
       length: 1000
     };
 
-    const rms0 = getRMS(audio, 0);
-    const rms1 = getRMS(audio, 1);
+    const rms0 = getRMS(audio, { channel: 0 });
+    const rms1 = getRMS(audio, { channel: 1 });
 
     expect(rms0).toBeCloseTo(1.0);
     expect(rms1).toBeCloseTo(0.5);
+  });
+
+  it("should use 'mix' as default channel", () => {
+    const channel0 = new Float32Array(1000);
+    channel0.fill(1.0);
+    const channel1 = new Float32Array(1000);
+    channel1.fill(0.0);
+
+    const audio: AudioData = {
+      sampleRate: 44100,
+      channelData: [channel0, channel1],
+      duration: 1000 / 44100,
+      numberOfChannels: 2,
+      length: 1000
+    };
+
+    const rms = getRMS(audio);
+    expect(rms).toBeCloseTo(0.5);
   });
 });
 
@@ -420,14 +438,14 @@ describe('getZeroCrossing', () => {
 describe('getWaveform', () => {
   describe('basic functionality', () => {
     it('should generate waveform data with default settings', () => {
-      const sineWave = createSineWave(440, 1.0, 1000, 1.0); // 1秒, 1000Hz サンプルレート
+      const sineWave = createSineWave(440, 1.0, 1000, 1.0); // 1 second, 1000Hz sample rate
       const audio = createTestAudioData(sineWave, 1000);
 
       const result = getWaveform(audio);
 
-      expect(result.waveform).toHaveLength(60); // デフォルト 60 FPS
+      expect(result.waveform).toHaveLength(60); // Default 60 FPS
       expect(result.frameCount).toBe(60);
-      expect(result.samplesPerFrame).toBe(Math.floor(1000 / 60)); // 16サンプル
+      expect(result.samplesPerFrame).toBe(Math.floor(1000 / 60)); // 16 samples
       expect(result.maxAmplitude).toBeGreaterThan(0);
       expect(result.averageAmplitude).toBeGreaterThan(0);
     });
@@ -440,7 +458,7 @@ describe('getWaveform', () => {
 
       expect(result.waveform).toHaveLength(30);
       expect(result.frameCount).toBe(30);
-      expect(result.samplesPerFrame).toBe(Math.floor(1000 / 30)); // 33サンプル
+      expect(result.samplesPerFrame).toBe(Math.floor(1000 / 30)); // 33 samples
     });
 
     it('should calculate correct time positions', () => {
@@ -450,9 +468,9 @@ describe('getWaveform', () => {
       const result = getWaveform(audio, { framesPerSecond: 10 });
 
       expect(result.waveform).toHaveLength(10);
-      expect(result.waveform[0]?.time).toBeCloseTo(0.05); // 最初のフレーム中央時間
-      expect(result.waveform[1]?.time).toBeCloseTo(0.15); // 2番目のフレーム中央時間
-      expect(result.waveform[9]?.time).toBeCloseTo(0.95); // 最後のフレーム中央時間
+      expect(result.waveform[0]?.time).toBeCloseTo(0.05); // Center time of the first frame
+      expect(result.waveform[1]?.time).toBeCloseTo(0.15); // Center time of the second frame
+      expect(result.waveform[9]?.time).toBeCloseTo(0.95); // Center time of the last frame
     });
   });
 
@@ -467,7 +485,7 @@ describe('getWaveform', () => {
         method: 'rms'
       });
 
-      // DC信号のRMSは値そのもの
+      // RMS of a DC signal equals the value itself
       result.waveform.forEach((point) => {
         expect(point.amplitude).toBeCloseTo(0.5);
       });
@@ -475,9 +493,9 @@ describe('getWaveform', () => {
 
     it('should calculate peak amplitude correctly', () => {
       const data = new Float32Array(1000);
-      // 各フレームに1つずつピークを配置
+      // Place one peak in each frame
       for (let i = 0; i < 10; i++) {
-        const peakPos = i * 100 + 50; // フレーム中央にピーク
+        const peakPos = i * 100 + 50; // Peak at frame center
         data[peakPos] = 0.8;
       }
       const audio = createTestAudioData(data, 1000);
@@ -535,7 +553,7 @@ describe('getWaveform', () => {
       });
     });
 
-    it('should average all channels when channel is -1', () => {
+    it("should average all channels when channel is 'mix'", () => {
       const channel0 = new Float32Array(1000);
       channel0.fill(1.0);
       const channel1 = new Float32Array(1000);
@@ -549,7 +567,7 @@ describe('getWaveform', () => {
         length: 1000
       };
 
-      const result = getWaveform(audio, { channel: -1, framesPerSecond: 10 });
+      const result = getWaveform(audio, { channel: 'mix', framesPerSecond: 10 });
 
       result.waveform.forEach((point) => {
         expect(point.amplitude).toBeCloseTo(0.75); // (1.0 + 0.5) / 2
@@ -593,10 +611,10 @@ describe('getWaveform', () => {
 
   describe('statistics', () => {
     it('should calculate statistics correctly', () => {
-      // 振幅が段階的に変化する信号を作成
+      // Create a signal with gradually changing amplitude
       const data = new Float32Array(1000);
       for (let i = 0; i < 1000; i++) {
-        data[i] = i / 1000; // 0から1まで線形増加
+        data[i] = i / 1000; // Linear increase from 0 to 1
       }
       const audio = createTestAudioData(data, 1000);
 
@@ -610,22 +628,22 @@ describe('getWaveform', () => {
 
   describe('extreme frame rate handling', () => {
     it('should handle extremely high frames per second gracefully', () => {
-      const signal = createSineWave(440, 1.0, 44100, 0.5); // 1秒のサイン波
+      const signal = createSineWave(440, 1.0, 44100, 0.5); // 1-second sine wave
       const audio = createTestAudioData(signal);
 
-      // 極端に高いフレームレート（サンプル数より多い）
+      // Extremely high frame rate (more than sample count)
       const result = getWaveform(audio, {
-        framesPerSecond: 100000, // 10万fps
+        framesPerSecond: 100000, // 100,000 fps
         method: 'rms'
       });
 
-      // samplesPerFrameが0になることなく、適切に制限されることを確認
+      // Ensure samplesPerFrame does not become 0 and is properly capped
       expect(result.samplesPerFrame).toBeGreaterThan(0);
       expect(result.frameCount).toBeGreaterThan(0);
       expect(result.frameCount).toBeLessThanOrEqual(audio.length);
       expect(result.waveform.length).toBe(result.frameCount);
 
-      // 各フレームが有効な値を持つことを確認
+      // Ensure each frame has valid values
       result.waveform.forEach((point) => {
         expect(point.time).toBeGreaterThanOrEqual(0);
         expect(point.amplitude).toBeGreaterThanOrEqual(0);
@@ -634,7 +652,7 @@ describe('getWaveform', () => {
     });
 
     it('should handle normal frame rates correctly', () => {
-      const signal = createSineWave(440, 2.0, 44100, 0.5); // 2秒のサイン波
+      const signal = createSineWave(440, 2.0, 44100, 0.5); // 2-second sine wave
       const audio = createTestAudioData(signal);
 
       const result = getWaveform(audio, {
@@ -642,8 +660,8 @@ describe('getWaveform', () => {
         method: 'peak'
       });
 
-      // 通常のフレームレートでの正常動作を確認
-      expect(result.frameCount).toBe(Math.ceil(2.0 * 60)); // 120フレーム
+      // Verify correct behavior at normal frame rates
+      expect(result.frameCount).toBe(Math.ceil(2.0 * 60)); // 120 frames
       expect(result.samplesPerFrame).toBeGreaterThan(0);
       expect(result.waveform.length).toBe(result.frameCount);
       expect(result.maxAmplitude).toBeGreaterThan(0);
@@ -655,7 +673,7 @@ describe('getWaveform', () => {
 
       const result = getWaveform(audio, { framesPerSecond: 60 });
 
-      // 空の音声データの場合
+      // For empty audio data
       expect(result.frameCount).toBe(0);
       expect(result.samplesPerFrame).toBe(0);
       expect(result.waveform.length).toBe(0);
@@ -664,17 +682,17 @@ describe('getWaveform', () => {
     });
 
     it('should maintain frame calculation consistency', () => {
-      const signal = createSineWave(1000, 0.5, 44100, 0.8); // 0.5秒
+      const signal = createSineWave(1000, 0.5, 44100, 0.8); // 0.5 seconds
       const audio = createTestAudioData(signal);
 
       const lowFps = getWaveform(audio, { framesPerSecond: 10 });
       const highFps = getWaveform(audio, { framesPerSecond: 1000 });
 
-      // 低いフレームレートと高いフレームレートの両方で適切に動作
+      // Both low and high frame rates work correctly
       expect(lowFps.samplesPerFrame).toBeGreaterThan(0);
       expect(highFps.samplesPerFrame).toBeGreaterThan(0);
 
-      // フレーム数の妥当性
+      // Frame count validity
       expect(lowFps.frameCount).toBeLessThan(highFps.frameCount);
       expect(lowFps.frameCount).toBeLessThanOrEqual(audio.length);
       expect(highFps.frameCount).toBeLessThanOrEqual(audio.length);
@@ -693,7 +711,7 @@ describe('True Peak Detection', () => {
 
       expect(regularPeak).toBeCloseTo(1.0, 2);
       expect(truePeak).toBeGreaterThanOrEqual(regularPeak);
-      expect(truePeak).toBeGreaterThan(0.9); // サイン波なので1.0に近い値
+      expect(truePeak).toBeGreaterThan(0.9); // Close to 1.0 for a sine wave
     });
 
     it('should handle different oversampling factors', () => {
@@ -713,13 +731,13 @@ describe('True Peak Detection', () => {
         oversamplingFactor: 8
       });
 
-      // より高いオーバーサンプリング倍率でより正確な結果が得られる
+      // Higher oversampling factors yield more accurate results
       expect(truePeak2x).toBeGreaterThan(0.9);
       expect(truePeak4x).toBeGreaterThan(0.9);
       expect(truePeak8x).toBeGreaterThan(0.9);
 
-      // オーバーサンプリング倍率による精度向上を確認
-      expect(truePeak4x).toBeGreaterThanOrEqual(truePeak2x - 0.01); // 許容誤差を考慮
+      // Verify accuracy improvement with higher oversampling factors
+      expect(truePeak4x).toBeGreaterThanOrEqual(truePeak2x - 0.01); // Accounting for tolerance
       expect(truePeak8x).toBeGreaterThanOrEqual(truePeak4x - 0.01);
     });
 
@@ -740,12 +758,12 @@ describe('True Peak Detection', () => {
         interpolation: 'sinc'
       });
 
-      // すべての補間方法で有効な結果が得られることを確認
+      // Ensure all interpolation methods produce valid results
       expect(linearTruePeak).toBeGreaterThan(0.8);
       expect(cubicTruePeak).toBeGreaterThan(0.8);
       expect(sincTruePeak).toBeGreaterThan(0.8);
 
-      // より高精度な補間方法（sinc）で最も正確な結果が得られることを期待
+      // Expect the highest-precision method (sinc) to yield the most accurate result
       expect(sincTruePeak).toBeGreaterThanOrEqual(cubicTruePeak - 0.02);
       expect(cubicTruePeak).toBeGreaterThanOrEqual(linearTruePeak - 0.02);
     });
@@ -765,9 +783,9 @@ describe('True Peak Detection', () => {
 
       expect(truePeakLinear).toBeGreaterThan(0);
       expect(truePeakLinear).toBeLessThanOrEqual(1.0);
-      expect(truePeakDB).toBeLessThan(0); // 0.5の振幅なので負のdB値
+      expect(truePeakDB).toBeLessThan(0); // Negative dB value since amplitude is 0.5
 
-      // dB変換の妥当性確認
+      // Verify dB conversion correctness
       const expectedDB = 20 * Math.log10(truePeakLinear);
       expect(truePeakDB).toBeCloseTo(expectedDB, 1);
     });
@@ -778,11 +796,11 @@ describe('True Peak Detection', () => {
       const signal = createSineWave(1000, 0.1, 44100, 1.0);
       const audio = createTestAudioData(signal);
 
-      // RMSは通常のRMS計算（True Peakオプションは影響しない）
+      // RMS is standard RMS calculation (True Peak option has no effect)
       const rmsNormal = getRMS(audio, { truePeak: false });
       const rmsWithTruePeak = getRMS(audio, { truePeak: true });
 
-      // RMS値は同じになる（True Peakはピーク検出にのみ影響）
+      // RMS values should be the same (True Peak only affects peak detection)
       expect(rmsNormal).toBeCloseTo(rmsWithTruePeak, 3);
       expect(rmsNormal).toBeCloseTo(1.0 / Math.sqrt(2), 2);
     });
@@ -805,7 +823,7 @@ describe('True Peak Detection', () => {
       const truePeak = getPeakAmplitude(audio, { truePeak: true });
 
       expect(truePeak).toBeGreaterThan(0);
-      expect(truePeak).toBeGreaterThanOrEqual(1.0); // 最大振幅1.0以上
+      expect(truePeak).toBeGreaterThanOrEqual(1.0); // At least 1.0 maximum amplitude
     });
 
     it('should handle DC signal', () => {
@@ -847,7 +865,7 @@ describe('True Peak Detection', () => {
 
   describe('True Peak performance', () => {
     it('should handle large audio files efficiently', () => {
-      const longSignal = createSineWave(440, 5.0, 44100, 1.0); // 5秒
+      const longSignal = createSineWave(440, 5.0, 44100, 1.0); // 5 seconds
       const audio = createTestAudioData(longSignal);
 
       const startTime = performance.now();
@@ -859,7 +877,7 @@ describe('True Peak Detection', () => {
       const endTime = performance.now();
 
       expect(truePeak).toBeGreaterThan(0.9);
-      expect(endTime - startTime).toBeLessThan(1000); // 1秒以内で完了
+      expect(endTime - startTime).toBeLessThan(1000); // Complete within 1 second
     });
 
     it('should maintain accuracy with different signal frequencies', () => {
@@ -874,9 +892,9 @@ describe('True Peak Detection', () => {
           oversamplingFactor: 4
         });
 
-        // 全ての周波数で適切なTrue Peak値を取得
+        // Obtain proper True Peak values for all frequencies
         expect(truePeak).toBeGreaterThan(0.9);
-        expect(truePeak).toBeLessThan(1.1); // 過度に高い値は異常
+        expect(truePeak).toBeLessThan(1.1); // Excessively high values indicate an error
       });
     });
   });

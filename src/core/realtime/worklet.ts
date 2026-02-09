@@ -1,4 +1,4 @@
-import { AudioInspectError } from '../types.js';
+import { AudioInspectError } from '../../types.js';
 
 export interface PrepareWorkletOptions {
   moduleUrl?: string;
@@ -8,10 +8,10 @@ const loadedModulesByContext = new WeakMap<BaseAudioContext, Set<string>>();
 
 function getDefaultWorkletModuleUrl(): string {
   if (typeof location !== 'undefined' && typeof location.href === 'string') {
-    return new URL('/core/AudioInspectProcessor.js', location.href).href;
+    return new URL('/core/realtime/processor.js', location.href).href;
   }
 
-  return '/core/AudioInspectProcessor.js';
+  return '/core/realtime/processor.js';
 }
 
 function getLoadedModuleSet(context: BaseAudioContext): Set<string> {

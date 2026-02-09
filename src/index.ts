@@ -1,7 +1,7 @@
 export { load } from './core/load.js';
 export { analyze, inspect } from './core/analyze.js';
-export { monitor } from './core/monitor.js';
-export { prepareWorklet } from './core/realtime-worklet.js';
+export { monitor } from './core/realtime/monitor.js';
+export { prepareWorklet } from './core/realtime/worklet.js';
 export { FEATURES } from './core/feature-registry.js';
 export { AudioInspectError, isAudioInspectError } from './types.js';
 
@@ -47,11 +47,10 @@ export type {
 export type {
   MonitorSource,
   MonitorEngine,
-  MonitorEngineMode,
   MonitorState,
   MonitorOptions,
   MonitorFrame,
   MonitorErrorEvent,
   MonitorSession
-} from './core/monitor.js';
-export type { PrepareWorkletOptions } from './core/realtime-worklet.js';
+} from './core/realtime/monitor.js';
+export type { PrepareWorkletOptions } from './core/realtime/worklet.js';

@@ -1,30 +1,35 @@
 import { AudioData, AudioInspectError, AmplitudeOptions, type ChannelSelector } from '../types.js';
-import { getChannelData, ensureValidSample, applyAWeighting } from '../core/utils.js';
+import { getChannelData } from '../core/utils.js';
+import { applyAWeighting } from '../core/dsp/a-weighting.js';
+import { ampToDb } from '../core/dsp/db.js';
 import { getRMS, getPeakAmplitude } from './time.js';
 
+// Crest factor options for whole-signal and optional frame-based analysis.
 export interface CrestFactorOptions {
   channel?: ChannelSelector;
-  windowSize?: number; // 窓サイズ（秒）
-  hopSize?: number; // ホップサイズ（秒）
-  method?: 'simple' | 'weighted'; // 重み付きクレストファクター
+  windowSize?: number;
+  hopSize?: number;
+  method?: 'simple' | 'weighted';
 }
 
+// Crest factor outputs in dB and linear domain.
 export interface CrestFactorResult {
-  crestFactor: number; // 全体のクレストファクター (dB)
-  crestFactorLinear: number; // 線形スケールのクレストファクター
-  peak: number; // ピーク値（線形）
-  rms: number; // RMS値（線形）
+  crestFactor: number;
+  crestFactorLinear: number;
+  peak: number;
+  rms: number;
   timeVarying?:
     | {
         times: Float32Array;
         values: Float32Array; // dB
-        valuesLinear: Float32Array; // 線形
+        valuesLinear: Float32Array;
         peaks: Float32Array;
         rmsValues: Float32Array;
       }
     | undefined;
 }
 
+// Compute crest factor for one frame, with optional A-weighting.
 function calculateFrameCrestFactor(
   frameData: Float32Array,
   sampleRate: number,
@@ -36,37 +41,34 @@ function calculateFrameCrestFactor(
 
   let processedData = frameData;
 
-  // A特性重み付き処理
+  // Weighted mode applies an A-weighting filter before peak/RMS extraction.
   if (method === 'weighted') {
-    // A特性フィルタを適用
     processedData = applyAWeighting(frameData, sampleRate);
   }
 
   let peakVal = 0;
   let sumOfSquares = 0;
-  let validSamples = 0;
 
   for (let i = 0; i < processedData.length; i++) {
-    const sample = ensureValidSample(processedData[i] ?? 0);
+    const sample = processedData[i]!;
     const absSample = Math.abs(sample);
 
     peakVal = Math.max(peakVal, absSample);
     sumOfSquares += sample * sample;
-    validSamples++;
   }
 
-  if (validSamples === 0) {
+  if (processedData.length === 0) {
     return { peak: 0, rms: 0, cfDb: -Infinity, cfLinear: 0 };
   }
 
-  const rmsVal = Math.sqrt(sumOfSquares / validSamples);
+  const rmsVal = Math.sqrt(sumOfSquares / processedData.length);
 
   if (rmsVal < 1e-10) {
     return { peak: peakVal, rms: rmsVal, cfDb: Infinity, cfLinear: Infinity };
   }
 
   const cfLinear = peakVal / rmsVal;
-  const cfDb = 20 * Math.log10(cfLinear);
+  const cfDb = ampToDb(cfLinear, 1);
 
   return { peak: peakVal, rms: rmsVal, cfDb, cfLinear };
 }
@@ -75,59 +77,54 @@ export function getCrestFactor(
   audio: AudioData,
   options: CrestFactorOptions = {}
 ): CrestFactorResult {
-  const { channel = 0, windowSize, hopSize, method = 'simple' } = options;
+  const { channel = 'mix', windowSize, hopSize, method = 'simple' } = options;
 
   let overallPeak: number;
   let overallRms: number;
 
   if (method === 'weighted') {
-    // A-weightingを適用
+    // In weighted mode, compute both peak and RMS on weighted samples.
     const channelData = getChannelData(audio, channel);
     const weightedData = applyAWeighting(channelData, audio.sampleRate);
 
-    // 重み付けされたデータからピーク値とRMS値を計算
     let peakVal = 0;
     let sumOfSquares = 0;
-    let validSamples = 0;
 
     for (let i = 0; i < weightedData.length; i++) {
-      const sample = ensureValidSample(weightedData[i] ?? 0);
+      const sample = weightedData[i]!;
       const absSample = Math.abs(sample);
 
-      // ピーク値を更新
       peakVal = Math.max(peakVal, absSample);
 
-      // RMS計算用の二乗和
       sumOfSquares += sample * sample;
-      validSamples++;
     }
 
     overallPeak = peakVal;
-    overallRms = validSamples > 0 ? Math.sqrt(sumOfSquares / validSamples) : 0;
+    overallRms = weightedData.length > 0 ? Math.sqrt(sumOfSquares / weightedData.length) : 0;
   } else {
-    // simpleモード（既存の実装）
+    // Simple mode reuses existing amplitude primitives.
     const amplitudeOpts: AmplitudeOptions = { channel, asDB: false };
     overallPeak = getPeakAmplitude(audio, amplitudeOpts);
     overallRms = getRMS(audio, amplitudeOpts);
   }
 
   const overallCfLinear = overallRms > 1e-10 ? overallPeak / overallRms : Infinity;
-  const overallCfDb = overallRms > 1e-10 ? 20 * Math.log10(overallCfLinear) : Infinity;
+  const overallCfDb = overallRms > 1e-10 ? ampToDb(overallCfLinear, 1) : Infinity;
 
   let timeVaryingResult: CrestFactorResult['timeVarying'] | undefined;
 
-  // 時変クレストファクター計算
+  // Optional frame-based crest factor time series.
   if (typeof windowSize === 'number' && typeof hopSize === 'number') {
     if (windowSize <= 0 || hopSize <= 0) {
       throw new AudioInspectError(
         'INVALID_INPUT',
-        'windowSizeとhopSizeは正の値である必要があります'
+        'windowSize and hopSize must be positive values'
       );
     }
 
     if (hopSize > windowSize) {
       console.warn(
-        '[audio-inspect] hopSizeがwindowSizeより大きいため、分析窓間にギャップが生じます'
+        '[audio-inspect] hopSize is larger than windowSize, so gaps will occur between analysis windows'
       );
     }
 
@@ -135,14 +132,14 @@ export function getCrestFactor(
     const hopSizeSamples = Math.floor(hopSize * audio.sampleRate);
 
     if (windowSizeSamples === 0 || hopSizeSamples === 0) {
-      throw new AudioInspectError('INVALID_INPUT', 'サンプルレートに対して窓サイズが小さすぎます');
+      throw new AudioInspectError('INVALID_INPUT', 'Window size is too small for the sample rate');
     }
 
     const channelData = getChannelData(audio, channel);
     const dataLength = channelData.length;
 
     if (dataLength < windowSizeSamples) {
-      // データが1窓分に満たない場合
+      // For short input, emit one frame centered on the full clip.
       const result = calculateFrameCrestFactor(channelData, audio.sampleRate, method);
       timeVaryingResult = {
         times: new Float32Array([audio.duration / 2]),

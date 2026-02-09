@@ -1,89 +1,67 @@
-import { AudioInspectError } from '../types.js';
+import { AudioInspectError } from '../../types.js';
 
-/**
- * FFTプロバイダーの種類
- */
 export type FFTProviderType = 'webfft' | 'native' | 'custom';
 
-/**
- * FFT結果
- */
+// Canonical FFT output shape shared by all providers.
 export interface FFTResult {
-  /** 複素数結果（インターリーブ形式：実部、虚部、実部、虚部...） */
   complex: Float32Array;
-  /** 振幅スペクトラム */
   magnitude: Float32Array;
-  /** 位相スペクトラム */
   phase: Float32Array;
-  /** 周波数ビン（Hz） */
   frequencies: Float32Array;
 }
 
-/**
- * FFTプロバイダーのインターフェース
- */
+// Provider contract for FFT backends.
 export interface IFFTProvider {
-  /** プロバイダー名 */
   readonly name: string;
-  /** FFTサイズ */
   readonly size: number;
-  /** サンプルレート */
   readonly sampleRate: number;
 
-  /**
-   * FFTを実行
-   * @param input - 実数入力データ
-   * @returns FFT結果
-   */
   fft(input: Float32Array): FFTResult | Promise<FFTResult>;
 
-  /**
-   * リソースを解放
-   */
   dispose(): void;
 
-  /**
-   * プロファイリングを実行（対応している場合）
-   */
   profile?(): Promise<void>;
 }
 
-/**
- * FFTプロバイダーの設定
- */
+// Factory configuration for constructing an FFT provider.
 export interface FFTProviderConfig {
-  /** プロバイダータイプ */
   type: FFTProviderType;
-  /** FFTサイズ（2の累乗である必要があります） */
   fftSize: number;
-  /** サンプルレート */
   sampleRate: number;
-  /** 自動プロファイリングを有効にするか */
   enableProfiling?: boolean;
-  /** カスタムプロバイダー（type='custom'の場合） */
   customProvider?: IFFTProvider;
 }
 
-// WebFFT型定義
+
 interface WebFFTInstance {
   fft(input: Float32Array): Float32Array;
   profile(): Promise<unknown>;
   dispose(): void;
 }
 
-/**
- * WebFFTプロバイダーの実装
- */
+function createFrequencyBins(fftSize: number, sampleRate: number): Float32Array {
+  const bins = new Float32Array(fftSize / 2 + 1);
+  const resolution = sampleRate / fftSize;
+  for (let i = 0; i < bins.length; i++) {
+    bins[i] = i * resolution;
+  }
+  return bins;
+}
+
+// WebFFT-backed provider with deferred dynamic module initialization.
 class WebFFTProvider implements IFFTProvider {
   private fftInstance: WebFFTInstance | null = null;
   private initializationPromise: Promise<void> | null = null;
+  private readonly complexInput: Float32Array;
+  private readonly frequencyBins: Float32Array;
 
   constructor(
     public readonly size: number,
     public readonly sampleRate: number,
     private enableProfiling: boolean = false
   ) {
-    // コンストラクタで初期化を開始
+    this.complexInput = new Float32Array(this.size * 2);
+    this.frequencyBins = createFrequencyBins(this.size, this.sampleRate);
     this.initializationPromise = this.initializeWebFFT();
   }
 
@@ -91,9 +69,6 @@ class WebFFTProvider implements IFFTProvider {
     return 'WebFFT';
   }
 
-  /**
-   * 初期化の完了を待つ（外部から呼び出し可能）
-   */
   async waitForInitialization(): Promise<void> {
     if (this.initializationPromise) {
       await this.initializationPromise;
@@ -115,13 +90,12 @@ class WebFFTProvider implements IFFTProvider {
     } catch (error) {
       throw new AudioInspectError(
         'UNSUPPORTED_FORMAT',
-        `WebFFTの初期化に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to initialize WebFFT: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
 
   async fft(input: Float32Array): Promise<FFTResult> {
-    // 初期化の完了を待つ
     if (this.initializationPromise) {
       await this.initializationPromise;
     }
@@ -133,50 +107,45 @@ class WebFFTProvider implements IFFTProvider {
     if (input.length !== this.size) {
       throw new AudioInspectError(
         'INVALID_INPUT',
-        `入力サイズが不正です。期待値: ${this.size}, 実際: ${input.length}`
+        `Invalid input size. Expected: ${this.size}, Actual: ${input.length}`
       );
     }
 
-    // WebFFTは複素数入力（インターリーブ形式）を期待するので、実数を複素数に変換
-    const complexInput = new Float32Array(this.size * 2);
+    // Convert real input to interleaved complex input (imaginary part = 0).
     for (let i = 0; i < this.size; i++) {
-      complexInput[i * 2] = input[i] || 0; // 実部
-      complexInput[i * 2 + 1] = 0; // 虚部（0で初期化）
+      this.complexInput[i * 2] = input[i]!;
+      this.complexInput[i * 2 + 1] = 0;
     }
 
-    // FFT実行
-    const complexOutput = this.fftInstance.fft(complexInput);
+    const complexOutput = this.fftInstance.fft(this.complexInput);
 
-    // 結果を処理
-    const magnitude = new Float32Array(this.size / 2 + 1); // 正の周波数のみ
+    // Convert complex output to magnitude/phase for non-negative frequencies.
+    const magnitude = new Float32Array(this.size / 2 + 1);
     const phase = new Float32Array(this.size / 2 + 1);
-    const frequencies = new Float32Array(this.size / 2 + 1);
 
     for (let i = 0; i < magnitude.length; i++) {
-      const real = complexOutput[i * 2] || 0;
-      const imag = complexOutput[i * 2 + 1] || 0;
+      const real = complexOutput[i * 2]!;
+      const imag = complexOutput[i * 2 + 1]!;
 
       magnitude[i] = Math.sqrt(real * real + imag * imag);
       phase[i] = Math.atan2(imag, real);
-      frequencies[i] = (i * this.sampleRate) / this.size;
     }
 
     return {
       complex: complexOutput,
       magnitude,
       phase,
-      frequencies
+      frequencies: this.frequencyBins
     };
   }
 
   async profile(): Promise<void> {
-    // 初期化の完了を待つ
     if (this.initializationPromise) {
       await this.initializationPromise;
     }
 
     if (!this.fftInstance || !this.fftInstance.profile) {
-      throw new AudioInspectError('UNSUPPORTED_FORMAT', 'WebFFTが初期化されていません');
+      throw new AudioInspectError('UNSUPPORTED_FORMAT', 'WebFFT is not initialized');
     }
 
     await this.fftInstance.profile();
@@ -198,20 +167,21 @@ class WebFFTProvider implements IFFTProvider {
   }
 }
 
-/**
- * 効率的なネイティブFFTプロバイダー（Cooley-Tukey実装）
- */
-class NativeFFTProvider implements IFFTProvider {
+// In-process Cooley-Tukey FFT provider (radix-2, iterative).
+export class NativeFFTProvider implements IFFTProvider {
   private bitReversalTable!: Uint32Array;
   private twiddleFactorsReal!: Float32Array;
   private twiddleFactorsImag!: Float32Array;
+  private scratchReal!: Float32Array;
+  private scratchImag!: Float32Array;
+  private frequencyBins!: Float32Array;
 
   constructor(
     public readonly size: number,
     public readonly sampleRate: number
   ) {
     if (!this.isPowerOfTwo(size)) {
-      throw new AudioInspectError('INVALID_INPUT', 'FFTサイズは2の冪である必要があります');
+      throw new AudioInspectError('INVALID_INPUT', 'FFT size must be a power of two');
     }
     this.precomputeTables();
   }
@@ -225,7 +195,7 @@ class NativeFFTProvider implements IFFTProvider {
   }
 
   private precomputeTables(): void {
-    // ビット反転テーブルの事前計算
+    // Bit-reversal permutation table.
     this.bitReversalTable = new Uint32Array(this.size);
     const bits = Math.log2(this.size);
     for (let i = 0; i < this.size; i++) {
@@ -236,7 +206,7 @@ class NativeFFTProvider implements IFFTProvider {
       this.bitReversalTable[i] = reversed;
     }
 
-    // Twiddle factorsの事前計算
+    // Twiddle factors for each unique frequency step.
     const halfSize = this.size / 2;
     this.twiddleFactorsReal = new Float32Array(halfSize);
     this.twiddleFactorsImag = new Float32Array(halfSize);
@@ -245,29 +215,31 @@ class NativeFFTProvider implements IFFTProvider {
       this.twiddleFactorsReal[i] = Math.cos(angle);
       this.twiddleFactorsImag[i] = Math.sin(angle);
     }
+
+    this.scratchReal = new Float32Array(this.size);
+    this.scratchImag = new Float32Array(this.size);
+    this.frequencyBins = createFrequencyBins(this.size, this.sampleRate);
   }
 
   fft(input: Float32Array): FFTResult {
     if (input.length !== this.size) {
       throw new AudioInspectError(
         'INVALID_INPUT',
-        `入力サイズが不正です。期待値: ${this.size}, 実際: ${input.length}`
+        `Invalid input size. Expected: ${this.size}, Actual: ${input.length}`
       );
     }
 
-    // 複素数配列の初期化（ビット反転順）
-    const real = new Float32Array(this.size);
-    const imag = new Float32Array(this.size);
+    // Reorder input by bit-reversed indices.
+    const real = this.scratchReal;
+    const imag = this.scratchImag;
 
     for (let i = 0; i < this.size; i++) {
-      const reversedIndex = this.bitReversalTable[i];
-      if (reversedIndex !== undefined) {
-        real[reversedIndex] = input[i] || 0;
-        imag[reversedIndex] = 0;
-      }
+      const reversedIndex = this.bitReversalTable[i]!;
+      real[reversedIndex] = input[i]!;
+      imag[reversedIndex] = 0;
     }
 
-    // Cooley-Tukey FFTアルゴリズム
+    // Iterative radix-2 butterfly stages.
     for (let stage = 1; stage < this.size; stage *= 2) {
       const stageSize = stage * 2;
       const twiddleStep = this.size / stageSize;
@@ -275,16 +247,16 @@ class NativeFFTProvider implements IFFTProvider {
       for (let k = 0; k < this.size; k += stageSize) {
         for (let j = 0; j < stage; j++) {
           const twiddleIndex = j * twiddleStep;
-          const wr = this.twiddleFactorsReal[twiddleIndex] || 0;
-          const wi = this.twiddleFactorsImag[twiddleIndex] || 0;
+          const wr = this.twiddleFactorsReal[twiddleIndex]!;
+          const wi = this.twiddleFactorsImag[twiddleIndex]!;
 
           const evenIndex = k + j;
           const oddIndex = k + j + stage;
 
-          const evenReal = real[evenIndex] || 0;
-          const evenImag = imag[evenIndex] || 0;
-          const oddReal = real[oddIndex] || 0;
-          const oddImag = imag[oddIndex] || 0;
+          const evenReal = real[evenIndex]!;
+          const evenImag = imag[evenIndex]!;
+          const oddReal = real[oddIndex]!;
+          const oddImag = imag[oddIndex]!;
 
           const tempReal = oddReal * wr - oddImag * wi;
           const tempImag = oddReal * wi + oddImag * wr;
@@ -297,40 +269,38 @@ class NativeFFTProvider implements IFFTProvider {
       }
     }
 
-    // 結果の構築
+    // Build complex output and half-spectrum magnitude/phase views.
     const complex = new Float32Array(this.size * 2);
     const magnitude = new Float32Array(this.size / 2 + 1);
     const phase = new Float32Array(this.size / 2 + 1);
-    const frequencies = new Float32Array(this.size / 2 + 1);
 
     for (let i = 0; i < this.size; i++) {
-      complex[i * 2] = real[i] || 0;
-      complex[i * 2 + 1] = imag[i] || 0;
+      complex[i * 2] = real[i]!;
+      complex[i * 2 + 1] = imag[i]!;
 
       if (i <= this.size / 2) {
-        const realPart = real[i] || 0;
-        const imagPart = imag[i] || 0;
+        const realPart = real[i]!;
+        const imagPart = imag[i]!;
         magnitude[i] = Math.sqrt(realPart * realPart + imagPart * imagPart);
         phase[i] = Math.atan2(imagPart, realPart);
-        frequencies[i] = (i * this.sampleRate) / this.size;
       }
     }
 
-    return { complex, magnitude, phase, frequencies };
+    return { complex, magnitude, phase, frequencies: this.frequencyBins };
   }
 
   dispose(): void {
-    // メモリの明示的な解放（必要に応じて）
+    this.scratchReal = new Float32Array(0);
+    this.scratchImag = new Float32Array(0);
+    this.bitReversalTable = new Uint32Array(0);
+    this.twiddleFactorsReal = new Float32Array(0);
+    this.twiddleFactorsImag = new Float32Array(0);
+    this.frequencyBins = new Float32Array(0);
   }
 }
 
-/**
- * FFTプロバイダーファクトリー
- */
 export class FFTProviderFactory {
-  /**
-   * 指定された設定でFFTプロバイダーを作成
-   */
+  // Create an FFT provider from config.
   static async createProvider(config: FFTProviderConfig): Promise<IFFTProvider> {
     switch (config.type) {
       case 'webfft': {
@@ -339,7 +309,7 @@ export class FFTProviderFactory {
           config.sampleRate,
           config.enableProfiling
         );
-        // 初期化の完了を待つ
+        // Ensure WebFFT has loaded before returning.
         await provider.waitForInitialization();
         return provider;
       }
@@ -349,7 +319,7 @@ export class FFTProviderFactory {
 
       case 'custom':
         if (!config.customProvider) {
-          throw new AudioInspectError('INVALID_INPUT', 'カスタムプロバイダーが指定されていません');
+          throw new AudioInspectError('INVALID_INPUT', 'Custom provider is not specified');
         }
         return config.customProvider;
 
@@ -357,15 +327,13 @@ export class FFTProviderFactory {
         const exhaustiveCheck: never = config.type;
         throw new AudioInspectError(
           'UNSUPPORTED_FORMAT',
-          `未対応のFFTプロバイダー: ${String(exhaustiveCheck)}`
+          `Unsupported FFT provider: ${String(exhaustiveCheck)}`
         );
       }
     }
   }
 
-  /**
-   * 利用可能なプロバイダーをリスト
-   */
+  // List built-in providers available in this build.
   static getAvailableProviders(): FFTProviderType[] {
     return ['webfft', 'native'];
   }

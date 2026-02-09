@@ -70,6 +70,21 @@ describe('core/analyze', () => {
     expect(typeof result.results.zeroCrossing).toBe('number');
   });
 
+  it('supports integrated analysis feature ids via analyze()', async () => {
+    const audio = createAudioData(1.2);
+    const result = await analyze(audio, {
+      features: {
+        rmsAnalysis: true,
+        peaksAnalysis: { count: 8 },
+        waveformAnalysis: { framesPerSecond: 30 }
+      }
+    });
+
+    expect(result.results.rmsAnalysis?.value).toBeTypeOf('number');
+    expect(result.results.peaksAnalysis?.count).toBeGreaterThanOrEqual(0);
+    expect(result.results.waveformAnalysis?.frameCount).toBeGreaterThan(0);
+  });
+
   it('supports range analysis and progress callbacks', async () => {
     const audio = createAudioData(2);
     const onProgress = vi.fn();
@@ -132,7 +147,9 @@ describe('core/analyze', () => {
   });
 
   it('supports inspect with URL source (non-AudioLike)', async () => {
-    const fetchMock = vi.fn(async () => new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 }));
+    const fetchMock = vi.fn(
+      async () => new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 })
+    );
     const result = await inspect(new URL('https://example.com/audio.wav'), {
       load: { decoder, fetch: fetchMock },
       features: { rms: true }
@@ -173,7 +190,7 @@ describe('core/analyze', () => {
     expect(typeof result.results.zeroCrossing).toBe('number');
   });
 
-  it('covers missing features: mfccWithDelta, stereo, timeVaryingStereo', async () => {
+  it('covers advanced features: mfccWithDelta, stereo, timeVaryingStereo', async () => {
     const audio = createStereoAudioData(1.5, 16000);
     const result = await analyze(audio, {
       continueOnError: true,
@@ -187,7 +204,8 @@ describe('core/analyze', () => {
     expect(result.results.mfccWithDelta?.mfcc.length).toBeGreaterThan(0);
     expect(result.results.mfccWithDelta?.delta?.length).toBeGreaterThan(0);
     expect(result.results.stereo?.correlation).toBeTypeOf('number');
-    expect(result.errors.timeVaryingStereo?.code).toBe('UNSUPPORTED_FORMAT');
+    expect(result.results.timeVaryingStereo?.correlation.length).toBeGreaterThan(0);
+    expect(result.errors.timeVaryingStereo).toBeUndefined();
   });
 
   it('returns INSUFFICIENT_DATA for too-short MFCC input when continueOnError=true', async () => {

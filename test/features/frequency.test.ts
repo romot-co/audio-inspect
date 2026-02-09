@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { getFFT, getSpectrum } from '../../src/features/frequency.js';
 import type { AudioData } from '../../src/types.js';
-import { FFTProviderFactory } from '../../src/core/fft-provider.js';
+import { FFTProviderFactory } from '../../src/core/dsp/fft-provider.js';
+import { FFTProviderCacheStore } from '../../src/core/dsp/fft-runtime.js';
 
-// テスト用のAudioDataを作成するヘルパー
 function createTestAudioData(data: Float32Array, sampleRate = 44100): AudioData {
   return {
     sampleRate,
@@ -14,7 +14,6 @@ function createTestAudioData(data: Float32Array, sampleRate = 44100): AudioData 
   };
 }
 
-// テスト信号を生成するヘルパー関数
 function createSineWave(
   frequency: number,
   duration: number,
@@ -76,7 +75,6 @@ describe('getFFT', () => {
       expect(result.phase).toBeInstanceOf(Float32Array);
       expect(result.complex).toBeInstanceOf(Float32Array);
 
-      // 440Hz付近にピークがあることを確認
       const peakIndex = result.frequencies.findIndex((f) => f >= 440);
       expect(peakIndex).toBeGreaterThan(0);
     });
@@ -86,7 +84,7 @@ describe('getFFT', () => {
       const audio = createTestAudioData(sineWave);
 
       const result = await getFFT(audio, {
-        fftSize: 256, // 小さいサイズでテスト（ネイティブ実装は遅い）
+        fftSize: 256,
         provider: 'native'
       });
 
@@ -105,7 +103,7 @@ describe('getFFT', () => {
         const result = await getFFT(audio, {
           fftSize: 1024,
           windowFunction,
-          provider: 'native' // 高速化のため
+          provider: 'native'
         });
 
         expect(result.windowFunction).toBe(windowFunction);
@@ -116,7 +114,7 @@ describe('getFFT', () => {
 
   describe('input handling', () => {
     it('should handle zero padding for small inputs', async () => {
-      const shortSignal = createSineWave(440, 0.01, 44100, 1.0); // 短い信号
+      const shortSignal = createSineWave(440, 0.01, 44100, 1.0);
       const audio = createTestAudioData(shortSignal);
 
       const result = await getFFT(audio, {
@@ -154,7 +152,6 @@ describe('getFFT', () => {
       expect(result0.magnitude).toBeInstanceOf(Float32Array);
       expect(result1.magnitude).toBeInstanceOf(Float32Array);
 
-      // 異なるチャンネルで異なる結果が得られることを確認
       const maxMag0 = Math.max(...Array.from(result0.magnitude));
       const maxMag1 = Math.max(...Array.from(result1.magnitude));
       expect(maxMag0).not.toBe(maxMag1);
@@ -179,7 +176,6 @@ describe('getSpectrum', () => {
       expect(result.decibels).toBeInstanceOf(Float32Array);
       expect(result.spectrogram).toBeUndefined();
 
-      // 440Hz, 880Hz, 1320Hz付近にピークがあることを確認
       const freq440Index = result.frequencies.findIndex((f) => Math.abs(f - 440) < 50);
       const freq880Index = result.frequencies.findIndex((f) => Math.abs(f - 880) < 50);
 
@@ -206,15 +202,14 @@ describe('getSpectrum', () => {
 
   describe('spectrogram analysis', () => {
     it('should generate spectrogram', async () => {
-      // 周波数が時間とともに変化する信号を作成
       const duration = 0.5;
-      const sampleRate = 8000; // 高速化のため低いサンプルレート
+      const sampleRate = 8000;
       const length = Math.floor(duration * sampleRate);
       const chirp = new Float32Array(length);
 
       for (let i = 0; i < length; i++) {
         const t = i / sampleRate;
-        const freq = 200 + (800 * t) / duration; // 200Hzから1000Hzへ変化
+        const freq = 200 + (800 * t) / duration;
         chirp[i] = Math.sin(2 * Math.PI * freq * t);
       }
 
@@ -235,6 +230,23 @@ describe('getSpectrum', () => {
         expect(result.spectrogram.intensities.length).toBeGreaterThan(0);
         expect(result.spectrogram.timeFrames).toBeGreaterThan(1);
       }
+    });
+
+    it('should provide representative magnitudes for spectrogram mode', async () => {
+      const signal = createSineWave(440, 0.5, 8000, 1.0);
+      const audio = createTestAudioData(signal, 8000);
+
+      const result = await getSpectrum(audio, {
+        fftSize: 256,
+        timeFrames: 8,
+        overlap: 0.5,
+        decibels: true,
+        provider: 'native'
+      });
+
+      expect(result.spectrogram).toBeDefined();
+      expect(result.magnitudes.length).toBeGreaterThan(0);
+      expect(result.magnitudes.length).toBe(result.frequencies.length);
     });
 
     it('should reject invalid overlap values for spectrogram', async () => {
@@ -276,7 +288,7 @@ describe('getSpectrum', () => {
 
   describe('spectrogram frequency filtering', () => {
     it('should apply frequency range filtering in spectrogram', async () => {
-      const signal = createSineWave(1000, 2.0, 44100, 0.5); // 1kHz信号
+      const signal = createSineWave(1000, 2.0, 44100, 0.5);
       const audio = createTestAudioData(signal);
 
       const result = await getSpectrum(audio, {
@@ -288,13 +300,11 @@ describe('getSpectrum', () => {
 
       expect(result.spectrogram).toBeDefined();
       if (result.spectrogram) {
-        // フィルタリングされた周波数範囲内にあることを確認
         expect(result.spectrogram.frequencies[0]).toBeGreaterThanOrEqual(800);
         expect(
           result.spectrogram.frequencies[result.spectrogram.frequencies.length - 1]
         ).toBeLessThanOrEqual(1200);
 
-        // すべてのフレームで適切な周波数範囲がフィルタリングされていることを確認
         result.spectrogram.intensities.forEach((intensity) => {
           expect(intensity.length).toBe(result.spectrogram?.frequencies.length);
         });
@@ -302,18 +312,16 @@ describe('getSpectrum', () => {
     });
 
     it('should handle short audio data with proper frame calculation', async () => {
-      // FFTサイズより短い音声データ
-      const shortSignal = createSineWave(440, 0.01, 44100, 0.5); // 10ms（441サンプル）
+      const shortSignal = createSineWave(440, 0.01, 44100, 0.5);
       const audio = createTestAudioData(shortSignal);
 
       const result = await getSpectrum(audio, {
         timeFrames: 3,
-        fftSize: 1024 // 音声より長いFFTサイズ
+        fftSize: 1024
       });
 
       expect(result.spectrogram).toBeDefined();
       if (result.spectrogram) {
-        // 短い音声でも少なくとも1フレーム処理されることを確認
         expect(result.spectrogram.timeFrames).toBeGreaterThanOrEqual(1);
         expect(result.spectrogram.intensities.length).toBeGreaterThanOrEqual(1);
         expect(result.spectrogram.times.length).toBeGreaterThanOrEqual(1);
@@ -331,7 +339,6 @@ describe('getSpectrum', () => {
 
       expect(result.spectrogram).toBeDefined();
       if (result.spectrogram) {
-        // 空の音声データの場合、フレーム数は0
         expect(result.spectrogram.timeFrames).toBe(0);
         expect(result.spectrogram.intensities.length).toBe(0);
         expect(result.spectrogram.times.length).toBe(0);
@@ -345,9 +352,9 @@ describe('error handling', () => {
     const sineWave = createSineWave(440, 0.1);
     const audio = createTestAudioData(sineWave);
 
-    await expect(
-      getFFT(audio, { fftSize: 1000, provider: 'native' }) // 2の累乗でない
-    ).rejects.toThrow('FFTサイズは2の冪である必要があります');
+    await expect(getFFT(audio, { fftSize: 1000, provider: 'native' })).rejects.toThrow(
+      'FFT size must be a power of two'
+    );
   });
 
   it('should handle invalid channel', async () => {
@@ -370,6 +377,22 @@ describe('error handling', () => {
       });
     } finally {
       spy.mockRestore();
+    }
+  });
+
+  it('reuses FFT provider when providerCache is supplied', async () => {
+    const sineWave = createSineWave(440, 0.25);
+    const audio = createTestAudioData(sineWave);
+    const cache = new FFTProviderCacheStore();
+    const spy = vi.spyOn(FFTProviderFactory, 'createProvider');
+
+    try {
+      await getFFT(audio, { provider: 'native', providerCache: cache });
+      await getFFT(audio, { provider: 'native', providerCache: cache });
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+      cache.clear();
     }
   });
 });

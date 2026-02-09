@@ -8,6 +8,7 @@ import {
 import { getPerformanceNow } from './utils.js';
 import {
   executeFeature,
+  type FeatureExecutionRuntime,
   type FeatureId,
   type FeatureInput,
   type FeatureOptions,
@@ -15,6 +16,8 @@ import {
   getActiveFeatureEntries,
   type SelectedFeatureIds
 } from './feature-registry.js';
+import { FFTProviderCacheStore } from './dsp/fft-runtime.js';
+import { WindowCacheStore } from './dsp/window.js';
 import { load } from './load.js';
 
 export interface TimeRange {
@@ -142,40 +145,67 @@ export async function analyze<const F extends FeatureInput>(
   const entries = getActiveFeatureEntries(request.features);
   const total = entries.length;
   let completed = 0;
+  const continueOnError = request.continueOnError ?? false;
+  const fftProviderCache = new FFTProviderCacheStore();
+  const windowCache = new WindowCacheStore();
+  const spectralCache = new Map<string, unknown>();
+  const runtime: FeatureExecutionRuntime = {
+    fftProviderCache,
+    windowCache,
+    spectralCache
+  };
 
   const results: Partial<{ [K in SelectedFeatureIds<F>]: FeatureResult<K> }> = {};
   const errors: Partial<Record<SelectedFeatureIds<F>, AudioInspectError>> = {};
 
-  for (const [feature, rawOptions] of entries) {
-    throwIfAborted(request.signal);
-
-    try {
-      const options = rawOptions === true ? undefined : (rawOptions as FeatureOptions<typeof feature>);
-      const data = await executeFeature(feature, scopedAudio, options);
-      results[feature] = data as FeatureResult<typeof feature>;
-    } catch (error) {
-      const wrapped =
-        error instanceof AudioInspectError
-          ? error
-          : new AudioInspectError(
-              'PROCESSING_ERROR',
-              `Feature ${feature} failed: ${error instanceof Error ? error.message : String(error)}`,
-              error
-            );
-
-      errors[feature] = wrapped;
-      if (!request.continueOnError) {
-        throw wrapped;
+  try {
+    const tasks = entries.map(async ([feature, rawOptions]) => {
+      throwIfAborted(request.signal);
+      try {
+        const options =
+          rawOptions === true ? undefined : (rawOptions as FeatureOptions<typeof feature>);
+        const data = await executeFeature(feature, scopedAudio, options, runtime);
+        return {
+          feature,
+          data: data as FeatureResult<typeof feature>
+        };
+      } catch (error) {
+        const wrapped =
+          error instanceof AudioInspectError
+            ? error
+            : new AudioInspectError(
+                'PROCESSING_ERROR',
+                `Feature ${feature} failed: ${error instanceof Error ? error.message : String(error)}`,
+                error
+              );
+        if (!continueOnError) {
+          throw wrapped;
+        }
+        return {
+          feature,
+          error: wrapped
+        };
+      } finally {
+        completed += 1;
+        request.onProgress?.({
+          phase: 'feature',
+          completed,
+          total,
+          feature
+        });
       }
-    } finally {
-      completed += 1;
-      request.onProgress?.({
-        phase: 'feature',
-        completed,
-        total,
-        feature
-      });
+    });
+
+    const taskResults = await Promise.all(tasks);
+    for (const item of taskResults) {
+      if (item.error) {
+        errors[item.feature] = item.error;
+      } else {
+        results[item.feature] = item.data;
+      }
     }
+  } finally {
+    fftProviderCache.clear();
   }
 
   return {

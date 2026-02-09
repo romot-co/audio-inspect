@@ -56,7 +56,7 @@ export default defineConfig([
 
   // AudioWorkletProcessor専用バンドル（自己完結型）
   {
-    entry: { 'AudioInspectProcessor': 'src/core/AudioInspectProcessor.ts' },
+    entry: { 'AudioInspectProcessor': 'src/core/realtime/processor.ts' },
     format: ['iife'], // iife形式に変更して自己完結型にする
     target: 'es2022',
     outDir: 'dist',
@@ -81,15 +81,15 @@ export default defineConfig([
 // 自己完結型バンドル - すべての依存関係を含む` 
     },
     onSuccess: async () => {
-      // AudioInspectProcessor.global.js を core ディレクトリにコピー
+      // AudioInspectProcessor.global.js を core/realtime ディレクトリにコピー
       const srcPath = join('dist', 'AudioInspectProcessor.global.js');
-      const destPath = join('dist', 'core', 'AudioInspectProcessor.js');
+      const destPath = join('dist', 'core', 'realtime', 'processor.js');
       
       if (existsSync(srcPath)) {
         // ディレクトリを確実に作成
         mkdirSync(dirname(destPath), { recursive: true });
         copyFileSync(srcPath, destPath);
-        console.log('✓ Copied AudioInspectProcessor.global.js to dist/core/AudioInspectProcessor.js');
+        console.log('✓ Copied AudioInspectProcessor.global.js to dist/core/realtime/processor.js');
       } else {
         console.warn('⚠ AudioInspectProcessor.global.js not found for copying');
       }
@@ -223,7 +223,7 @@ export default defineConfig([
 
   // FFTプロバイダー
   {
-    entry: { 'core/fft-provider': 'src/core/fft-provider.ts' },
+    entry: { 'core/dsp/fft-provider': 'src/core/dsp/fft-provider.ts' },
     format: ['esm', 'cjs'],
     dts: true,
     sourcemap: isDev,

@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { getCrestFactor } from '../../src/features/dynamics.js';
 import type { AudioData } from '../../src/types.js';
 
-// テスト用のAudioDataを作成するヘルパー
 function createTestAudioData(data: Float32Array, sampleRate = 44100): AudioData {
   return {
     sampleRate,
@@ -13,7 +12,6 @@ function createTestAudioData(data: Float32Array, sampleRate = 44100): AudioData 
   };
 }
 
-// テスト信号を生成するヘルパー関数
 function createSineWave(
   frequency: number,
   duration: number,
@@ -33,7 +31,7 @@ function createSineWave(
 
 function createImpulseSignal(amplitude: number, length: number): Float32Array {
   const data = new Float32Array(length);
-  data[Math.floor(length / 2)] = amplitude; // 中央にインパルス
+  data[Math.floor(length / 2)] = amplitude;
   return data;
 }
 
@@ -45,7 +43,6 @@ describe('getCrestFactor', () => {
 
       const result = getCrestFactor(audio);
 
-      // crestFactorはdB値、crestFactorLinearは線形値
       expect(result.crestFactorLinear).toBeCloseTo(Math.sqrt(2), 1);
       expect(result.peak).toBeCloseTo(1.0, 2);
       expect(result.rms).toBeCloseTo(1.0 / Math.sqrt(2), 2);
@@ -59,7 +56,6 @@ describe('getCrestFactor', () => {
 
       const result = getCrestFactor(audio);
 
-      // DC信号のクレストファクターは1.0（線形）、0dB
       expect(result.crestFactorLinear).toBeCloseTo(1.0, 3);
       expect(result.crestFactor).toBeCloseTo(0, 3);
       expect(result.peak).toBeCloseTo(0.5, 3);
@@ -72,9 +68,8 @@ describe('getCrestFactor', () => {
 
       const result = getCrestFactor(audio);
 
-      // インパルス信号は非常に高いクレストファクターを持つ
       expect(result.crestFactorLinear).toBeGreaterThan(10);
-      expect(result.crestFactor).toBeGreaterThan(20); // dB値
+      expect(result.crestFactor).toBeGreaterThan(20);
       expect(result.peak).toBe(1.0);
       expect(result.rms).toBeLessThan(0.1);
     });
@@ -85,7 +80,7 @@ describe('getCrestFactor', () => {
 
       const result = getCrestFactor(audio);
 
-      expect(result.crestFactorLinear).toBe(Infinity); // RMS=0なのでInfinity
+      expect(result.crestFactorLinear).toBe(Infinity);
       expect(result.crestFactor).toBe(Infinity);
       expect(result.peak).toBe(0);
       expect(result.rms).toBe(0);
@@ -101,7 +96,6 @@ describe('getCrestFactor', () => {
         const audio = createTestAudioData(sineWave);
         const result = getCrestFactor(audio);
 
-        // クレストファクターは振幅に依存しない
         expect(result.crestFactorLinear).toBeCloseTo(Math.sqrt(2), 1);
         expect(result.peak).toBeCloseTo(amplitude, 2);
         expect(result.rms).toBeCloseTo(amplitude / Math.sqrt(2), 2);
@@ -130,7 +124,7 @@ describe('getCrestFactor', () => {
       expect(result1.crestFactorLinear).toBeCloseTo(1.0, 3);
     });
 
-    it('should average all channels when channel is -1', () => {
+    it("should average all channels when channel is 'mix'", () => {
       const channel0 = new Float32Array(1000);
       channel0.fill(1.0);
       const channel1 = new Float32Array(1000);
@@ -144,9 +138,8 @@ describe('getCrestFactor', () => {
         length: 1000
       };
 
-      const result = getCrestFactor(audio, { channel: -1 });
+      const result = getCrestFactor(audio, { channel: 'mix' });
 
-      // 平均は0.5のDC信号
       expect(result.crestFactorLinear).toBeCloseTo(1.0, 3);
       expect(result.peak).toBeCloseTo(0.5, 3);
       expect(result.rms).toBeCloseTo(0.5, 3);
@@ -159,7 +152,7 @@ describe('getCrestFactor', () => {
       const audio = createTestAudioData(sineWave);
 
       const result = getCrestFactor(audio, {
-        windowSize: 0.1, // 100ms窓
+        windowSize: 0.1,
         hopSize: 0.05 // 50ms hop
       });
 
@@ -181,7 +174,6 @@ describe('getCrestFactor', () => {
       expect(simpleResult).toBeDefined();
       expect(weightedResult).toBeDefined();
 
-      // 基本的な妥当性チェック
       expect(simpleResult.crestFactorLinear).toBeGreaterThan(0);
       expect(weightedResult.crestFactorLinear).toBeGreaterThan(0);
       expect(simpleResult.peak).toBeGreaterThan(0);
@@ -191,36 +183,32 @@ describe('getCrestFactor', () => {
     });
 
     it('should show difference between simple and weighted methods for different frequencies', () => {
-      // 低周波（20Hz）でのテスト
       const lowFreqWave = createSineWave(20, 0.1, 44100, 1.0);
       const lowFreqAudio = createTestAudioData(lowFreqWave);
 
       const lowFreqSimple = getCrestFactor(lowFreqAudio, { method: 'simple' });
       const lowFreqWeighted = getCrestFactor(lowFreqAudio, { method: 'weighted' });
 
-      // 高周波（10kHz）でのテスト
       const highFreqWave = createSineWave(10000, 0.1, 44100, 1.0);
       const highFreqAudio = createTestAudioData(highFreqWave);
 
       const highFreqSimple = getCrestFactor(highFreqAudio, { method: 'simple' });
       const highFreqWeighted = getCrestFactor(highFreqAudio, { method: 'weighted' });
 
-      // A特性フィルタは周波数特性があるため、結果が異なることを確認
       expect(lowFreqSimple.crestFactorLinear).toBeCloseTo(Math.sqrt(2), 1);
       expect(highFreqSimple.crestFactorLinear).toBeCloseTo(Math.sqrt(2), 1);
 
-      // A特性適用により、低周波と高周波で異なる影響を受ける
       expect(lowFreqWeighted).toBeDefined();
       expect(highFreqWeighted).toBeDefined();
     });
 
     it('should support weighted method with windowed analysis', () => {
-      const sineWave = createSineWave(1000, 1.0, 44100, 1.0); // 1kHz信号
+      const sineWave = createSineWave(1000, 1.0, 44100, 1.0);
       const audio = createTestAudioData(sineWave);
 
       const result = getCrestFactor(audio, {
         method: 'weighted',
-        windowSize: 0.1, // 100ms窓
+        windowSize: 0.1,
         hopSize: 0.05 // 50ms hop
       });
 
@@ -228,13 +216,12 @@ describe('getCrestFactor', () => {
       expect(result.timeVarying?.times.length).toBeGreaterThan(1);
       expect(result.timeVarying?.values.length).toBeGreaterThan(1);
 
-      // A特性適用後もクレストファクターが妥当な範囲内であることを確認
       if (result.timeVarying) {
         for (let i = 0; i < result.timeVarying.values.length; i++) {
           const cfValue = result.timeVarying.values[i];
           if (cfValue !== undefined && isFinite(cfValue)) {
-            expect(cfValue).toBeGreaterThan(-50); // -50dB以上
-            expect(cfValue).toBeLessThan(50); // 50dB以下
+            expect(cfValue).toBeGreaterThan(-50);
+            expect(cfValue).toBeLessThan(50);
           }
         }
       }
@@ -243,12 +230,10 @@ describe('getCrestFactor', () => {
 
   describe('different waveforms', () => {
     it('should calculate different crest factors for different waveforms', () => {
-      // サイン波
       const sineWave = createSineWave(440, 0.1, 44100, 1.0);
       const sineAudio = createTestAudioData(sineWave);
       const sineResult = getCrestFactor(sineAudio);
 
-      // 方形波（高調波含む近似）
       const squareWave = new Float32Array(4410);
       for (let i = 0; i < squareWave.length; i++) {
         const t = i / 44100;
@@ -257,7 +242,6 @@ describe('getCrestFactor', () => {
       const squareAudio = createTestAudioData(squareWave);
       const squareResult = getCrestFactor(squareAudio);
 
-      // ノイズ信号
       const noise = new Float32Array(4410);
       for (let i = 0; i < noise.length; i++) {
         noise[i] = (Math.random() - 0.5) * 2; // -1 to 1
@@ -265,10 +249,9 @@ describe('getCrestFactor', () => {
       const noiseAudio = createTestAudioData(noise);
       const noiseResult = getCrestFactor(noiseAudio);
 
-      // 異なる波形は異なるクレストファクターを持つ
       expect(sineResult.crestFactorLinear).toBeCloseTo(Math.sqrt(2), 1);
-      expect(squareResult.crestFactorLinear).toBeCloseTo(1.0, 1); // 方形波は約1
-      expect(noiseResult.crestFactorLinear).toBeGreaterThan(1.5); // ノイズは通常1.5以上
+      expect(squareResult.crestFactorLinear).toBeCloseTo(1.0, 1);
+      expect(noiseResult.crestFactorLinear).toBeGreaterThan(1.5);
     });
   });
 

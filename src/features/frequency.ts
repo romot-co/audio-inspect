@@ -1,124 +1,236 @@
-import { AudioData, AudioInspectError, WindowFunction, type ChannelSelector } from '../types.js';
-import { FFTProviderFactory, type FFTProviderType, type FFTResult } from '../core/fft-provider.js';
+import {
+  AudioData,
+  AudioInspectError,
+  type WindowFunction,
+  type ChannelSelector
+} from '../types.js';
+import { type FFTProviderType, type FFTResult } from '../core/dsp/fft-provider.js';
+import { acquireFFTProvider, type FFTProviderCache } from '../core/dsp/fft-runtime.js';
 import { getChannelData } from '../core/utils.js';
+import { ampToDb, dbToAmp } from '../core/dsp/db.js';
+import { fillWindowedFrameInto } from '../core/dsp/window.js';
 
-/**
- * FFT分析のオプション
- */
+// FFT request parameters for single-frame analysis.
 export interface FFTOptions {
-  /** FFTサイズ（デフォルト: 2048、2の累乗である必要があります） */
   fftSize?: number;
-  /** ウィンドウ関数（デフォルト: 'hann'） */
   windowFunction?: WindowFunction;
-  /** オーバーラップ率（デフォルト: 0.5） */
   overlap?: number;
-  /** 解析するチャンネル（デフォルト: 0） */
   channel?: ChannelSelector;
-  /** FFTプロバイダー（デフォルト: 'native'） */
   provider?: FFTProviderType;
-  /** プロファイリングを有効にする（WebFFTのみ） */
   enableProfiling?: boolean;
+  providerCache?: FFTProviderCache | undefined;
 }
 
-/**
- * スペクトラム解析のオプション
- */
+// Spectrum request parameters for single frame or spectrogram analysis.
 export interface SpectrumOptions extends FFTOptions {
-  /** 最小周波数（Hz、デフォルト: 0） */
   minFrequency?: number;
-  /** 最大周波数（Hz、デフォルト: ナイキスト周波数） */
   maxFrequency?: number;
-  /** dB表示かどうか（デフォルト: true） */
   decibels?: boolean;
-  /** 時間フレーム数（スペクトログラム用、デフォルト: 100） */
   timeFrames?: number;
 }
 
-/**
- * スペクトログラムデータ
- */
+// Spectrogram payload returned from multi-frame spectrum analysis.
 export interface SpectrogramData {
-  /** 時間軸（秒） */
   times: Float32Array;
-  /** 周波数軸（Hz） */
   frequencies: Float32Array;
-  /** 強度データ（時間 x 周波数） */
   intensities: Float32Array[];
-  /** フレーム数 */
   timeFrames: number;
-  /** 周波数ビン数 */
   frequencyBins: number;
 }
 
-/**
- * FFT分析結果
- */
+// Extended FFT result with runtime metadata.
 export interface FFTAnalysisResult extends FFTResult {
-  /** FFTサイズ */
   fftSize: number;
-  /** 使用されたウィンドウ関数 */
   windowFunction: string;
-  /** プロバイダー名 */
   providerName: string;
 }
 
-/**
- * スペクトラム解析結果
- */
+// Spectrum result for one frame or a representative frame from a spectrogram.
 export interface SpectrumAnalysisResult {
-  /** 周波数（Hz） */
   frequencies: Float32Array;
-  /** 強度 */
   magnitudes: Float32Array;
-  /** dB値（decielsオプションがtrueの場合） */
   decibels?: Float32Array;
-  /** スペクトログラム（timeFrames > 1の場合） */
   spectrogram?: SpectrogramData;
 }
 
-/**
- * ウィンドウ関数を適用（統一版）
- */
-function applyWindow(data: Float32Array, windowType: WindowFunction): Float32Array {
-  const windowed = new Float32Array(data.length);
-  const N = data.length;
+// Memoize in-flight FFT computations per-audio object and option tuple.
+const fftResultCache = new WeakMap<AudioData, Map<string, Promise<FFTAnalysisResult>>>();
 
-  for (let i = 0; i < N; i++) {
-    let windowValue = 1;
-
-    switch (windowType) {
-      case 'hann':
-        windowValue = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (N - 1)));
-        break;
-      case 'hamming':
-        windowValue = 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (N - 1));
-        break;
-      case 'blackman':
-        windowValue =
-          0.42 -
-          0.5 * Math.cos((2 * Math.PI * i) / (N - 1)) +
-          0.08 * Math.cos((4 * Math.PI * i) / (N - 1));
-        break;
-      case 'rectangular':
-      case 'none':
-      default:
-        windowValue = 1;
-        break;
-    }
-
-    windowed[i] = (data[i] || 0) * windowValue;
+function serializeChannelSelector(channel: ChannelSelector): string {
+  if (Array.isArray(channel)) {
+    return `[${channel.map((value) => String(value)).join(',')}]`;
   }
-
-  return windowed;
+  return String(channel);
 }
 
-/**
- * FFT分析を行う
- *
- * @param audio - 音声データ
- * @param options - FFTオプション
- * @returns FFT結果
- */
+function buildFFTCacheKey(
+  options: Required<Pick<FFTOptions, 'fftSize' | 'windowFunction'>> & {
+    channel: ChannelSelector;
+    provider: FFTProviderType;
+    enableProfiling: boolean;
+  }
+): string {
+  return [
+    options.fftSize,
+    options.windowFunction,
+    serializeChannelSelector(options.channel),
+    options.provider,
+    options.enableProfiling ? 1 : 0
+  ].join('|');
+}
+
+// Vectorized helpers to keep call sites readable.
+function magnitudeArrayToDecibels(magnitude: Float32Array): Float32Array {
+  const decibels = new Float32Array(magnitude.length);
+  for (let i = 0; i < magnitude.length; i++) {
+    decibels[i] = ampToDb(magnitude[i] ?? 0, 1);
+  }
+  return decibels;
+}
+
+function decibelArrayToMagnitude(decibels: Float32Array): Float32Array {
+  const magnitudes = new Float32Array(decibels.length);
+  for (let i = 0; i < decibels.length; i++) {
+    magnitudes[i] = dbToAmp(decibels[i] ?? -Infinity, 1);
+  }
+  return magnitudes;
+}
+
+// Trim FFT bins to the requested frequency range.
+function filterFrequencyRange(fftResult: FFTResult, minFreq: number, maxFreq: number): FFTResult {
+  const { frequencies, magnitude, phase, complex } = fftResult;
+
+  let startIndex = frequencies.findIndex((freq) => freq >= minFreq);
+  if (startIndex < 0) {
+    startIndex = 0;
+  }
+
+  const endIndex = frequencies.findIndex((freq) => freq > maxFreq);
+  const actualEnd = endIndex === -1 ? frequencies.length : endIndex;
+  if (startIndex >= actualEnd) {
+    return {
+      frequencies: new Float32Array(0),
+      magnitude: new Float32Array(0),
+      phase: new Float32Array(0),
+      complex: new Float32Array(0)
+    };
+  }
+
+  return {
+    frequencies: frequencies.slice(startIndex, actualEnd),
+    magnitude: magnitude.slice(startIndex, actualEnd),
+    phase: phase.slice(startIndex, actualEnd),
+    complex: complex.slice(startIndex * 2, actualEnd * 2)
+  };
+}
+
+// For spectrograms, expose the latest frame as representative magnitudes.
+function resolveRepresentativeMagnitudes(
+  spectrogram: SpectrogramData,
+  asDecibels: boolean
+): Float32Array {
+  const latest = spectrogram.intensities[spectrogram.intensities.length - 1];
+  if (!latest) {
+    return new Float32Array(spectrogram.frequencyBins);
+  }
+  return asDecibels ? decibelArrayToMagnitude(latest) : latest.slice();
+}
+
+interface SpectrogramOptions {
+  provider?: FFTProviderType;
+  enableProfiling?: boolean;
+  windowFunction?: WindowFunction;
+  minFrequency?: number;
+  maxFrequency?: number;
+  decibels?: boolean;
+  providerCache?: FFTProviderCache | undefined;
+}
+
+async function computeSpectrogram(
+  data: Float32Array,
+  sampleRate: number,
+  fftSize: number,
+  timeFrames: number,
+  overlap: number,
+  options: SpectrogramOptions
+): Promise<SpectrogramData> {
+  const hopSize = Math.floor(fftSize * (1 - overlap));
+  if (hopSize <= 0) {
+    throw new AudioInspectError('INVALID_INPUT', `Invalid overlap: ${overlap}`);
+  }
+
+  const numPossibleFrames =
+    data.length === 0
+      ? 0
+      : data.length < fftSize
+        ? 1
+        : Math.floor((data.length - fftSize) / hopSize) + 1;
+  const actualFrames = Math.min(timeFrames, numPossibleFrames);
+
+  const times = new Float32Array(actualFrames);
+  const intensities: Float32Array[] = [];
+  let filteredFrequencies = new Float32Array(0);
+  let frequencyStartIndex = 0;
+  let frequencyEndIndex = 0;
+  const frameBuffer = new Float32Array(fftSize);
+
+  const { provider: fftProvider, release } = await acquireFFTProvider({
+    fftSize,
+    sampleRate,
+    provider: options.provider ?? 'native',
+    enableProfiling: options.enableProfiling ?? false,
+    fallbackToNative: options.provider === 'webfft',
+    cache: options.providerCache
+  });
+
+  try {
+    for (let frame = 0; frame < actualFrames; frame++) {
+      const startSample = frame * hopSize;
+      const frameLength = Math.min(fftSize, Math.max(0, data.length - startSample));
+      fillWindowedFrameInto({
+        src: data,
+        srcStart: startSample,
+        frameLength,
+        dst: frameBuffer,
+        windowType: options.windowFunction ?? 'hann'
+      });
+
+      const fftResult = await fftProvider.fft(frameBuffer);
+      if (frame === 0) {
+        const minFreq = options.minFrequency ?? 0;
+        const maxFreq = options.maxFrequency ?? sampleRate / 2;
+        const frequencies = fftResult.frequencies;
+
+        frequencyStartIndex = frequencies.findIndex((freq) => freq >= minFreq);
+        if (frequencyStartIndex < 0) {
+          frequencyStartIndex = 0;
+        }
+
+        const firstOutOfRange = frequencies.findIndex((freq) => freq > maxFreq);
+        frequencyEndIndex = firstOutOfRange === -1 ? frequencies.length : firstOutOfRange;
+        filteredFrequencies = frequencies.slice(frequencyStartIndex, frequencyEndIndex);
+      }
+
+      const filteredMagnitude = fftResult.magnitude.slice(frequencyStartIndex, frequencyEndIndex);
+      intensities.push(
+        options.decibels ? magnitudeArrayToDecibels(filteredMagnitude) : filteredMagnitude
+      );
+      times[frame] = (startSample + fftSize / 2) / sampleRate;
+    }
+  } finally {
+    release();
+  }
+
+  return {
+    times,
+    frequencies: filteredFrequencies,
+    intensities,
+    timeFrames: actualFrames,
+    frequencyBins: filteredFrequencies.length
+  };
+}
+
+// Compute one FFT frame with shared provider/runtime caches.
 export async function getFFT(
   audio: AudioData,
   options: FFTOptions = {}
@@ -126,85 +238,79 @@ export async function getFFT(
   const {
     fftSize = 2048,
     windowFunction = 'hann',
-    channel = 0,
+    channel = 'mix',
     provider = 'native',
-    enableProfiling = false
+    enableProfiling = false,
+    providerCache
   } = options;
 
   if (fftSize <= 0 || (fftSize & (fftSize - 1)) !== 0) {
-    throw new AudioInspectError('INVALID_INPUT', 'FFTサイズは2の冪である必要があります');
+    throw new AudioInspectError('INVALID_INPUT', 'FFT size must be a power of two');
   }
 
-  // チャンネルデータを取得
-  const channelData = getChannelData(audio, channel);
-
-  // FFTサイズが入力より大きい場合、ゼロパディング
-  let inputData: Float32Array;
-  if (channelData.length < fftSize) {
-    inputData = new Float32Array(fftSize);
-    inputData.set(channelData);
-  } else {
-    inputData = channelData.slice(0, fftSize);
+  const cacheKey = buildFFTCacheKey({
+    fftSize,
+    windowFunction,
+    channel,
+    provider,
+    enableProfiling
+  });
+  let cacheEntry = fftResultCache.get(audio);
+  if (!cacheEntry) {
+    cacheEntry = new Map<string, Promise<FFTAnalysisResult>>();
+    fftResultCache.set(audio, cacheEntry);
   }
 
-  // ウィンドウ関数を適用
-  const windowedData = applyWindow(inputData, windowFunction);
-
-  // FFTプロバイダーを作成（フォールバック機能付き）
-  const tryProviders: FFTProviderType[] = provider === 'webfft' ? ['webfft', 'native'] : [provider];
-
-  let lastError: unknown;
-  let fftProvider: Awaited<ReturnType<typeof FFTProviderFactory.createProvider>> | null = null;
-
-  for (const p of tryProviders) {
-    try {
-      fftProvider = await FFTProviderFactory.createProvider({
-        type: p,
-        fftSize,
-        sampleRate: audio.sampleRate,
-        enableProfiling
-      });
-      break; // 成功したらループを抜ける
-    } catch (e) {
-      lastError = e;
-      // webfftで失敗した場合はnativeにフォールバック
-      if (p === 'webfft' && tryProviders.includes('native')) {
-        continue;
-      }
-    }
+  const cached = cacheEntry.get(cacheKey);
+  if (cached) {
+    return cached;
   }
 
-  if (!fftProvider) {
-    throw new AudioInspectError(
-      'INITIALIZATION_FAILED',
-      'Failed to create FFT provider',
-      lastError
-    );
-  }
+  const computation = (async () => {
+    const channelData = getChannelData(audio, channel);
+    const frameBuffer = new Float32Array(fftSize);
+    fillWindowedFrameInto({
+      src: channelData,
+      srcStart: 0,
+      frameLength: Math.min(channelData.length, fftSize),
+      dst: frameBuffer,
+      windowType: windowFunction
+    });
 
-  try {
-    // FFTを実行
-    const result = await fftProvider.fft(windowedData);
-
-    return {
-      ...result,
+    const { provider: fftProvider, release } = await acquireFFTProvider({
       fftSize,
-      windowFunction,
-      providerName: fftProvider.name
-    };
-  } finally {
-    // リソースを解放
-    fftProvider.dispose();
-  }
+      sampleRate: audio.sampleRate,
+      provider,
+      enableProfiling,
+      fallbackToNative: provider === 'webfft',
+      cache: providerCache
+    });
+
+    try {
+      const result = await fftProvider.fft(frameBuffer);
+      return {
+        ...result,
+        fftSize,
+        windowFunction,
+        providerName: fftProvider.name
+      };
+    } finally {
+      release();
+    }
+  })();
+
+  cacheEntry.set(cacheKey, computation);
+  const cleanup = () => {
+    cacheEntry.delete(cacheKey);
+    if (cacheEntry.size === 0) {
+      fftResultCache.delete(audio);
+    }
+  };
+  computation.then(cleanup, cleanup);
+  return computation;
 }
 
-/**
- * スペクトラム解析を行う
- *
- * @param audio - 音声データ
- * @param options - スペクトラムオプション
- * @returns スペクトラム解析結果
- */
+// Compute spectrum as one frame or a multi-frame spectrogram.
 export async function getSpectrum(
   audio: AudioData,
   options: SpectrumOptions = {}
@@ -219,203 +325,69 @@ export async function getSpectrum(
     ...fftOptions
   } = options;
 
-  const channelData = getChannelData(audio, options.channel ?? 0);
+  const channelData = getChannelData(audio, options.channel ?? 'mix');
 
   if (timeFrames > 1 && (!Number.isFinite(overlap) || overlap < 0 || overlap >= 1)) {
-    throw new AudioInspectError('INVALID_INPUT', 'overlapは0以上1未満である必要があります');
+    throw new AudioInspectError('INVALID_INPUT', 'overlap must be in [0, 1)');
   }
 
   if (timeFrames === 1) {
-    // 単一フレームのスペクトラム解析
-    const fftResult = await getFFT(audio, { ...fftOptions, fftSize });
-
-    // 周波数範囲をフィルタリング
-    const filteredResult = filterFrequencyRange(fftResult, minFrequency, maxFrequency);
-
+    const fftResult = await getFFT(audio, {
+      ...fftOptions,
+      fftSize
+    });
+    const filtered = filterFrequencyRange(fftResult, minFrequency, maxFrequency);
     const result: SpectrumAnalysisResult = {
-      frequencies: filteredResult.frequencies,
-      magnitudes: filteredResult.magnitude
+      frequencies: filtered.frequencies,
+      magnitudes: filtered.magnitude
     };
 
     if (decibels) {
-      result.decibels = magnitudeToDecibels(filteredResult.magnitude);
+      result.decibels = magnitudeArrayToDecibels(filtered.magnitude);
     }
 
     return result;
-  } else {
-    // スペクトログラム解析
-    const spectrogram = await computeSpectrogram(
-      channelData,
-      audio.sampleRate,
-      fftSize,
-      timeFrames,
-      overlap,
-      { ...fftOptions, minFrequency, maxFrequency, decibels }
-    );
-
-    return {
-      frequencies: spectrogram.frequencies,
-      magnitudes: new Float32Array(), // スペクトログラムでは個別のmagnitudesは空
-      spectrogram
-    };
-  }
-}
-
-/**
- * 周波数範囲をフィルタリング
- */
-function filterFrequencyRange(fftResult: FFTResult, minFreq: number, maxFreq: number): FFTResult {
-  const { frequencies, magnitude, phase, complex } = fftResult;
-
-  let startIndex = frequencies.findIndex((f) => f >= minFreq);
-  if (startIndex < 0) startIndex = 0;
-
-  const endIndex = frequencies.findIndex((f) => f > maxFreq);
-  const actualEndIndex = endIndex === -1 ? frequencies.length : endIndex;
-
-  // Early return for invalid range
-  if (startIndex >= actualEndIndex) {
-    return {
-      frequencies: new Float32Array(0),
-      magnitude: new Float32Array(0),
-      phase: new Float32Array(0),
-      complex: new Float32Array(0)
-    };
   }
 
-  return {
-    frequencies: frequencies.slice(startIndex, actualEndIndex),
-    magnitude: magnitude.slice(startIndex, actualEndIndex),
-    phase: phase.slice(startIndex, actualEndIndex),
-    complex: complex.slice(startIndex * 2, actualEndIndex * 2)
+  const spectrogramOptions: SpectrogramOptions = {
+    minFrequency,
+    maxFrequency,
+    decibels
   };
-}
-
-/**
- * 振幅をdBに変換
- */
-function magnitudeToDecibels(magnitude: Float32Array): Float32Array {
-  const decibels = new Float32Array(magnitude.length);
-  for (let i = 0; i < magnitude.length; i++) {
-    const mag = magnitude[i] || 0;
-    decibels[i] = mag > 0 ? 20 * Math.log10(mag) : -Infinity;
+  if (fftOptions.provider !== undefined) {
+    spectrogramOptions.provider = fftOptions.provider;
   }
-  return decibels;
-}
-
-/**
- * スペクトログラム計算のオプション
- */
-interface SpectrogramOptions {
-  provider?: FFTProviderType;
-  enableProfiling?: boolean;
-  windowFunction?: WindowFunction;
-  minFrequency?: number;
-  maxFrequency?: number;
-  decibels?: boolean;
-}
-
-/**
- * スペクトログラムを計算
- */
-async function computeSpectrogram(
-  data: Float32Array,
-  sampleRate: number,
-  fftSize: number,
-  timeFrames: number,
-  overlap: number,
-  options: SpectrogramOptions
-): Promise<SpectrogramData> {
-  const hopSize = Math.floor(fftSize * (1 - overlap));
-  if (hopSize <= 0) {
-    throw new AudioInspectError(
-      'INVALID_INPUT',
-      `hopSizeが不正です。overlapを見直してください: overlap=${overlap}`
-    );
+  if (fftOptions.enableProfiling !== undefined) {
+    spectrogramOptions.enableProfiling = fftOptions.enableProfiling;
+  }
+  if (fftOptions.windowFunction !== undefined) {
+    spectrogramOptions.windowFunction = fftOptions.windowFunction;
+  }
+  if (fftOptions.providerCache !== undefined) {
+    spectrogramOptions.providerCache = fftOptions.providerCache;
   }
 
-  // 修正2.2: 短音声データ処理時のフレーム数不足対応
-  let numPossibleFrames;
-  if (data.length === 0) {
-    numPossibleFrames = 0;
-  } else if (data.length < fftSize) {
-    // data.length > 0 かつ data.length < fftSize の場合、1フレームとして処理
-    numPossibleFrames = 1;
-  } else {
-    // data.length >= fftSize の場合
-    numPossibleFrames = Math.floor((data.length - fftSize) / hopSize) + 1;
-  }
-  const actualFrames = Math.min(timeFrames, numPossibleFrames);
-
-  const times = new Float32Array(actualFrames);
-  const intensities: Float32Array[] = [];
-  let frequencies: Float32Array = new Float32Array();
-  let filteredFrequencies: Float32Array = new Float32Array();
-  let frequencyStartIndex = 0;
-  let frequencyEndIndex = 0;
-
-  // FFTプロバイダーを作成（一度だけ）
-  const fftProvider = await FFTProviderFactory.createProvider({
-    type: options.provider || 'native',
+  const spectrogram = await computeSpectrogram(
+    channelData,
+    audio.sampleRate,
     fftSize,
-    sampleRate,
-    enableProfiling: options.enableProfiling || false
-  });
+    timeFrames,
+    overlap,
+    spectrogramOptions
+  );
 
-  try {
-    for (let frame = 0; frame < actualFrames; frame++) {
-      const startSample = frame * hopSize;
+  const result: SpectrumAnalysisResult = {
+    frequencies: spectrogram.frequencies,
+    magnitudes: resolveRepresentativeMagnitudes(spectrogram, decibels),
+    spectrogram
+  };
 
-      // フレームデータを抽出
-      const frameData = new Float32Array(fftSize);
-      for (let i = 0; i < fftSize; i++) {
-        frameData[i] = startSample + i < data.length ? data[startSample + i] || 0 : 0;
-      }
-
-      // ウィンドウ関数を適用
-      const windowedData = applyWindow(frameData, options.windowFunction || 'hann');
-
-      // FFTを実行
-      const fftResult = await fftProvider.fft(windowedData);
-
-      // 修正2.1: 最初のフレームで周波数範囲フィルタリングを設定
-      if (frame === 0) {
-        frequencies = fftResult.frequencies;
-
-        // 周波数フィルタリングのインデックス範囲を決定
-        const minFreq = options.minFrequency || 0;
-        const maxFreq = options.maxFrequency || sampleRate / 2;
-
-        frequencyStartIndex = frequencies.findIndex((f) => f >= minFreq);
-        if (frequencyStartIndex === -1) frequencyStartIndex = 0;
-
-        const tempEndIndex = frequencies.findIndex((f) => f > maxFreq);
-        frequencyEndIndex = tempEndIndex === -1 ? frequencies.length : tempEndIndex;
-
-        // フィルタリングされた周波数軸を作成
-        filteredFrequencies = frequencies.slice(frequencyStartIndex, frequencyEndIndex);
-      }
-
-      // 強度データを保存（周波数範囲フィルタリング適用）
-      const magnitude = fftResult.magnitude;
-      const filteredMagnitude = magnitude.slice(frequencyStartIndex, frequencyEndIndex);
-      const frameIntensity = options.decibels
-        ? magnitudeToDecibels(filteredMagnitude)
-        : filteredMagnitude;
-      intensities.push(frameIntensity);
-
-      // 時間位置を計算
-      times[frame] = (startSample + fftSize / 2) / sampleRate;
+  if (decibels) {
+    const latestDecibels = spectrogram.intensities[spectrogram.intensities.length - 1];
+    if (latestDecibels) {
+      result.decibels = latestDecibels;
     }
-  } finally {
-    fftProvider.dispose();
   }
 
-  return {
-    times,
-    frequencies: filteredFrequencies, // フィルタリングされた周波数軸を返す
-    intensities,
-    timeFrames: actualFrames,
-    frequencyBins: filteredFrequencies.length
-  };
+  return result;
 }
